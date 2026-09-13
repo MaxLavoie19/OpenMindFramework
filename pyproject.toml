@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openmind-framework"
+version = "0.1.0"
+description = "AI framework: MCTS agents with constraint satisfaction, outcome prediction and rule-based strategy"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Maxime Lavoie" }]
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=9.1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openmind"]
+exclude = ["*_tests.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["src", "test"]
+python_files = ["*_tests.py"]
+addopts = ["--import-mode=importlib"]
