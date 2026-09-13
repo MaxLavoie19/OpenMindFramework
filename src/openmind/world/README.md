@@ -17,7 +17,7 @@ they hold. It depends on no other domain.
 | `mapper/variable_name_mapper.py` | `VariableNameMapper`: builds indexed variable names such as `cell(2,3)` |
 | `mapper/action_text_mapper.py` | `ActionTextMapper`: readable text for logs, such as `place(col=3, row=2)` |
 | `mapper/state_text_mapper.py` | `StateTextMapper`: readable text, one `name = value` line per variable |
-| `service/state_reader.py` | `StateReader`: reads a state variable's value by name; an unknown name raises `KeyError` |
+| `service/state_reader.py` | `StateReader`: reads a variable's value by name (an unknown name raises `KeyError`), the index of the player to act, and the payoffs (a payoff that isn't a number raises `ValueError`) |
 
 ## Usage
 

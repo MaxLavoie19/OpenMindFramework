@@ -31,11 +31,11 @@ become rules.
 | `expression` | Rule expressions and the `Interpreter` that evaluates them | iteration 1 |
 | `csp` | Action definitions, parameter domains, constraints, `Solver` | iteration 1 |
 | `agent` | The agent and its domains | iteration 4 |
-| `entrypoint` | Ways to run the framework: `openmind-play` | iteration 3 |
+| `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate` | iterations 3–5 |
 | `predictor` | Transitions, outcome probability distributions | iteration 2 |
 | `mcts` | Monte-Carlo Tree Search | iteration 4 |
-| `tracking` | Played games, training runs, metrics and logs in `data/` | planned |
-| `rbs` | Strategy rules, distillation, explanations | planned |
+| `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play | iteration 5 |
+| `rbs` | Strategy rules and position-evaluation rules, distillation, explanations | planned |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |
 
 ## Conventions
@@ -52,6 +52,7 @@ become rules.
   expressions appear in logs as readable text (`ActionTextMapper`, `ExpressionTextMapper`). Per-call details (solver
   candidates, predictor effects, search iterations) log at DEBUG; decisions (choices, search results) at INFO.
 - Unit tests sit beside their target as `<module>_tests.py`; integration and end-to-end tests live in `test/`.
-- `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Tests save their logs
+- `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Evaluation reports go in
+  `data/evaluation/<domain>/`, which git ignores. Tests save their logs
   in `data/log/<test file>/<test name>.log`, which git ignores; a test marked `@pytest.mark.log_level("INFO")` saves
   only INFO and above.

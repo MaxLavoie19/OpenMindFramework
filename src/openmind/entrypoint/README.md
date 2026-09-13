@@ -9,6 +9,7 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | File | What it is |
 |---|---|
 | `play.py` | `openmind-play`: play a domain within the agent in the terminal, as humans or with the agent |
+| `evaluate.py` | `openmind-evaluate`: measure how well the agent plays a domain and save the report |
 
 ## `openmind-play`
 
@@ -36,8 +37,6 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 Domains are created by name through `agent/factory/domain_factory.py`; an `--agent` player the domain doesn't have is
 rejected.
 
-## Logs
-
 Each session writes `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, from `--log-level` up, as
 `LEVEL logger message` lines. At `INFO`: the agent's search results (see `mcts/README.md`), plus, from logger
 `openmind.entrypoint.play`:
@@ -50,6 +49,29 @@ Each session writes `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, from `
 At `DEBUG`, every solver candidate, predictor effect and search iteration is added, including those inside the
 agent's rollouts.
 
+## `openmind-evaluate`
+
+```bash
+.venv/bin/openmind-evaluate tictactoe
+.venv/bin/openmind-evaluate tictactoe --games 20 --positions 50 --budgets 10,100 --seed 3
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--games N` | `100` | games per baseline series |
+| `--iterations N` | `200` | MCTS iterations per move in the baseline series |
+| `--positions N` | `100` | positions sampled to measure agreement with perfect play |
+| `--budgets LIST` | `10,20,50,100,200,500` | comma-separated iteration budgets for agreement |
+| `--seed S` | `1` | random seed |
+| `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
+| `--log-directory DIR` | `data/log/evaluate` | where logs are saved |
+| `--report-directory DIR` | `data/evaluation` | where reports are saved |
+
+Runs the measures described in `evaluation/README.md`, prints the report's JSON, saves it as
+`<report directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
+`<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, ending with `INFO Saved report <path>` from logger
+`openmind.entrypoint.evaluate`.
+
 ## Notes
 
-- End-to-end test: `test/end_to_end/play_tictactoe_tests.py`.
+- End-to-end tests: `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/evaluate_tictactoe_tests.py`.

@@ -94,7 +94,7 @@ class TreeSearch:
         state, rollout_length = node.state, 0
         if node.player is not None:
             state, rollout_length = self._rollout(problem, transitions, state, rng)
-        payoffs = self._payoffs(players, state)
+        payoffs = self._state_reader.payoffs(state, players)
 
         for decision in decisions:
             decision.visits += 1
@@ -138,7 +138,7 @@ class TreeSearch:
         actions = self._solver.solve(problem, state)
         untried = list(actions)
         rng.shuffle(untried)
-        player = players.names.index(str(self._state_reader.value(state, players.to_act))) if actions else None
+        player = self._state_reader.player_to_act(state, players) if actions else None
         return DecisionNode(state, actions, untried, {}, 0, player)
 
     def _rollout(
@@ -156,15 +156,6 @@ class TreeSearch:
             [outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes]
         )
         return state
-
-    def _payoffs(self, players: Players, state: State) -> tuple[float, ...]:
-        payoffs: list[float] = []
-        for name in players.payoffs:
-            value = self._state_reader.value(state, name)
-            if isinstance(value, bool) or not isinstance(value, int | float):
-                raise ValueError(f"No legal action is left but {name} is {value!r}, not a number")
-            payoffs.append(float(value))
-        return tuple(payoffs)
 
     def _statistics(self, root: DecisionNode, player: int, action: Action) -> ActionStatistics:
         chance = root.children.get(action)

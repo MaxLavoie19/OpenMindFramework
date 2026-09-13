@@ -28,6 +28,15 @@ python3 -m venv .venv
 Humans pick legal actions by number; the agent searches with MCTS. Each game's log is saved in
 `data/log/play/tictactoe/`.
 
+## Evaluate
+
+```bash
+.venv/bin/openmind-evaluate tictactoe
+```
+
+Plays the agent against baselines and compares its choices with perfect play. The report is saved in
+`data/evaluation/tictactoe/` and the log in `data/log/evaluate/tictactoe/`.
+
 ## Tests
 
 Unit tests sit beside the code they test (`solver.py` → `solver_tests.py`); integration and end-to-end tests live in

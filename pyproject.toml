@@ -15,6 +15,7 @@ dependencies = []
 
 [project.scripts]
 openmind-play = "openmind.entrypoint.play:main"
+openmind-evaluate = "openmind.entrypoint.evaluate:main"
 
 [dependency-groups]
 dev = ["pytest>=9.1"]

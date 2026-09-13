@@ -13,6 +13,8 @@ within the agent, not a domain in the code: it exists only as this domain's fact
 | `builder/domain_builder.py` | `DomainBuilder`: collects a domain's parts; rejects missing parts |
 | `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`) |
 | `service/agent.py` | `Agent`: chooses an action in a domain by searching with MCTS |
+| `model/policy.py` | `Policy`: anything with `choose(domain, state) -> Action`; `Agent` and `RandomPolicy` are policies |
+| `service/random_policy.py` | `RandomPolicy`: chooses uniformly among the legal actions; a baseline opponent |
 | `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration and seed, and wires the services the agent searches with; rejects missing settings and fewer than 1 iteration |
 | `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None)`: an agent searching with the exploration weight √2 |
 | `constant/agent_constant.py` | Default iterations and exploration weight |
@@ -86,6 +88,6 @@ distribution = predictor.predict(domain.transitions, domain.initial_state, actio
 ## Notes
 
 - Tests: `builder/agent_builder_tests.py`, `builder/domain_builder_tests.py`, `factory/agent_factory_tests.py`,
-  `factory/domain_factory_tests.py`, `factory/tictactoe_factory_tests.py`, `service/agent_tests.py`; integration:
+  `factory/domain_factory_tests.py`, `factory/tictactoe_factory_tests.py`, `service/agent_tests.py`, `service/random_policy_tests.py`; integration:
   `test/integration/tictactoe_actions_tests.py`, `test/integration/tictactoe_search_tests.py`,
   `test/integration/tictactoe_transitions_tests.py`; end-to-end: `test/end_to_end/play_tictactoe_tests.py`.
