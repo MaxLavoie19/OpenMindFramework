@@ -20,15 +20,19 @@ class ExactSearch:
         self._state_reader = state_reader
         self._values: dict[tuple[str, State], tuple[float, ...]] = {}
 
-    def optimal_actions(self, domain: Domain, state: State) -> tuple[Action, ...]:
-        """The legal actions with the highest expected payoff for the player to act, in the solver's order."""
+    def action_values(self, domain: Domain, state: State) -> tuple[tuple[Action, float], ...]:
+        """Each legal action with its expected payoff for the player to act under perfect play, in the solver's order."""
         actions = self._solver.solve(domain.problem, state)
         if not actions:
             raise ValueError("No legal action in this state")
         player = self._state_reader.player_to_act(state, domain.players)
-        values = [self._action_value(domain, state, action)[player] for action in actions]
-        best = max(values)
-        return tuple(action for action, value in zip(actions, values) if math.isclose(value, best))
+        return tuple((action, self._action_value(domain, state, action)[player]) for action in actions)
+
+    def optimal_actions(self, domain: Domain, state: State) -> tuple[Action, ...]:
+        """The legal actions with the highest expected payoff for the player to act, in the solver's order."""
+        values = self.action_values(domain, state)
+        best = max(value for _, value in values)
+        return tuple(action for action, value in values if math.isclose(value, best))
 
     def positions(self, domain: Domain) -> tuple[State, ...]:
         """Every state reachable from the initial state that has a legal action."""

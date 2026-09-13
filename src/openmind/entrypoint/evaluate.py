@@ -7,6 +7,7 @@ from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
 from openmind.evaluation.constant.evaluation_constant import (
+    ALL_POSITIONS,
     DEFAULT_BUDGETS,
     DEFAULT_GAMES,
     DEFAULT_ITERATIONS,
@@ -15,6 +16,7 @@ from openmind.evaluation.constant.evaluation_constant import (
 )
 from openmind.evaluation.factory.evaluator_factory import create_evaluator
 from openmind.evaluation.mapper.report_json_mapper import ReportJsonMapper
+from openmind.evaluation.mapper.report_text_mapper import ReportTextMapper
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.repository.report_repository import ReportRepository
 from openmind.expression.mapper.expression_json_mapper import ExpressionJsonMapper
@@ -26,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Measures how well the agent plays a domain, prints the report and saves it."""
+    """Measures how well the agent plays a domain, prints the report and its summary, and saves the report."""
     parser = argparse.ArgumentParser(prog="openmind-evaluate", description="Measure how well the agent plays a domain.")
     parser.add_argument("domain", help="domain to evaluate, such as tictactoe")
     parser.add_argument(
@@ -40,9 +42,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--positions",
-        type=int,
+        type=_positions,
         default=DEFAULT_POSITIONS,
-        help=f"positions sampled to measure agreement with perfect play (default: {DEFAULT_POSITIONS})",
+        help=f"positions sampled to measure agreement with perfect play: a number, 0 to skip, or {ALL_POSITIONS} "
+        f"(default: {DEFAULT_POSITIONS})",
     )
     parser.add_argument(
         "--budgets",
@@ -83,20 +86,35 @@ def main(argv: list[str] | None = None) -> None:
     try:
         agent_builder = AgentBuilder().with_exploration(EXPLORATION)
         rules_file = None
+        rater = None
         if arguments.rules is not None:
             rule_base = RuleBaseRepository(RuleBaseJsonMapper(ExpressionJsonMapper())).load(arguments.rules)
-            agent_builder.with_guidance(create_rule_rater(rule_base))
+            rater = create_rule_rater(rule_base)
+            agent_builder.with_guidance(rater)
             rules_file = str(arguments.rules)
             logger.info("Evaluating with rules %s", rules_file)
-        report = create_evaluator().evaluate(domain, agent_builder, settings, rules_file)
+        report = create_evaluator().evaluate(domain, agent_builder, settings, rules_file, rater)
         path = ReportRepository(ReportJsonMapper()).save(report, Path(arguments.report_directory))
         logger.info("Saved report %s", path)
         print(path.read_text(encoding="utf-8"), end="")
+        print(ReportTextMapper().to_text(report))
         print(f"Saved report {path}")
     finally:
         root.setLevel(level)
         root.removeHandler(handler)
         handler.close()
+
+
+def _positions(text: str) -> int | None:
+    if text == ALL_POSITIONS:
+        return None
+    try:
+        positions = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number or {ALL_POSITIONS!r}, not {text!r}") from None
+    if positions < 0:
+        raise argparse.ArgumentTypeError(f"positions can't be negative, not {positions}")
+    return positions
 
 
 def _budgets(text: str) -> tuple[int, ...]:

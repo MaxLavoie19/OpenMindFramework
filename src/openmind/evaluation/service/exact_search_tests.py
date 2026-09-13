@@ -86,6 +86,20 @@ def trust() -> Domain:
     )
 
 
+def test_action_values_give_each_legal_action_its_value_for_the_player_to_act() -> None:
+    domain = trust()
+    after_risky = State((("payoff(A)", None), ("payoff(B)", None), ("turn", "B")))
+
+    assert new_exact_search().action_values(domain, domain.initial_state) == (
+        (Action("safe", ()), 0.5),
+        (Action("risky", ()), 0.0),
+    )
+    assert new_exact_search().action_values(domain, after_risky) == (
+        (Action("punish", ()), 1.0),
+        (Action("reward", ()), 0.0),
+    )
+
+
 def test_the_winning_action_is_optimal() -> None:
     domain = one_move(Transition("lose", (Branch(1.0, (pay(0.0),)),)), Transition("win", (Branch(1.0, (pay(1.0),)),)))
 

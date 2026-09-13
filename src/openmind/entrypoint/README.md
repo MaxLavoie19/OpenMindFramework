@@ -60,13 +60,14 @@ agent's rollouts.
 .venv/bin/openmind-evaluate tictactoe
 .venv/bin/openmind-evaluate tictactoe --games 20 --positions 50 --budgets 10,100 --seed 3
 .venv/bin/openmind-evaluate tictactoe/fourinarow --positions 0 --games 20   # too large for perfect play
+.venv/bin/openmind-evaluate tictactoe --rules data/rbs/tictactoe/<rule base>.json --positions all   # guided against unguided
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--games N` | `100` | games per baseline series |
 | `--iterations N` | `200` | MCTS iterations per move in the baseline series |
-| `--positions N` | `100` | positions sampled to measure agreement with perfect play; `0` skips agreement and the exact search, for domains too large to search |
+| `--positions N` | `100` | positions sampled to measure agreement with perfect play; `all` takes every position; `0` skips agreement and the exact search, for domains too large to search |
 | `--budgets LIST` | `10,20,50,100,200,500` | comma-separated iteration budgets for agreement |
 | `--seed S` | `1` | random seed |
 | `--rules PATH` | none | rule base guiding the evaluated agent; its path is recorded in the report |
@@ -74,7 +75,19 @@ agent's rollouts.
 | `--log-directory DIR` | `data/log/evaluate` | where logs are saved |
 | `--report-directory DIR` | `data/evaluation` | where reports are saved |
 
-Runs the measures described in `evaluation/README.md`, prints the report's JSON, saves it as
+Runs the measures described in `evaluation/README.md` and prints the report's JSON, then its summary: the baseline
+results, then a table of optimal choices, visit share on optimal actions, mean regret and seconds per choice at each
+budget. With `--rules`, the table shows the guided and the unguided agent side by side (`guided / unguided`) on the
+same positions and is followed by the rules alone:
+
+```
+Guided by data/rbs/tictactoe/<rule base>.json against unguided, on the same 100 positions (every action optimal in <n>):
+iterations  optimal  visits on optimal    mean regret   seconds per choice
+        10  <g> / <u>  ...
+Rules alone: ratings separate actions in <n> of 100 positions; a top-rated action is optimal in <expected> of 100; mean regret <regret>
+```
+
+It saves the report as
 `<report directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, ending with `INFO Saved report <path>` from logger
 `openmind.entrypoint.evaluate`.

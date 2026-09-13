@@ -67,7 +67,9 @@ saved in `data/rbs/tictactoe/` and the log in `data/log/distill/tictactoe/`.
 
 Plays the agent against baselines and compares its choices with perfect play. The report is saved in
 `data/evaluation/tictactoe/` and the log in `data/log/evaluate/tictactoe/`. Add `--rules PATH` to evaluate an agent
-guided by a distilled rule base. A domain too large to search for perfect play, such as `tictactoe/fourinarow`, is
+guided by a distilled rule base: the summary then puts it side by side with an unguided agent on the same positions
+(optimal choices, share of the search's visits on optimal moves, mean regret, time per choice) and measures the rules
+alone. `--positions all` measures every position instead of a sample. A domain too large to search for perfect play, such as `tictactoe/fourinarow`, is
 evaluated against the baselines alone with `--positions 0`.
 
 ## Tests

@@ -32,14 +32,20 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
         ("untrained MCTS", 2),
     ]
     assert [(item["iterations"], item["positions"]) for item in report["agreement"]] == [(5, 3), (10, 3)]
-    assert capsys.readouterr().out.endswith(f"Saved report {report_file}\n")
+    assert (report["unguided_agreement"], report["rater"]) == ([], None)
+    output = capsys.readouterr().out
+    assert "\nAgreement with perfect play on 3 positions (every action optimal in " in output
+    assert "\niterations  optimal  visits on optimal  mean regret  seconds per choice\n" in output
+    assert output.endswith(f"Saved report {report_file}\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
     lines = log_file.read_text(encoding="utf-8").splitlines()
     assert "INFO  openmind.evaluation.service.exact_search tictactoe has 4520 positions with a legal action" in lines
     assert lines[-1] == f"INFO  openmind.entrypoint.evaluate Saved report {report_file}"
 
 
-def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(tmp_path: Path) -> None:
+def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     repository = RuleBaseRepository(RuleBaseJsonMapper(ExpressionJsonMapper()))
     rules_file = repository.save(
         RuleBase("tictactoe", (Rule("place", (), 0.5, 100),)), tmp_path / "rules", datetime(2026, 9, 13, 12, 0, 0)
@@ -58,10 +64,36 @@ def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(tmp_pat
     report = json.loads(report_file.read_text(encoding="utf-8"))
     assert report["rules_file"] == str(rules_file)
     assert report["agreement"][0]["seconds_per_choice"] >= 0.0
+    assert [(item["iterations"], item["positions"]) for item in report["unguided_agreement"]] == [(5, 3)]
+    assert report["rater"]["positions"] == 3
+    output = capsys.readouterr().out
+    assert f"\nGuided by {rules_file} against unguided, on the same 3 positions (every action optimal in " in output
+    assert "\nRules alone: ratings separate actions in " in output
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    assert f"INFO  openmind.entrypoint.evaluate Evaluating with rules {rules_file}" in log_file.read_text(
-        encoding="utf-8"
-    ).splitlines()
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    assert f"INFO  openmind.entrypoint.evaluate Evaluating with rules {rules_file}" in lines
+    assert any(line.startswith("INFO  openmind.evaluation.service.evaluator Rater alone: ") for line in lines)
+
+
+def test_all_positions_measures_every_position(tmp_path: Path) -> None:
+    main(
+        [
+            "tictactoe",
+            *("--games", "0", "--positions", "all", "--budgets", "1"),
+            *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
+        ]
+    )
+
+    (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    assert report["settings"]["positions"] is None
+    assert [(item["iterations"], item["positions"]) for item in report["agreement"]] == [(1, 4520)]
+
+
+@pytest.mark.parametrize("positions", ["-1", "some"])
+def test_invalid_positions_are_rejected(positions: str, tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["tictactoe", "--positions", positions, "--log-directory", str(tmp_path)])
 
 
 def test_invalid_budgets_are_rejected(tmp_path: Path) -> None:
