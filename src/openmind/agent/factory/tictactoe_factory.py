@@ -1,10 +1,11 @@
 from openmind.agent.builder.domain_builder import DomainBuilder
 from openmind.agent.constant.tictactoe_constant import (
-    BOARD_SIZE,
     CELL,
     CERTAIN,
     COL,
+    DIRECTIONS,
     DRAW,
+    DROP,
     EMPTY,
     LOSS,
     NAME,
@@ -12,11 +13,14 @@ from openmind.agent.constant.tictactoe_constant import (
     PLACE,
     PLAYERS,
     ROW,
+    SEPARATOR,
+    STANDARD,
     TURN,
     UNSET,
     WIN,
 )
 from openmind.agent.model.domain import Domain
+from openmind.agent.model.tictactoe_variant import TicTacToeVariant
 from openmind.csp.builder.problem_builder import ProblemBuilder
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
@@ -31,87 +35,78 @@ from openmind.expression.model.state_variable import StateVariable
 from openmind.predictor.builder.transition_model_builder import TransitionModelBuilder
 from openmind.predictor.model.assign import Assign
 from openmind.predictor.model.branch import Branch
+from openmind.predictor.model.effect import Effect
 from openmind.predictor.model.transition_model import TransitionModel
 from openmind.predictor.model.when import When
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
+from openmind.world.model.value import Value
 
 
-def create_tictactoe_initial_state() -> State:
-    """Every cell empty, X to play, no payoff set."""
+def create_tictactoe_initial_state(variant: TicTacToeVariant = STANDARD) -> State:
+    """Every cell of the variant's grid empty, row 1 at the top; X to play; no payoff set."""
+    _check(variant)
     variable_name_mapper = VariableNameMapper()
     builder = StateBuilder()
-    for row in range(1, BOARD_SIZE + 1):
-        for col in range(1, BOARD_SIZE + 1):
-            builder.with_variable(variable_name_mapper.to_name(CELL, (row, col)), EMPTY)
+    for row, col in _cells(variant):
+        builder.with_variable(variable_name_mapper.to_name(CELL, (row, col)), EMPTY)
     builder.with_variable(TURN, PLAYERS[0])
     for player in PLAYERS:
         builder.with_variable(variable_name_mapper.to_name(PAYOFF, (player,)), UNSET)
     return builder.build()
 
 
-def create_tictactoe_problem() -> Problem:
-    """Place a mark on an empty cell, as long as no payoff is set."""
-    positions = DiscreteDomain(tuple(range(1, BOARD_SIZE + 1)))
-    no_payoff_set = tuple(
-        Equals(StateVariable(PAYOFF, (Constant(player),)), Constant(UNSET)) for player in PLAYERS
-    )
-    cell_is_empty = Equals(
-        StateVariable(CELL, (ActionParameter(ROW), ActionParameter(COL))), Constant(EMPTY)
-    )
+def create_tictactoe_problem(variant: TicTacToeVariant = STANDARD) -> Problem:
+    """While no payoff is set: place a mark on an empty cell or, with gravity, drop it in a column whose top cell is
+    empty."""
+    _check(variant)
+    no_payoff_set = tuple(_payoff_is(player, UNSET) for player in PLAYERS)
+    columns = DiscreteDomain(tuple(range(1, variant.width + 1)))
+    if variant.gravity:
+        top_cell_is_empty = Equals(StateVariable(CELL, (Constant(1), ActionParameter(COL))), Constant(EMPTY))
+        return (
+            ProblemBuilder()
+            .with_action(DROP, (Variable(COL, columns),), (*no_payoff_set, top_cell_is_empty))
+            .build()
+        )
+    rows = DiscreteDomain(tuple(range(1, variant.height + 1)))
+    cell_is_empty = Equals(StateVariable(CELL, (ActionParameter(ROW), ActionParameter(COL))), Constant(EMPTY))
     return (
         ProblemBuilder()
-        .with_action(
-            PLACE,
-            (Variable(ROW, positions), Variable(COL, positions)),
-            (*no_payoff_set, cell_is_empty),
-        )
+        .with_action(PLACE, (Variable(ROW, rows), Variable(COL, columns)), (*no_payoff_set, cell_is_empty))
         .build()
     )
 
 
-def create_tictactoe_transitions() -> TransitionModel:
-    """Mark the cell, set payoffs on a win or a full board, then pass the turn."""
-    positions = range(1, BOARD_SIZE + 1)
-    rows = [[(row, col) for col in positions] for row in positions]
-    columns = [[(row, col) for row in positions] for col in positions]
-    diagonals = [[(i, i) for i in positions], [(i, BOARD_SIZE + 1 - i) for i in positions]]
-    cells = [cell for row in rows for cell in row]
+def create_tictactoe_transitions(variant: TicTacToeVariant = STANDARD) -> TransitionModel:
+    """Mark the landing cell and check only the lines through it for a win, set a draw on a full board, then pass the
+    turn."""
+    _check(variant)
     first, second = PLAYERS
-
-    mark_cell = Assign(
-        StateVariable(CELL, (ActionParameter(ROW), ActionParameter(COL))), StateVariable(TURN)
-    )
-    wins = tuple(
-        When(
-            AnyOf(
-                tuple(
-                    AllOf(
-                        tuple(
-                            Equals(StateVariable(CELL, (Constant(row), Constant(col))), Constant(player))
-                            for row, col in line
-                        )
-                    )
-                    for line in rows + columns + diagonals
-                )
-            ),
-            (
-                Assign(StateVariable(PAYOFF, (Constant(player),)), Constant(WIN)),
-                Assign(StateVariable(PAYOFF, (Constant(opponent),)), Constant(LOSS)),
-            ),
+    rows, columns = range(1, variant.height + 1), range(1, variant.width + 1)
+    if variant.gravity:
+        action = DROP
+        mark: tuple[Effect, ...] = tuple(
+            When(Equals(ActionParameter(COL), Constant(col)), (_fall(variant, variant.height, col),)) for col in columns
         )
-        for player, opponent in ((first, second), (second, first))
-    )
+        cells_filled_last = [(1, col) for col in columns]
+    else:
+        action = PLACE
+        mark = tuple(
+            When(
+                Equals(ActionParameter(ROW), Constant(row)),
+                tuple(When(Equals(ActionParameter(COL), Constant(col)), _land(variant, row, col)) for col in columns),
+            )
+            for row in rows
+        )
+        cells_filled_last = _cells(variant)
     draw = When(
         AllOf(
             (
-                Equals(StateVariable(PAYOFF, (Constant(first),)), Constant(UNSET)),
-                *(
-                    Not(Equals(StateVariable(CELL, (Constant(row), Constant(col))), Constant(EMPTY)))
-                    for row, col in cells
-                ),
+                _payoff_is(first, UNSET),
+                *(Not(Equals(_cell(row, col), Constant(EMPTY))) for row, col in cells_filled_last),
             )
         ),
         tuple(Assign(StateVariable(PAYOFF, (Constant(player),)), Constant(DRAW)) for player in PLAYERS),
@@ -123,7 +118,7 @@ def create_tictactoe_transitions() -> TransitionModel:
     )
     return (
         TransitionModelBuilder()
-        .with_transition(PLACE, (Branch(CERTAIN, (mark_cell, *wins, draw, pass_turn)),))
+        .with_transition(action, (Branch(CERTAIN, (*mark, draw, pass_turn)),))
         .build()
     )
 
@@ -136,14 +131,83 @@ def create_tictactoe_players() -> Players:
     )
 
 
-def create_tictactoe_domain() -> Domain:
-    """Tic-tac-toe: its initial state, constraints, transitions and players."""
+def create_tictactoe_domain(variant: TicTacToeVariant = STANDARD) -> Domain:
+    """Tic-tac-toe or one of its variants: its initial state, constraints, transitions and players. The standard game is
+    named "tictactoe", any other variant "tictactoe/<variant>"."""
     return (
         DomainBuilder()
-        .with_name(NAME)
-        .with_initial_state(create_tictactoe_initial_state())
-        .with_problem(create_tictactoe_problem())
-        .with_transitions(create_tictactoe_transitions())
+        .with_name(NAME if variant == STANDARD else SEPARATOR.join((NAME, variant.name)))
+        .with_initial_state(create_tictactoe_initial_state(variant))
+        .with_problem(create_tictactoe_problem(variant))
+        .with_transitions(create_tictactoe_transitions(variant))
         .with_players(create_tictactoe_players())
         .build()
     )
+
+
+def _fall(variant: TicTacToeVariant, row: int, col: int) -> When:
+    """With gravity, the mark lands in (row, col) when it is empty, otherwise it tries the cell above."""
+    return When(
+        Equals(_cell(row, col), Constant(EMPTY)),
+        _land(variant, row, col),
+        (_fall(variant, row - 1, col),) if row > 1 else (),
+    )
+
+
+def _land(variant: TicTacToeVariant, row: int, col: int) -> tuple[Effect, ...]:
+    """Marks (row, col) for the player to act; when the other cells of a line through it hold that player's marks, the
+    player wins and the other player loses."""
+    first, second = PLAYERS
+    turn = StateVariable(TURN)
+    completes_a_line = AnyOf(
+        tuple(
+            AllOf(tuple(Equals(_cell(line_row, line_col), turn) for line_row, line_col in line if (line_row, line_col) != (row, col)))
+            for line in _lines_through(variant, row, col)
+        )
+    )
+    win = When(
+        completes_a_line,
+        (
+            Assign(StateVariable(PAYOFF, (turn,)), Constant(WIN)),
+            When(
+                Equals(turn, Constant(first)),
+                (Assign(StateVariable(PAYOFF, (Constant(second),)), Constant(LOSS)),),
+                (Assign(StateVariable(PAYOFF, (Constant(first),)), Constant(LOSS)),),
+            ),
+        ),
+    )
+    return (Assign(_cell(row, col), turn), win)
+
+
+def _lines_through(variant: TicTacToeVariant, row: int, col: int) -> list[list[tuple[int, int]]]:
+    """Every line of variant.line cells through (row, col), in any of the four directions, that fits in the grid."""
+    lines: list[list[tuple[int, int]]] = []
+    for row_step, col_step in DIRECTIONS:
+        for offset in range(variant.line):
+            line = [
+                (row + (index - offset) * row_step, col + (index - offset) * col_step) for index in range(variant.line)
+            ]
+            fits = all(1 <= line_row <= variant.height and 1 <= line_col <= variant.width for line_row, line_col in line)
+            if fits and line not in lines:
+                lines.append(line)
+    return lines
+
+
+def _cells(variant: TicTacToeVariant) -> list[tuple[int, int]]:
+    return [(row, col) for row in range(1, variant.height + 1) for col in range(1, variant.width + 1)]
+
+
+def _cell(row: int, col: int) -> StateVariable:
+    return StateVariable(CELL, (Constant(row), Constant(col)))
+
+
+def _payoff_is(player: str, value: Value) -> Equals:
+    return Equals(StateVariable(PAYOFF, (Constant(player),)), Constant(value))
+
+
+def _check(variant: TicTacToeVariant) -> None:
+    if variant.width < 1 or variant.height < 1 or not 1 <= variant.line <= max(variant.width, variant.height):
+        raise ValueError(
+            "A tic-tac-toe variant needs a width and a height of at least 1 and a line from 1 to its longer side, "
+            f"not {variant!r}"
+        )

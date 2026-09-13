@@ -17,6 +17,8 @@ they hold. It depends on no other domain.
 | `mapper/variable_name_mapper.py` | `VariableNameMapper`: builds indexed variable names such as `cell(2,3)` and splits them back into base and indices |
 | `mapper/action_text_mapper.py` | `ActionTextMapper`: readable text for logs, such as `place(col=3, row=2)` |
 | `mapper/state_text_mapper.py` | `StateTextMapper`: readable text, one `name = value` line per variable |
+| `mapper/grid_text_mapper.py` | `GridTextMapper`: readable text with each `<base>(<row>,<col>)` family of variables drawn as a grid, then one `name = value` line per other variable; `openmind-play` prints states with it |
+| `constant/grid_text_constant.py` | The grid's marks for an empty cell (`.`) and a missing cell (a blank) |
 | `service/state_reader.py` | `StateReader`: reads a variable's value by name (an unknown name raises `KeyError`), the index of the player to act, and the payoffs (a payoff that isn't a number raises `ValueError`) |
 
 ## Usage
@@ -38,8 +40,23 @@ state = (
 action = Action("place", (("col", 3), ("row", 2)))       # parameters sorted by name
 ```
 
+`GridTextMapper(VariableNameMapper()).to_text(state)` draws a tic-tac-toe position as:
+
+```
+cell 1 2 3
+   1 X . .
+   2 . O .
+   3 . . .
+payoff(O) = None
+payoff(X) = None
+turn = 'X'
+```
+
+A grid spans its lowest to highest row and column numbers, under the base name and the column numbers; columns widen
+to fit the longest number or value, `None` shows as `.`, and a cell without a variable is left blank.
+
 ## Notes
 
 - States and actions are frozen and hashable.
 - `StateBuilder` sorts variables by name. When creating an `Action` directly, sort its parameters by name.
-- Tests: `builder/state_builder_tests.py`, `mapper/variable_name_mapper_tests.py`, `mapper/action_text_mapper_tests.py`, `mapper/state_text_mapper_tests.py`, `service/state_reader_tests.py`.
+- Tests: `builder/state_builder_tests.py`, `mapper/variable_name_mapper_tests.py`, `mapper/action_text_mapper_tests.py`, `mapper/state_text_mapper_tests.py`, `mapper/grid_text_mapper_tests.py`, `service/state_reader_tests.py`.

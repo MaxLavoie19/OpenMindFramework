@@ -12,22 +12,38 @@ constants.
 |---|---|
 | `model/domain.py` | `Domain(name, initial_state, problem, transitions, players)`: a domain within the agent |
 | `builder/domain_builder.py` | `DomainBuilder`: collects a domain's parts; rejects missing parts |
-| `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"` or `"sudoku"`) |
+| `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`, a variant such as `"tictactoe/fourinarow"`, or `"sudoku"`); an unknown name or variant raises `ValueError` listing the known ones |
 | `service/agent.py` | `Agent`: searches a domain's state with MCTS, guided by a rater when built with one; `search` gives the whole result, `choose` the action |
 | `model/policy.py` | `Policy`: anything with `choose(domain, state) -> Action`; `Agent` and `RandomPolicy` are policies |
 | `service/random_policy.py` | `RandomPolicy`: chooses uniformly among the legal actions; a baseline opponent |
 | `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed and guidance (`with_guidance(rater)`), and wires the services the agent searches with; rejects missing settings and fewer than 1 iteration |
 | `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None)`: an agent searching with the exploration weight √2 |
 | `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), and the guidance's prior weight (1.0) and rollout temperature (0.2) |
-| `constant/tictactoe_constant.py` | Domain name, board size, players, empty and unset values, payoff values, variable and action names |
-| `factory/tictactoe_factory.py` | `create_tictactoe_domain()`, assembled from `create_tictactoe_initial_state()`, `create_tictactoe_problem()`, `create_tictactoe_transitions()` and `create_tictactoe_players()` |
+| `model/tictactoe_variant.py` | `TicTacToeVariant(name, width, height, line, gravity)`: how a variant differs from standard tic-tac-toe |
+| `constant/tictactoe_constant.py` | Domain name and the variant separator, players, empty and unset values, payoff values, variable and action names, the four line directions, and the variants (`STANDARD`, `VARIANTS`) |
+| `factory/tictactoe_factory.py` | `create_tictactoe_domain(variant=STANDARD)`, assembled from `create_tictactoe_initial_state(variant)`, `create_tictactoe_problem(variant)`, `create_tictactoe_transitions(variant)` and `create_tictactoe_players()`; a variant without room for its line raises `ValueError` |
 | `constant/sudoku_constant.py` | Domain name and the separator of puzzle names, box and grid size, digits, the puzzle, empty and clue marks, empty and unset values, the collection file suffix and Project Euler's format marks, payoff values, variable and action names |
 | `factory/sudoku_factory.py` | `create_sudoku_domain(name="sudoku", grid=PUZZLE)`, assembled from `create_sudoku_initial_state(grid)`, `create_sudoku_problem(grid)`, `create_sudoku_transitions(grid)` and `create_sudoku_players()` |
 | `model/sudoku_puzzle.py` | `SudokuPuzzle(collection, number, grid)`: a published puzzle, numbered from 1 in its collection, its grid 81 characters row by row with `.` for an empty cell |
 | `mapper/sudoku_collection_mapper.py` | `SudokuCollectionMapper`: reads a collection's text into puzzles, from one 81-character line per puzzle (Norvig) or a `Grid NN` line and 9 rows (Project Euler), with `.` or `0` for an empty cell; anything else raises `ValueError` |
 | `repository/sudoku_puzzle_repository.py` | `SudokuPuzzleRepository`: lists the `<collection>.txt` files of a directory and loads a collection's puzzles |
 
-## Tic-tac-toe
+## Tic-tac-toe and its variants
+
+A variant, `TicTacToeVariant(name, width, height, line, gravity)`, describes how a game differs from standard
+tic-tac-toe: a grid of `width` columns by `height` rows, `line` marks in a row to win, and, with `gravity`, marks that
+fall to the lowest empty cell of the column they are dropped in. The variants are data in
+`tictactoe_constant.VARIANTS`, each written as the standard game plus what it changes; the same recipes build them all.
+
+| Variant | Domain name | Width × height | Line | Gravity |
+|---|---|---|---|---|
+| `standard` | `tictactoe` | 3 × 3 | 3 | no |
+| `fourinarow` | `tictactoe/fourinarow` | 7 × 6 | 4 | yes |
+| `gomoku` | `tictactoe/gomoku` | 15 × 15 | 5; a longer line also wins (freestyle) | no |
+
+A variant needs a width and a height of at least 1 and a line from 1 to its longer side; otherwise the recipes raise
+`ValueError`. A variant that changes a rule rather than a size, such as misère, would add a field that the recipes
+read.
 
 ### Players
 
@@ -38,27 +54,36 @@ constants.
 
 | Variable | Values | Initial |
 |---|---|---|
-| `cell(row,col)`, row and col in 1..3 | `"X"`, `"O"`, or `None` when empty | `None` |
+| `cell(row,col)`, row in 1..height from the top, col in 1..width | `"X"`, `"O"`, or `None` when empty | `None` |
 | `turn` | `"X"` or `"O"` | `"X"` |
 | `payoff(X)`, `payoff(O)` | 1 for a win, 0 for a loss, 0.5 each for a draw; `None` until the game ends | `None` |
 
 ### Constraints (CSP)
 
-The action `place(row, col)`, with row and col in 1..3, is legal when all of these hold, checked in this order:
+Without gravity, the action `place(row, col)`, with row in 1..height and col in 1..width, is legal when all of these
+hold, checked in this order:
 
 1. `payoff(X)` is unset.
 2. `payoff(O)` is unset.
 3. `cell(row,col)` is empty.
 
+With gravity, the action `drop(col)`, with col in 1..width, is legal when `payoff(X)` and `payoff(O)` are unset and
+`cell(1,col)`, the column's top cell, is empty.
+
 ### Transitions (predictor)
 
-`place(row, col)` has one branch with probability 1. Its effects apply in order:
+The action has one branch with probability 1. Its effects apply in order:
 
-1. `cell(row,col)` = `turn`.
-2. For each player P, when one of the 8 lines (3 rows, 3 columns, 2 diagonals) is all P: `payoff(P)` = 1 and the
-   other player's payoff = 0.
-3. When `payoff(X)` is unset and no cell is empty: `payoff(X)` = 0.5 and `payoff(O)` = 0.5.
-4. When `turn` is X, `turn` = O; otherwise `turn` = X.
+1. **Mark:** the landing cell gets `turn`. Without gravity it is `cell(row,col)`; with gravity, the lowest empty cell of
+   column col, tried from row `height` upward.
+2. **Win:** only the lines of `line` cells through the landing cell are checked: across, down and along both
+   diagonals, within the grid. When the other cells of one of them all hold `turn`, `payoff(turn)` = 1 and the other
+   player's payoff = 0.
+3. **Draw:** when `payoff(X)` is unset and the board is full, `payoff(X)` = 0.5 and `payoff(O)` = 0.5. Without gravity
+   every cell is checked; with gravity, the top row alone tells.
+4. **Turn:** when `turn` is X, `turn` = O; otherwise `turn` = X.
+
+Every landing cell carries its own win check, so a move in 4 in a row checks at most 13 lines rather than all 69.
 
 ## Sudoku
 
@@ -116,6 +141,8 @@ from openmind.agent.factory.domain_factory import create_domain
 
 domain = create_domain("tictactoe")
 action = create_agent(iterations=500, seed=1).choose(domain, domain.initial_state)
+
+fourinarow = create_domain("tictactoe/fourinarow")   # or create_tictactoe_domain(VARIANTS["fourinarow"])
 ```
 
 Using the solver and predictor directly:
@@ -146,6 +173,8 @@ distribution = predictor.predict(domain.transitions, domain.initial_state, actio
   `mapper/sudoku_collection_mapper_tests.py`, `repository/sudoku_puzzle_repository_tests.py`,
   `service/agent_tests.py`, `service/random_policy_tests.py`; integration:
   `test/integration/tictactoe_actions_tests.py`, `test/integration/tictactoe_search_tests.py`,
-  `test/integration/tictactoe_transitions_tests.py`, `test/integration/sudoku_solve_tests.py`,
-  `test/integration/sudoku_collections_solve_tests.py`; end-to-end:
-  `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/solve_sudoku_tests.py`.
+  `test/integration/tictactoe_transitions_tests.py`, `test/integration/tictactoe_variants_games_tests.py`,
+  `test/integration/tictactoe_fourinarow_transitions_tests.py`, `test/integration/tictactoe_fourinarow_search_tests.py`,
+  `test/integration/sudoku_solve_tests.py`, `test/integration/sudoku_collections_solve_tests.py`; end-to-end:
+  `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/play_fourinarow_tests.py`,
+  `test/end_to_end/solve_sudoku_tests.py`.

@@ -19,6 +19,7 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 .venv/bin/openmind-play tictactoe                                 # two humans
 .venv/bin/openmind-play tictactoe --agent O                       # human X against the agent
 .venv/bin/openmind-play tictactoe --agent X --agent O --seed 7    # the agent against itself
+.venv/bin/openmind-play tictactoe/fourinarow --agent O            # 4 in a row, a variant of tic-tac-toe
 ```
 
 | Option | Default | Meaning |
@@ -29,17 +30,19 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | `--log-level LEVEL` | `INFO` | lowest level saved in the game log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/play` | where game logs are saved |
 
-1. Prints the state, one `name = value` line per variable.
+1. Prints the state: the cells as a grid under their column numbers, with `.` for an empty cell, then one
+   `name = value` line per other variable (`GridTextMapper`, see `world/README.md`).
 2. On a human's turn, lists the legal actions by number and reads the number of the action to perform. Anything else
    asks again; end of input (Ctrl+D) ends the session.
 3. On an agent's turn, the agent searches and the CLI prints `<player> chose <action>`.
 4. The predictor gives the outcome distribution; when there are several outcomes, one is drawn by its probability.
 5. When no action is legal, prints the final state, payoffs included.
 
-Domains are created by name through `agent/factory/domain_factory.py`; an `--agent` player the domain doesn't have is
-rejected.
+Domains are created by name through `agent/factory/domain_factory.py`: `tictactoe`, its variants
+`tictactoe/fourinarow` and `tictactoe/gomoku`, and `sudoku`. An `--agent` player the domain doesn't have is rejected.
 
-Each session writes `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, from `--log-level` up, as
+Each session writes `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, from `--log-level` up (a variant's logs go
+in a folder per variant, such as `data/log/play/tictactoe/fourinarow/`), as
 `LEVEL logger message` lines. At `INFO`: the agent's search results (see `mcts/README.md`), plus, from logger
 `openmind.entrypoint.play`:
 
@@ -56,13 +59,14 @@ agent's rollouts.
 ```bash
 .venv/bin/openmind-evaluate tictactoe
 .venv/bin/openmind-evaluate tictactoe --games 20 --positions 50 --budgets 10,100 --seed 3
+.venv/bin/openmind-evaluate tictactoe/fourinarow --positions 0 --games 20   # too large for perfect play
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--games N` | `100` | games per baseline series |
 | `--iterations N` | `200` | MCTS iterations per move in the baseline series |
-| `--positions N` | `100` | positions sampled to measure agreement with perfect play |
+| `--positions N` | `100` | positions sampled to measure agreement with perfect play; `0` skips agreement and the exact search, for domains too large to search |
 | `--budgets LIST` | `10,20,50,100,200,500` | comma-separated iteration budgets for agreement |
 | `--seed S` | `1` | random seed |
 | `--rules PATH` | none | rule base guiding the evaluated agent; its path is recorded in the report |
@@ -145,5 +149,6 @@ solutions are printed, the predictor's effects, then its summary line at `INFO`.
 
 ## Notes
 
-- End-to-end tests: `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/evaluate_tictactoe_tests.py`,
+- End-to-end tests: `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/play_fourinarow_tests.py`,
+  `test/end_to_end/evaluate_tictactoe_tests.py`, `test/end_to_end/evaluate_fourinarow_tests.py`,
   `test/end_to_end/distill_tictactoe_tests.py`, `test/end_to_end/solve_sudoku_tests.py`.

@@ -4,7 +4,7 @@
 
 Measures how well an agent plays a domain, so training can be judged: results against baseline opponents, and how
 often the agent's choices agree with perfect play at several iteration budgets, and how long each choice takes. The
-training loop (iteration 7) will run it after every round to draw learning curves.
+training loop, not built yet, will run it after every round to draw learning curves.
 
 This measures the agent. It is unrelated to the RBS's planned position evaluation, which will turn a board position
 into a value.
@@ -39,7 +39,9 @@ into a value.
 4. **Speed:** every agreement budget records the mean seconds per choice.
 
 `ExactSearch` visits every reachable state. That suits small domains such as tic-tac-toe (4,520 positions with a legal
-action), not 4 in a row or chess. `MatchRunner` needs exactly two players.
+action), not 4 in a row or chess. With `positions` = 0, the evaluator skips agreement and never calls `ExactSearch`:
+the report's agreement is empty. That is how `tictactoe/fourinarow` is evaluated. `MatchRunner` needs exactly two
+players.
 
 ## Usage
 
@@ -66,6 +68,7 @@ base's path as `rules_file` to record it in the report. From the terminal: `open
 - `openmind.evaluation.service.evaluator`:
   - `INFO Against random: <games> games, <wins> wins, <draws> draws, <losses> losses`
   - `INFO Agreement with perfect play at <iterations> iterations: <optimal> of <positions> positions, <seconds> seconds per choice`
+  - `INFO Agreement with perfect play skipped: no positions`, when `positions` is 0
   - `DEBUG At <iterations> iterations, chose <action>; optimal: <actions>; state: <name = value, ...>`
 - `openmind.evaluation.service.match_runner`:
   - `DEBUG Game <n> against <opponent>: evaluated agent plays <player>, payoffs <player>=<payoff> ...`
@@ -79,4 +82,5 @@ Every agent search also logs its summary at INFO (see `mcts/README.md`).
 - Tests: `builder/evaluator_builder_tests.py`, `factory/evaluator_factory_tests.py`,
   `mapper/report_json_mapper_tests.py`, `repository/report_repository_tests.py`, `service/evaluator_tests.py`,
   `service/exact_search_tests.py`, `service/match_runner_tests.py`; integration:
-  `test/integration/tictactoe_exact_search_tests.py`; end-to-end: `test/end_to_end/evaluate_tictactoe_tests.py`.
+  `test/integration/tictactoe_exact_search_tests.py`; end-to-end: `test/end_to_end/evaluate_tictactoe_tests.py`,
+  `test/end_to_end/evaluate_fourinarow_tests.py`.

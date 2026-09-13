@@ -115,14 +115,11 @@ def _resolve(
 ) -> tuple[str, list[Domain], bool]:
     """A DOMAIN argument's name, its domains, and whether they are a sudoku collection's puzzles."""
     parts = argument.split(SEPARATOR)
-    if len(parts) == 1:
+    if parts[0] != SUDOKU or len(parts) == 1:
         domain = create_domain(argument)
         return domain.name, [domain], False
-    if parts[0] != SUDOKU or len(parts) > 3:
-        parser.error(
-            f"{argument!r} is not a domain, a sudoku collection (sudoku/<collection>) or a sudoku puzzle "
-            "(sudoku/<collection>/<number>)"
-        )
+    if len(parts) > 3:
+        parser.error(f"{argument!r} is not a sudoku collection (sudoku/<collection>) or puzzle (sudoku/<collection>/<number>)")
     collection = parts[1]
     collections = repository.collections(directory)
     if collection not in collections:

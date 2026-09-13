@@ -9,6 +9,9 @@
   predictor.
 - **Payoff**: what each player gets when the game ends; a predicted outcome of a transition to a win or a draw.
 - **Domain (within the agent)**: a problem the agent works on, such as tic-tac-toe. It is not a domain in the code.
+- **Variant**: a game that differs from another in some of its sizes or rules, such as 4 in a row from tic-tac-toe.
+  A variant is data read by the game's recipes, and its domain is named `<game>/<variant>`, such as
+  `tictactoe/fourinarow`.
 
 ## Rules of a domain
 
@@ -27,14 +30,14 @@ become rules.
 
 | Domain | Owns | Status |
 |---|---|---|
-| `world` | `Value`, `State`, `Action` | iteration 1 |
+| `world` | `Value`, `State`, `Action`, and their readable text | iterations 1 and 8 |
 | `expression` | Rule expressions and the `Interpreter` that evaluates them | iteration 1 |
 | `csp` | Constraint satisfaction: action definitions, domains, constraints, and a solver with propagation and backtracking | iterations 1 and 7 |
-| `agent` | The agent and its domains | iteration 4 |
+| `agent` | The agent and its domains: tic-tac-toe with its variants, and sudoku | iterations 4, 7 and 8 |
 | `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-solve` | iterations 3–7 |
 | `predictor` | Transitions, outcome probability distributions | iteration 2 |
 | `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater` | iterations 4–6 |
-| `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play | iteration 5 |
+| `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play | iterations 5 and 8 |
 | `rbs` | Rules induced from search that rate actions and explain their ratings; position evaluation planned | iteration 6 |
 | `training` | Self-play and distillation of models from search | iteration 6 |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |

@@ -2,9 +2,9 @@
 
 An AI framework in which an agent works within a domain by searching with Monte-Carlo Tree Search (MCTS). A constraint
 satisfaction problem generates the possible actions and their parameters, a predictor gives the probability of each
-outcome, and a strategy rule-based system distills best play, weighted by expected value. The first domain being built
-is tic-tac-toe. The framework grows in small increments; [doc/architecture.md](doc/architecture.md) describes what
-exists so far.
+outcome, and a strategy rule-based system distills best play, weighted by expected value. The domains so far are
+tic-tac-toe with its variants (4 in a row, gomoku) and sudoku. The framework grows in small increments;
+[doc/architecture.md](doc/architecture.md) describes what exists so far.
 
 Copyright (c) 2016 Maxime Lavoie. Released under the [MIT License](LICENSE).
 OpenMind Framework is registered with the Canadian Intellectual Property Office, copyright registration No. 1127739
@@ -21,12 +21,13 @@ python3 -m venv .venv
 ## Play
 
 ```bash
-.venv/bin/openmind-play tictactoe              # two humans
-.venv/bin/openmind-play tictactoe --agent O    # against the MCTS agent
+.venv/bin/openmind-play tictactoe                         # two humans
+.venv/bin/openmind-play tictactoe --agent O               # against the MCTS agent
+.venv/bin/openmind-play tictactoe/fourinarow --agent O    # 4 in a row, a variant of tic-tac-toe
 ```
 
-Humans pick legal actions by number; the agent searches with MCTS. Each game's log is saved in
-`data/log/play/tictactoe/`.
+Humans pick legal actions by number; the agent searches with MCTS. The board prints as a grid. Each game's log is saved
+in `data/log/play/<domain>/`, such as `data/log/play/tictactoe/fourinarow/`.
 
 ## Solve
 
@@ -66,7 +67,8 @@ saved in `data/rbs/tictactoe/` and the log in `data/log/distill/tictactoe/`.
 
 Plays the agent against baselines and compares its choices with perfect play. The report is saved in
 `data/evaluation/tictactoe/` and the log in `data/log/evaluate/tictactoe/`. Add `--rules PATH` to evaluate an agent
-guided by a distilled rule base.
+guided by a distilled rule base. A domain too large to search for perfect play, such as `tictactoe/fourinarow`, is
+evaluated against the baselines alone with `--positions 0`.
 
 ## Tests
 

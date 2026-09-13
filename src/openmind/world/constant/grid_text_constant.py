@@ -1,0 +1,2 @@
+EMPTY_MARK = "."
+MISSING_MARK = " "

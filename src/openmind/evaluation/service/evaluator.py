@@ -57,12 +57,16 @@ class Evaluator:
         baselines = tuple(
             self._series(domain, evaluated, name, opponent, settings.games, rng) for name, opponent in opponents
         )
-        positions = self._exact_search.positions(domain)
-        sample = rng.sample(positions, min(settings.positions, len(positions)))
-        agreement = tuple(
-            self._agreement(domain, agent_builder, iterations, settings.seed, sample)
-            for iterations in settings.budgets
-        )
+        agreement: tuple[Agreement, ...] = ()
+        if settings.positions == 0:
+            logger.info("Agreement with perfect play skipped: no positions")
+        else:
+            positions = self._exact_search.positions(domain)
+            sample = rng.sample(positions, min(settings.positions, len(positions)))
+            agreement = tuple(
+                self._agreement(domain, agent_builder, iterations, settings.seed, sample)
+                for iterations in settings.budgets
+            )
         created_at = datetime.now().replace(microsecond=0)
         return EvaluationReport(domain.name, created_at, rules_file, settings, baselines, agreement)
 

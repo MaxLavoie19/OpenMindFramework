@@ -14,7 +14,7 @@ from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapp
 from openmind.expression.service.interpreter import Interpreter
 from openmind.predictor.service.predictor import Predictor
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.state_text_mapper import StateTextMapper
+from openmind.world.mapper.grid_text_mapper import GridTextMapper
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.service.state_reader import StateReader
 
@@ -75,7 +75,7 @@ def _play(domain: Domain, agent_players: frozenset[str], agent: Agent | None) ->
     interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
     solver = create_solver()
     predictor = Predictor(interpreter, names, expression_text, action_text)
-    state_text, state_reader = StateTextMapper(), StateReader()
+    state_text, state_reader = GridTextMapper(names), StateReader()
 
     logger.info("Playing %s", domain.name)
     state = domain.initial_state

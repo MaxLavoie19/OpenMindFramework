@@ -1,3 +1,4 @@
+import logging
 import math
 
 import pytest
@@ -59,3 +60,16 @@ def test_evaluate_reports_baselines_and_agreement() -> None:
     ]
     assert [(item.iterations, item.positions, item.optimal) for item in report.agreement] == [(5, 1, 1), (20, 1, 1)]
     assert all(item.seconds_per_choice >= 0.0 for item in report.agreement)
+
+
+@pytest.mark.log_level("INFO")
+def test_no_positions_skips_agreement_and_the_exact_search(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.evaluation")
+    settings = EvaluationSettings(games=2, iterations=5, positions=0, budgets=(5, 20), seed=1)
+
+    report = create_evaluator().evaluate(first_mover_decides(), AgentBuilder().with_exploration(math.sqrt(2)), settings)
+
+    assert len(report.baselines) == 2
+    assert report.agreement == ()
+    assert "Agreement with perfect play skipped: no positions" in caplog.messages
+    assert not any("positions with a legal action" in message for message in caplog.messages)
