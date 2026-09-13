@@ -12,10 +12,12 @@ they hold. It depends on no other domain.
 | `model/value.py` | `Value`: a variable or parameter value (`str`, `int`, `float`, `bool` or `None`) |
 | `model/state.py` | `State`: named variables with their values, sorted by name |
 | `model/action.py` | `Action`: the thing performed, with its parameters sorted by name |
+| `model/players.py` | `Players(names, to_act, payoffs)`: the players, the variable naming the player to act, and each player's payoff variable |
 | `builder/state_builder.py` | `StateBuilder`: collects variables into a `State`; rejects a name set twice |
 | `mapper/variable_name_mapper.py` | `VariableNameMapper`: builds indexed variable names such as `cell(2,3)` |
 | `mapper/action_text_mapper.py` | `ActionTextMapper`: readable text for logs, such as `place(col=3, row=2)` |
 | `mapper/state_text_mapper.py` | `StateTextMapper`: readable text, one `name = value` line per variable |
+| `service/state_reader.py` | `StateReader`: reads a state variable's value by name; an unknown name raises `KeyError` |
 
 ## Usage
 
@@ -40,4 +42,4 @@ action = Action("place", (("col", 3), ("row", 2)))       # parameters sorted by 
 
 - States and actions are frozen and hashable.
 - `StateBuilder` sorts variables by name. When creating an `Action` directly, sort its parameters by name.
-- Tests: `builder/state_builder_tests.py`, `mapper/variable_name_mapper_tests.py`, `mapper/action_text_mapper_tests.py`, `mapper/state_text_mapper_tests.py`.
+- Tests: `builder/state_builder_tests.py`, `mapper/variable_name_mapper_tests.py`, `mapper/action_text_mapper_tests.py`, `mapper/state_text_mapper_tests.py`, `service/state_reader_tests.py`.

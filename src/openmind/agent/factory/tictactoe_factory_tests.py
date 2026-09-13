@@ -1,6 +1,7 @@
 from openmind.agent.factory.tictactoe_factory import (
     create_tictactoe_domain,
     create_tictactoe_initial_state,
+    create_tictactoe_players,
     create_tictactoe_problem,
     create_tictactoe_transitions,
 )
@@ -13,6 +14,7 @@ from openmind.expression.model.action_parameter import ActionParameter
 from openmind.expression.model.constant import Constant
 from openmind.expression.model.equals import Equals
 from openmind.expression.model.state_variable import StateVariable
+from openmind.world.model.players import Players
 
 
 def test_initial_state_has_empty_cells_x_to_play_and_no_payoff() -> None:
@@ -54,10 +56,15 @@ def test_transitions_give_place_one_certain_branch() -> None:
     assert (transition.action, branch.probability) == ("place", 1.0)
 
 
+def test_players_are_x_and_o_with_turn_and_payoff_variables() -> None:
+    assert create_tictactoe_players() == Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)"))
+
+
 def test_domain_holds_the_tictactoe_recipes() -> None:
     assert create_tictactoe_domain() == Domain(
         "tictactoe",
         create_tictactoe_initial_state(),
         create_tictactoe_problem(),
         create_tictactoe_transitions(),
+        create_tictactoe_players(),
     )

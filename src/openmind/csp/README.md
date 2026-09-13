@@ -67,7 +67,7 @@ Logger `openmind.csp.service.solver`:
 
 - `DEBUG Accepted place(col=2, row=1)`
 - `DEBUG Rejected place(col=1, row=1): cell(row,col) == None is false`
-- `INFO 3 of 4 candidate actions are legal`
+- `DEBUG 3 of 4 candidate actions are legal`
 
 Actions and constraints are written by `ActionTextMapper` and `ExpressionTextMapper`.
 

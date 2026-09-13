@@ -11,12 +11,13 @@ ROOT = Path(__file__).parent
 
 @pytest.fixture(autouse=True)
 def save_logs_in_data(request: pytest.FixtureRequest) -> Iterator[None]:
-    """Saves each test's logs, from DEBUG up, in data/log/<test file>/<test name>.log."""
+    """Saves each test's logs in data/log/<test file>/<test name>.log, from DEBUG up unless marked log_level."""
+    marker = request.node.get_closest_marker("log_level")
     handler = BufferingHandler(capacity=sys.maxsize)
     root = logging.getLogger()
     level = root.level
     root.addHandler(handler)
-    root.setLevel(logging.DEBUG)
+    root.setLevel(marker.args[0] if marker else logging.DEBUG)
     try:
         yield
     finally:

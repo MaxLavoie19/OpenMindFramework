@@ -35,6 +35,7 @@ from openmind.predictor.model.transition_model import TransitionModel
 from openmind.predictor.model.when import When
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
 
@@ -127,13 +128,22 @@ def create_tictactoe_transitions() -> TransitionModel:
     )
 
 
+def create_tictactoe_players() -> Players:
+    """X and O; turn names the player to act; payoff(X) and payoff(O) hold their payoffs."""
+    variable_name_mapper = VariableNameMapper()
+    return Players(
+        PLAYERS, TURN, tuple(variable_name_mapper.to_name(PAYOFF, (player,)) for player in PLAYERS)
+    )
+
+
 def create_tictactoe_domain() -> Domain:
-    """Tic-tac-toe: its initial state, constraints and transitions."""
+    """Tic-tac-toe: its initial state, constraints, transitions and players."""
     return (
         DomainBuilder()
         .with_name(NAME)
         .with_initial_state(create_tictactoe_initial_state())
         .with_problem(create_tictactoe_problem())
         .with_transitions(create_tictactoe_transitions())
+        .with_players(create_tictactoe_players())
         .build()
     )

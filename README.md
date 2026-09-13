@@ -21,10 +21,12 @@ python3 -m venv .venv
 ## Play
 
 ```bash
-.venv/bin/openmind-play tictactoe
+.venv/bin/openmind-play tictactoe              # two humans
+.venv/bin/openmind-play tictactoe --agent O    # against the MCTS agent
 ```
 
-Players pick legal actions by number. Each game's log is saved in `data/log/play/tictactoe/`.
+Humans pick legal actions by number; the agent searches with MCTS. Each game's log is saved in
+`data/log/play/tictactoe/`.
 
 ## Tests
 

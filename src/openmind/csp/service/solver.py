@@ -40,7 +40,7 @@ class Solver:
                     legal.append(action)
                 if logger.isEnabledFor(logging.DEBUG):
                     self._log_candidate(action, failed)
-        logger.info("%d of %d candidate actions are legal", len(legal), candidates)
+        logger.debug("%d of %d candidate actions are legal", len(legal), candidates)
         return tuple(legal)
 
     def _failed_constraint(

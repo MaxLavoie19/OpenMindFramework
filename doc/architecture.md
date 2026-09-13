@@ -30,10 +30,10 @@ become rules.
 | `world` | `Value`, `State`, `Action` | iteration 1 |
 | `expression` | Rule expressions and the `Interpreter` that evaluates them | iteration 1 |
 | `csp` | Action definitions, parameter domains, constraints, `Solver` | iteration 1 |
-| `agent` | The agent and its domains | iteration 3: `Domain` and factories; the agent itself is planned |
+| `agent` | The agent and its domains | iteration 4 |
 | `entrypoint` | Ways to run the framework: `openmind-play` | iteration 3 |
 | `predictor` | Transitions, outcome probability distributions | iteration 2 |
-| `mcts` | Search | planned |
+| `mcts` | Monte-Carlo Tree Search | iteration 4 |
 | `tracking` | Played games, training runs, metrics and logs in `data/` | planned |
 | `rbs` | Strategy rules, distillation, explanations | planned |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |
@@ -46,9 +46,12 @@ become rules.
 - Each domain folder has a `README.md` covering its purpose, content, usage and logs.
 - One class per module, named after it; a name that clashes with a Python keyword gets a trailing underscore
   (`not_.py`).
-- Models are frozen, slotted dataclasses. Logic lives in services; I/O only in entrypoints.
+- Models are frozen, slotted dataclasses, except the search tree's nodes, which change while searching. Logic lives in
+  services; I/O only in entrypoints.
 - Services log through `logging.getLogger(__name__)`: what was decided and why, with the key values. Actions and
-  expressions appear in logs as readable text (`ActionTextMapper`, `ExpressionTextMapper`).
+  expressions appear in logs as readable text (`ActionTextMapper`, `ExpressionTextMapper`). Per-call details (solver
+  candidates, predictor effects, search iterations) log at DEBUG; decisions (choices, search results) at INFO.
 - Unit tests sit beside their target as `<module>_tests.py`; integration and end-to-end tests live in `test/`.
 - `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Tests save their logs
-  in `data/log/<test file>/<test name>.log`, which git ignores.
+  in `data/log/<test file>/<test name>.log`, which git ignores; a test marked `@pytest.mark.log_level("INFO")` saves
+  only INFO and above.

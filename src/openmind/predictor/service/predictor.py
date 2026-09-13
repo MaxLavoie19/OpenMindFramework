@@ -41,8 +41,8 @@ class Predictor:
         outcomes = tuple(
             (self._apply(branch.effects, state, action), branch.probability) for branch in transition.branches
         )
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
                 "%s gives %d outcome(s) with probabilities %s",
                 self._action_text_mapper.to_text(action),
                 len(outcomes),

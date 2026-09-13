@@ -63,7 +63,7 @@ Logger `openmind.predictor.service.predictor`:
 
 - `DEBUG Set cell(1,1) = 'X'`
 - `DEBUG When turn == 'X': true` (or `false`)
-- `INFO place(col=1, row=1) gives 1 outcome(s) with probabilities [1.0]`
+- `DEBUG place(col=1, row=1) gives 1 outcome(s) with probabilities [1.0]`
 
 Actions and conditions are written by `ActionTextMapper` and `ExpressionTextMapper`.
 

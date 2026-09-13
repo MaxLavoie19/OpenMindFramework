@@ -8,7 +8,7 @@ from openmind.entrypoint.play import main
 X_WINS = ("1", "3", "1", "2", "1")  # X: (1,1) (1,2) (1,3); O: (2,1) (2,2)
 
 
-def play(monkeypatch: pytest.MonkeyPatch, log_directory: Path, *answers: str) -> None:
+def play(monkeypatch: pytest.MonkeyPatch, log_directory: Path, *answers: str, options: tuple[str, ...] = ()) -> None:
     replies: Iterator[str] = iter(answers)
 
     def reply(prompt: str) -> str:
@@ -18,7 +18,7 @@ def play(monkeypatch: pytest.MonkeyPatch, log_directory: Path, *answers: str) ->
             raise EOFError from None
 
     monkeypatch.setattr("builtins.input", reply)
-    main(["tictactoe", "--log-directory", str(log_directory)])
+    main(["tictactoe", *options, "--log-directory", str(log_directory)])
 
 
 def log_lines(log_directory: Path) -> list[str]:
@@ -53,3 +53,19 @@ def test_log_records_each_choice(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
         "INFO  openmind.entrypoint.play Chose place(col=2, row=2)",
         "INFO  openmind.entrypoint.play Chose place(col=3, row=1)",
     ]
+
+
+def test_agent_plays_o_until_the_game_is_over(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    play(monkeypatch, tmp_path, "1", "1", "1", "1", "1", options=("--agent", "O", "--iterations", "100", "--seed", "1"))
+
+    assert "O chose place(" in capsys.readouterr().out
+    lines = log_lines(tmp_path)
+    assert any(line.startswith("INFO  openmind.mcts.service.tree_search Most visited: ") for line in lines)
+    assert lines[-1] == "INFO  openmind.entrypoint.play No legal action left: game over"
+
+
+def test_unknown_agent_player_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["tictactoe", "--agent", "Z", "--log-directory", str(tmp_path)])
