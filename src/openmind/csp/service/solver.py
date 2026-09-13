@@ -4,8 +4,10 @@ from operator import itemgetter
 
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
+from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.model.expression import Expression
 from openmind.expression.service.interpreter import Interpreter
+from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
@@ -15,8 +17,15 @@ logger = logging.getLogger(__name__)
 class Solver:
     """Finds every action whose parameter values satisfy all of its constraints in a state."""
 
-    def __init__(self, interpreter: Interpreter) -> None:
+    def __init__(
+        self,
+        interpreter: Interpreter,
+        expression_text_mapper: ExpressionTextMapper,
+        action_text_mapper: ActionTextMapper,
+    ) -> None:
         self._interpreter = interpreter
+        self._expression_text_mapper = expression_text_mapper
+        self._action_text_mapper = action_text_mapper
 
     def solve(self, problem: Problem, state: State) -> tuple[Action, ...]:
         legal: list[Action] = []
@@ -28,10 +37,9 @@ class Solver:
                 action = Action(definition.name, tuple(sorted(zip(names, values), key=itemgetter(0))))
                 failed = self._failed_constraint(definition, state, action)
                 if failed is None:
-                    logger.debug("Accepted %r", action)
                     legal.append(action)
-                else:
-                    logger.debug("Rejected %r: constraint is false: %r", action, failed)
+                if logger.isEnabledFor(logging.DEBUG):
+                    self._log_candidate(action, failed)
         logger.info("%d of %d candidate actions are legal", len(legal), candidates)
         return tuple(legal)
 
@@ -47,3 +55,10 @@ class Solver:
             if not result:
                 return constraint
         return None
+
+    def _log_candidate(self, action: Action, failed: Expression | None) -> None:
+        action_text = self._action_text_mapper.to_text(action)
+        if failed is None:
+            logger.debug("Accepted %s", action_text)
+        else:
+            logger.debug("Rejected %s: %s is false", action_text, self._expression_text_mapper.to_text(failed))

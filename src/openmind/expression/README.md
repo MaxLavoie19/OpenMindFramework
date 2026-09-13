@@ -18,6 +18,7 @@ the strategy RBS will use them too.
 | `model/all_of.py` | `AllOf(operands)`: true when every operand is true |
 | `model/any_of.py` | `AnyOf(operands)`: true when at least one operand is true |
 | `model/expression.py` | `Expression`: the union of the types above |
+| `mapper/expression_text_mapper.py` | `ExpressionTextMapper`: readable text for logs, such as `all(payoff(X) == None, cell(row,col) == None)` |
 | `service/interpreter.py` | `Interpreter`: evaluates an expression against a state and an action |
 
 ## Usage
@@ -48,4 +49,4 @@ Interpreter(VariableNameMapper()).evaluate(cell_is_empty, state, action)   # Fal
 - An unknown state variable or action parameter raises `KeyError`.
 - Adding an expression type means adding its model, adding it to `Expression`, and handling it in `Interpreter`.
 - The interpreter doesn't log; the services that use it log their decisions.
-- Tests: `service/interpreter_tests.py`.
+- Tests: `mapper/expression_text_mapper_tests.py`, `service/interpreter_tests.py`.

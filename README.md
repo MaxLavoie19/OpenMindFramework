@@ -25,8 +25,10 @@ Unit tests sit beside the code they test (`solver.py` → `solver_tests.py`); in
 
 ```bash
 .venv/bin/pytest
-.venv/bin/pytest test/integration -o log_cli=true --log-cli-level=DEBUG   # with logs
 ```
+
+Each test saves its logs, from DEBUG up, in `data/log/<test file>/<test name>.log`, for example
+`data/log/test/integration/tictactoe_transitions_tests/test_winning_move_sets_payoffs_and_ends_the_game.log`.
 
 ## Layout
 

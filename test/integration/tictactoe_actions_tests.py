@@ -3,15 +3,19 @@ from openmind.agent.factory.tictactoe_factory import (
     create_tictactoe_problem,
 )
 from openmind.csp.service.solver import Solver
+from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
 from openmind.world.builder.state_builder import StateBuilder
+from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
 
 
 def legal_cells(state: State) -> list[tuple[Value, Value]]:
-    actions = Solver(Interpreter(VariableNameMapper())).solve(create_tictactoe_problem(), state)
+    names = VariableNameMapper()
+    solver = Solver(Interpreter(names), ExpressionTextMapper(names), ActionTextMapper())
+    actions = solver.solve(create_tictactoe_problem(), state)
     assert {action.name for action in actions} <= {"place"}
     return [(dict(action.parameters)["row"], dict(action.parameters)["col"]) for action in actions]
 

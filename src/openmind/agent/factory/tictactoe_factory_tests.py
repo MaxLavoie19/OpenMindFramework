@@ -1,6 +1,7 @@
 from openmind.agent.factory.tictactoe_factory import (
     create_tictactoe_initial_state,
     create_tictactoe_problem,
+    create_tictactoe_transitions,
 )
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.discrete_domain import DiscreteDomain
@@ -42,3 +43,10 @@ def test_problem_places_a_mark_on_an_empty_cell_while_no_payoff_is_set() -> None
             ),
         )
     )
+
+
+def test_transitions_give_place_one_certain_branch() -> None:
+    (transition,) = create_tictactoe_transitions().transitions
+    (branch,) = transition.branches
+
+    assert (transition.action, branch.probability) == ("place", 1.0)

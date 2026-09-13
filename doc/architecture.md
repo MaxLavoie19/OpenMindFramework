@@ -30,8 +30,8 @@ become rules.
 | `world` | `Value`, `State`, `Action` | iteration 1 |
 | `expression` | Rule expressions and the `Interpreter` that evaluates them | iteration 1 |
 | `csp` | Action definitions, parameter domains, constraints, `Solver` | iteration 1 |
-| `agent` | The agent and its domains | iteration 1: tic-tac-toe factory only |
-| `predictor` | Transitions, outcome probability distributions | planned |
+| `agent` | The agent and its domains | iterations 1–2: tic-tac-toe factory only |
+| `predictor` | Transitions, outcome probability distributions | iteration 2 |
 | `mcts` | Search | planned |
 | `tracking` | Played games, training runs, metrics and logs in `data/` | planned |
 | `rbs` | Strategy rules, distillation, explanations | planned |
@@ -46,6 +46,8 @@ become rules.
 - One class per module, named after it; a name that clashes with a Python keyword gets a trailing underscore
   (`not_.py`).
 - Models are frozen, slotted dataclasses. Logic lives in services; I/O only in entrypoints.
-- Services log through `logging.getLogger(__name__)`: what was decided and why, with the key values.
+- Services log through `logging.getLogger(__name__)`: what was decided and why, with the key values. Actions and
+  expressions appear in logs as readable text (`ActionTextMapper`, `ExpressionTextMapper`).
 - Unit tests sit beside their target as `<module>_tests.py`; integration and end-to-end tests live in `test/`.
-- `data/` holds all data (databases, trained models, …); its layout is decided as we go.
+- `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Tests save their logs
+  in `data/log/<test file>/<test name>.log`, which git ignores.

@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from openmind.csp.model.action_definition import ActionDefinition
@@ -5,19 +7,23 @@ from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
 from openmind.csp.model.variable import Variable
 from openmind.csp.service.solver import Solver
+from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.model.action_parameter import ActionParameter
 from openmind.expression.model.constant import Constant
 from openmind.expression.model.equals import Equals
 from openmind.expression.model.expression import Expression
 from openmind.expression.model.state_variable import StateVariable
 from openmind.expression.service.interpreter import Interpreter
+from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
 
 def solve(definition: ActionDefinition, state: State) -> tuple[Action, ...]:
-    return Solver(Interpreter(VariableNameMapper())).solve(Problem((definition,)), state)
+    names = VariableNameMapper()
+    solver = Solver(Interpreter(names), ExpressionTextMapper(names), ActionTextMapper())
+    return solver.solve(Problem((definition,)), state)
 
 
 def set_bits(*constraints: Expression) -> ActionDefinition:
@@ -62,3 +68,17 @@ def test_parameters_are_sorted_by_name() -> None:
 def test_non_boolean_constraint_raises() -> None:
     with pytest.raises(TypeError, match="set"):
         solve(set_bits(ActionParameter("a")), State(()))
+
+
+def test_logs_candidates_as_text(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.DEBUG, logger="openmind.csp.service.solver")
+
+    solve(set_bits(Equals(ActionParameter("a"), Constant(1))), State(()))
+
+    assert caplog.messages == [
+        "Rejected set(a=0, b=0): a == 1 is false",
+        "Rejected set(a=0, b=1): a == 1 is false",
+        "Accepted set(a=1, b=0)",
+        "Accepted set(a=1, b=1)",
+        "2 of 4 candidate actions are legal",
+    ]
