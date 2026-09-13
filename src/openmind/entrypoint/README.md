@@ -10,6 +10,7 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 |---|---|
 | `play.py` | `openmind-play`: play a domain within the agent in the terminal, as humans or with the agent |
 | `evaluate.py` | `openmind-evaluate`: measure how well the agent plays a domain and save the report |
+| `distill.py` | `openmind-distill`: distill a rule base from self-play and save it |
 
 ## `openmind-play`
 
@@ -63,6 +64,7 @@ agent's rollouts.
 | `--positions N` | `100` | positions sampled to measure agreement with perfect play |
 | `--budgets LIST` | `10,20,50,100,200,500` | comma-separated iteration budgets for agreement |
 | `--seed S` | `1` | random seed |
+| `--rules PATH` | none | rule base guiding the evaluated agent; its path is recorded in the report |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/evaluate` | where logs are saved |
 | `--report-directory DIR` | `data/evaluation` | where reports are saved |
@@ -72,6 +74,36 @@ Runs the measures described in `evaluation/README.md`, prints the report's JSON,
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, ending with `INFO Saved report <path>` from logger
 `openmind.entrypoint.evaluate`.
 
+With `--rules`, the log also has `INFO Evaluating with rules <path>`.
+
+## `openmind-distill`
+
+```bash
+.venv/bin/openmind-distill tictactoe
+.venv/bin/openmind-distill tictactoe --games 40 --iterations 500 --max-conditions 3
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--games N` | `20` | self-play games to learn from |
+| `--held-out-games N` | `5` | self-play games to measure the rules on |
+| `--iterations N` | `200` | MCTS iterations per self-play move |
+| `--seed S` | `1` | random seed |
+| `--min-visits N` | `5` | visits a sample needs to count |
+| `--max-conditions N` | `2` | conditions per rule at most |
+| `--min-rule-visits N` | `50` | visits a rule needs |
+| `--min-gain X` | `0.05` | change in expected value a condition needs |
+| `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
+| `--log-directory DIR` | `data/log/distill` | where logs are saved |
+| `--rules-directory DIR` | `data/rbs` | where rule bases are saved |
+
+Runs the distillation described in `training/README.md`. It prints every rule as text, then the number of rules and
+conditions per rule, the sample counts and the rating error on held-out samples. It saves the rule base as
+`<rules directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
+`<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, ending with `INFO Saved rules <path>` from logger
+`openmind.entrypoint.distill`.
+
 ## Notes
 
-- End-to-end tests: `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/evaluate_tictactoe_tests.py`.
+- End-to-end tests: `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/evaluate_tictactoe_tests.py`,
+  `test/end_to_end/distill_tictactoe_tests.py`.

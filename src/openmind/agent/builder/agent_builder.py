@@ -1,9 +1,12 @@
 from typing import Self
 
+from openmind.agent.constant.agent_constant import PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
 from openmind.agent.service.agent import Agent
 from openmind.csp.service.solver import Solver
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
+from openmind.mcts.model.action_rater import ActionRater
+from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.predictor.service.predictor import Predictor
@@ -13,12 +16,13 @@ from openmind.world.service.state_reader import StateReader
 
 
 class AgentBuilder:
-    """Sets how an agent searches and wires the services it searches with."""
+    """Sets how an agent searches, and what guides it, and wires the services it searches with."""
 
     def __init__(self) -> None:
         self._iterations: int | None = None
         self._exploration: float | None = None
         self._seed: int | None = None
+        self._rater: ActionRater | None = None
 
     def with_iterations(self, iterations: int) -> Self:
         self._iterations = iterations
@@ -30,6 +34,10 @@ class AgentBuilder:
 
     def with_seed(self, seed: int | None) -> Self:
         self._seed = seed
+        return self
+
+    def with_guidance(self, rater: ActionRater | None) -> Self:
+        self._rater = rater
         return self
 
     def build(self) -> Agent:
@@ -46,4 +54,5 @@ class AgentBuilder:
             StateReader(),
             action_text,
         )
-        return Agent(tree_search, SearchSettings(iterations, exploration, self._seed))
+        guidance = Guidance(self._rater, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE) if self._rater is not None else None
+        return Agent(tree_search, SearchSettings(iterations, exploration, self._seed), guidance)

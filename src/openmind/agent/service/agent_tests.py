@@ -26,11 +26,12 @@ from openmind.world.model.players import Players
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
 
+pytestmark = pytest.mark.log_level("INFO")
 
-@pytest.mark.log_level("INFO")
-def test_choose_returns_the_most_visited_action() -> None:
+
+def win_or_lose() -> Domain:
     no_payoff = Equals(StateVariable("payoff"), Constant(None))
-    domain = Domain(
+    return Domain(
         "win or lose",
         State((("payoff", None), ("turn", "me"))),
         Problem((ActionDefinition("lose", (), (no_payoff,)), ActionDefinition("win", (), (no_payoff,)))),
@@ -42,6 +43,9 @@ def test_choose_returns_the_most_visited_action() -> None:
         ),
         Players(("me",), "turn", ("payoff",)),
     )
+
+
+def new_agent() -> Agent:
     names = VariableNameMapper()
     interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
     tree_search = TreeSearch(
@@ -50,7 +54,19 @@ def test_choose_returns_the_most_visited_action() -> None:
         StateReader(),
         action_text,
     )
+    return Agent(tree_search, SearchSettings(50, math.sqrt(2), 1))
 
-    agent = Agent(tree_search, SearchSettings(50, math.sqrt(2), 1))
 
-    assert agent.choose(domain, domain.initial_state) == Action("win", ())
+def test_choose_returns_the_most_visited_action() -> None:
+    domain = win_or_lose()
+
+    assert new_agent().choose(domain, domain.initial_state) == Action("win", ())
+
+
+def test_search_returns_the_statistics_and_the_tree_samples() -> None:
+    domain = win_or_lose()
+
+    result = new_agent().search(domain, domain.initial_state)
+
+    assert result.chosen == Action("win", ())
+    assert {sample.action.name for sample in result.samples} == {"lose", "win"}

@@ -8,10 +8,12 @@ from openmind.evaluation.model.match_results import MatchResults
 
 @dataclass(frozen=True, slots=True)
 class EvaluationReport:
-    """What an evaluation measured: results against each baseline and agreement at each iteration budget."""
+    """What an evaluation measured: results against each baseline and agreement at each iteration budget, for an agent
+    guided by the rules in rules_file, or unguided when it's None."""
 
     domain: str
     created_at: datetime
+    rules_file: str | None
     settings: EvaluationSettings
     baselines: tuple[MatchResults, ...]
     agreement: tuple[Agreement, ...]

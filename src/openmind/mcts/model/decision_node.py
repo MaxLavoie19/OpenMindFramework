@@ -12,7 +12,10 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class DecisionNode:
-    """A state in the search tree where a player picks an action. Mutable: it changes while searching."""
+    """A state in the search tree where a player picks an action. Mutable: it changes while searching.
+
+    ratings follow the order of actions and are empty when the search isn't guided.
+    """
 
     state: State
     actions: tuple[Action, ...]
@@ -20,3 +23,4 @@ class DecisionNode:
     children: dict[Action, ChanceNode]
     visits: int
     player: int | None
+    ratings: tuple[float, ...]

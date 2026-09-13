@@ -17,6 +17,10 @@ from openmind.evaluation.factory.evaluator_factory import create_evaluator
 from openmind.evaluation.mapper.report_json_mapper import ReportJsonMapper
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.repository.report_repository import ReportRepository
+from openmind.expression.mapper.expression_json_mapper import ExpressionJsonMapper
+from openmind.rbs.factory.rbs_factory import create_rule_rater
+from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
+from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help=f"random seed (default: {DEFAULT_SEED})")
     parser.add_argument(
+        "--rules", type=Path, default=None, help="rule base guiding the evaluated agent (default: unguided)"
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING"),
@@ -74,7 +81,14 @@ def main(argv: list[str] | None = None) -> None:
     root.addHandler(handler)
     root.setLevel(arguments.log_level)
     try:
-        report = create_evaluator().evaluate(domain, AgentBuilder().with_exploration(EXPLORATION), settings)
+        agent_builder = AgentBuilder().with_exploration(EXPLORATION)
+        rules_file = None
+        if arguments.rules is not None:
+            rule_base = RuleBaseRepository(RuleBaseJsonMapper(ExpressionJsonMapper())).load(arguments.rules)
+            agent_builder.with_guidance(create_rule_rater(rule_base))
+            rules_file = str(arguments.rules)
+            logger.info("Evaluating with rules %s", rules_file)
+        report = create_evaluator().evaluate(domain, agent_builder, settings, rules_file)
         path = ReportRepository(ReportJsonMapper()).save(report, Path(arguments.report_directory))
         logger.info("Saved report %s", path)
         print(path.read_text(encoding="utf-8"), end="")

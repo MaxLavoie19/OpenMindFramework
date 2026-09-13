@@ -12,12 +12,12 @@ within the agent, not a domain in the code: it exists only as this domain's fact
 | `model/domain.py` | `Domain(name, initial_state, problem, transitions, players)`: a domain within the agent |
 | `builder/domain_builder.py` | `DomainBuilder`: collects a domain's parts; rejects missing parts |
 | `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`) |
-| `service/agent.py` | `Agent`: chooses an action in a domain by searching with MCTS |
+| `service/agent.py` | `Agent`: searches a domain's state with MCTS, guided by a rater when built with one; `search` gives the whole result, `choose` the action |
 | `model/policy.py` | `Policy`: anything with `choose(domain, state) -> Action`; `Agent` and `RandomPolicy` are policies |
 | `service/random_policy.py` | `RandomPolicy`: chooses uniformly among the legal actions; a baseline opponent |
-| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration and seed, and wires the services the agent searches with; rejects missing settings and fewer than 1 iteration |
+| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed and guidance (`with_guidance(rater)`), and wires the services the agent searches with; rejects missing settings and fewer than 1 iteration |
 | `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None)`: an agent searching with the exploration weight √2 |
-| `constant/agent_constant.py` | Default iterations and exploration weight |
+| `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), and the guidance's prior weight (1.0) and rollout temperature (0.2) |
 | `constant/tictactoe_constant.py` | Domain name, board size, players, empty and unset values, payoff values, variable and action names |
 | `factory/tictactoe_factory.py` | `create_tictactoe_domain()`, assembled from `create_tictactoe_initial_state()`, `create_tictactoe_problem()`, `create_tictactoe_transitions()` and `create_tictactoe_players()` |
 

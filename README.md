@@ -28,6 +28,15 @@ python3 -m venv .venv
 Humans pick legal actions by number; the agent searches with MCTS. Each game's log is saved in
 `data/log/play/tictactoe/`.
 
+## Distill
+
+```bash
+.venv/bin/openmind-distill tictactoe
+```
+
+Lets the agent play itself, induces rules from its searches, and prints them with their measures. The rule base is
+saved in `data/rbs/tictactoe/` and the log in `data/log/distill/tictactoe/`.
+
 ## Evaluate
 
 ```bash
@@ -35,7 +44,8 @@ Humans pick legal actions by number; the agent searches with MCTS. Each game's l
 ```
 
 Plays the agent against baselines and compares its choices with perfect play. The report is saved in
-`data/evaluation/tictactoe/` and the log in `data/log/evaluate/tictactoe/`.
+`data/evaluation/tictactoe/` and the log in `data/log/evaluate/tictactoe/`. Add `--rules PATH` to evaluate an agent
+guided by a distilled rule base.
 
 ## Tests
 

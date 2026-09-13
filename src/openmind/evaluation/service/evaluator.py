@@ -1,5 +1,6 @@
 import logging
 import random
+import time
 from datetime import datetime
 
 from openmind.agent.builder.agent_builder import AgentBuilder
@@ -40,9 +41,13 @@ class Evaluator:
         self._action_text_mapper = action_text_mapper
 
     def evaluate(
-        self, domain: Domain, agent_builder: AgentBuilder, settings: EvaluationSettings
+        self,
+        domain: Domain,
+        agent_builder: AgentBuilder,
+        settings: EvaluationSettings,
+        rules_file: str | None = None,
     ) -> EvaluationReport:
-        """Sets the builder's iterations and seed for every agent it builds."""
+        """Sets the builder's iterations and seed for every agent it builds; rules_file names what guides the agent."""
         rng = random.Random(settings.seed)
         evaluated = agent_builder.with_iterations(settings.iterations).with_seed(settings.seed).build()
         opponents: tuple[tuple[str, Policy], ...] = (
@@ -58,7 +63,8 @@ class Evaluator:
             self._agreement(domain, agent_builder, iterations, settings.seed, sample)
             for iterations in settings.budgets
         )
-        return EvaluationReport(domain.name, datetime.now().replace(microsecond=0), settings, baselines, agreement)
+        created_at = datetime.now().replace(microsecond=0)
+        return EvaluationReport(domain.name, created_at, rules_file, settings, baselines, agreement)
 
     def _series(
         self,
@@ -90,8 +96,11 @@ class Evaluator:
     ) -> Agreement:
         agent = agent_builder.with_iterations(iterations).with_seed(seed).build()
         optimal = 0
+        seconds = 0.0
         for state in sample:
+            started = time.perf_counter()
             chosen = agent.choose(domain, state)
+            seconds += time.perf_counter() - started
             best = self._exact_search.optimal_actions(domain, state)
             if chosen in best:
                 optimal += 1
@@ -103,7 +112,12 @@ class Evaluator:
                     ", ".join(self._action_text_mapper.to_text(action) for action in best),
                     self._state_text_mapper.to_text(state).replace("\n", ", "),
                 )
+        seconds_per_choice = seconds / len(sample) if sample else 0.0
         logger.info(
-            "Agreement with perfect play at %d iterations: %d of %d positions", iterations, optimal, len(sample)
+            "Agreement with perfect play at %d iterations: %d of %d positions, %s seconds per choice",
+            iterations,
+            optimal,
+            len(sample),
+            seconds_per_choice,
         )
-        return Agreement(iterations, len(sample), optimal)
+        return Agreement(iterations, len(sample), optimal, seconds_per_choice)

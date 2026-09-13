@@ -12,6 +12,7 @@ class ReportJsonMapper:
             {
                 "domain": report.domain,
                 "created_at": report.created_at.isoformat(timespec="seconds"),
+                "rules_file": report.rules_file,
                 "settings": {
                     "games": settings.games,
                     "iterations": settings.iterations,
@@ -30,7 +31,12 @@ class ReportJsonMapper:
                     for results in report.baselines
                 ],
                 "agreement": [
-                    {"iterations": item.iterations, "positions": item.positions, "optimal": item.optimal}
+                    {
+                        "iterations": item.iterations,
+                        "positions": item.positions,
+                        "optimal": item.optimal,
+                        "seconds_per_choice": item.seconds_per_choice,
+                    }
                     for item in report.agreement
                 ],
             },

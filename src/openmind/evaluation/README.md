@@ -3,8 +3,8 @@
 ## Purpose
 
 Measures how well an agent plays a domain, so training can be judged: results against baseline opponents, and how
-often the agent's choices agree with perfect play at several iteration budgets. Training (iteration 6) will run it
-after every round to draw learning curves.
+often the agent's choices agree with perfect play at several iteration budgets, and how long each choice takes. The
+training loop (iteration 7) will run it after every round to draw learning curves.
 
 This measures the agent. It is unrelated to the RBS's planned position evaluation, which will turn a board position
 into a value.
@@ -15,8 +15,8 @@ into a value.
 |---|---|
 | `model/evaluation_settings.py` | `EvaluationSettings(games, iterations, positions, budgets, seed)` |
 | `model/match_results.py` | `MatchResults(opponent, games, wins, draws, losses)`: a series against one opponent, from the evaluated agent's side |
-| `model/agreement.py` | `Agreement(iterations, positions, optimal)`: how many sampled positions got an optimal choice at a number of iterations |
-| `model/evaluation_report.py` | `EvaluationReport(domain, created_at, settings, baselines, agreement)` |
+| `model/agreement.py` | `Agreement(iterations, positions, optimal, seconds_per_choice)`: how many sampled positions got an optimal choice at a number of iterations, and the mean time per choice |
+| `model/evaluation_report.py` | `EvaluationReport(domain, created_at, rules_file, settings, baselines, agreement)`; `rules_file` names the rule base guiding the agent, `None` when unguided |
 | `service/exact_search.py` | `ExactSearch`: the optimal actions in a state by searching every reachable state; the positions with a legal action |
 | `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game |
 | `service/evaluator.py` | `Evaluator`: runs the baseline series and the agreement measure and returns a report |
@@ -36,6 +36,7 @@ into a value.
    counts as optimal when `ExactSearch` rates it best for the acting player (any of several tied best actions counts).
 3. **Fewer iterations, same play:** the agreement across budgets shows how many iterations the agent needs; a trained
    agent should reach the same agreement with fewer.
+4. **Speed:** every agreement budget records the mean seconds per choice.
 
 `ExactSearch` visits every reachable state. That suits small domains such as tic-tac-toe (4,520 positions with a legal
 action), not 4 in a row or chess. `MatchRunner` needs exactly two players.
@@ -56,13 +57,15 @@ report = create_evaluator().evaluate(
 )
 ```
 
-From the terminal: `openmind-evaluate tictactoe` (see `entrypoint/README.md`).
+To evaluate an agent guided by rules, give the builder `with_guidance(create_rule_rater(rule_base))` and pass the rule
+base's path as `rules_file` to record it in the report. From the terminal: `openmind-evaluate tictactoe [--rules PATH]`
+(see `entrypoint/README.md`).
 
 ## Logs
 
 - `openmind.evaluation.service.evaluator`:
   - `INFO Against random: <games> games, <wins> wins, <draws> draws, <losses> losses`
-  - `INFO Agreement with perfect play at <iterations> iterations: <optimal> of <positions> positions`
+  - `INFO Agreement with perfect play at <iterations> iterations: <optimal> of <positions> positions, <seconds> seconds per choice`
   - `DEBUG At <iterations> iterations, chose <action>; optimal: <actions>; state: <name = value, ...>`
 - `openmind.evaluation.service.match_runner`:
   - `DEBUG Game <n> against <opponent>: evaluated agent plays <player>, payoffs <player>=<payoff> ...`

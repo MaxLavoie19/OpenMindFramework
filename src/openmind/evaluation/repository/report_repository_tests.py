@@ -13,9 +13,10 @@ def test_save_writes_the_report_under_its_domain_and_time(tmp_path: Path) -> Non
     report = EvaluationReport(
         "tictactoe",
         datetime(2026, 9, 13, 15, 30, 0),
+        None,
         EvaluationSettings(games=2, iterations=10, positions=1, budgets=(10,), seed=1),
         (MatchResults("random", 2, 2, 0, 0),),
-        (Agreement(10, 1, 1),),
+        (Agreement(10, 1, 1, 0.01),),
     )
 
     path = ReportRepository(ReportJsonMapper()).save(report, tmp_path)

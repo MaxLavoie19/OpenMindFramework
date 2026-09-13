@@ -4,7 +4,8 @@
 
 Monte-Carlo Tree Search: estimates how good each legal action is by simulating many games from a state, then picks
 the most visited action. It finds legal actions with the CSP, outcomes with the predictor, and who acts and what each
-player gets through the variables named in `Players`. It knows nothing about any particular domain.
+player gets through the variables named in `Players`. It knows nothing about any particular domain. A model behind the
+`ActionRater` interface, such as the RBS, can guide it.
 
 ## Content
 
@@ -12,10 +13,13 @@ player gets through the variables named in `Players`. It knows nothing about any
 |---|---|
 | `model/search_settings.py` | `SearchSettings(iterations, exploration, seed)`: how long and how widely to search; `seed=None` is unseeded |
 | `model/action_statistics.py` | `ActionStatistics(action, visits, mean_payoff)`: a root action's visits and mean payoff for the player acting at the root (0.0 when never visited) |
-| `model/search_result.py` | `SearchResult(player, statistics, chosen)`: every root action's statistics and the most visited action |
-| `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action; mutable |
+| `model/action_sample.py` | `ActionSample(state, player, action, visits, mean_payoff)`: an action expanded anywhere in the tree, with its visits and mean payoff for the player to act |
+| `model/search_result.py` | `SearchResult(player, statistics, chosen, samples)`: every root action's statistics, the most visited action, and a sample for every expanded action |
+| `model/action_rater.py` | `ActionRater`: the interface of a model rating actions, `rate(state, actions)` giving each action's expected payoff for the player to act, or `None` |
+| `model/guidance.py` | `Guidance(rater, prior_weight, rollout_temperature)`: how a rater steers the search |
+| `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action, with the rater's ratings when guided; mutable |
 | `model/chance_node.py` | `ChanceNode`: an action in the tree with its possible outcomes; mutable |
-| `service/tree_search.py` | `TreeSearch`: runs the search |
+| `service/tree_search.py` | `TreeSearch`: runs the search, guided or not |
 
 ## Usage
 
@@ -46,24 +50,34 @@ result = tree_search.search(
     domain.problem, domain.transitions, domain.players, domain.initial_state, SearchSettings(500, math.sqrt(2), 1)
 )
 result.chosen   # Action(name='place', parameters=(('col', 2), ('row', 2)))
-# result.statistics holds every root action's visits and mean payoff
+# result.statistics holds every root action's visits and mean payoff; result.samples every expanded action's
 ```
 
+To guide the search, pass `Guidance(rater, prior_weight, rollout_temperature)` as the last argument.
 `agent/builder/agent_builder.py` does this wiring for the agent.
 
 ## How a search works
 
 Each iteration:
 
-1. **Selection:** from the root, a decision node with untried legal actions tries one at random. Otherwise it follows
-   the child with the highest UCT score: the acting player's mean payoff plus
-   exploration × √(ln parent visits / child visits).
+1. **Selection:** from the root, a decision node with untried legal actions tries one. Otherwise it follows the child
+   with the highest UCT score: the acting player's mean payoff plus exploration × √(ln parent visits / child visits).
 2. **Chance:** a chance node draws an outcome by its probability; each distinct outcome has its own decision node.
-3. **Rollout:** from the first new decision node, random legal actions are played until none is legal.
+3. **Rollout:** from the first new decision node, legal actions are played until none is legal.
 4. **Backpropagation:** the final state's payoffs are added to every chance node on the path, and every node on the
    path counts a visit.
 
 After the iterations, the most visited root action is chosen; ties go to the first action in the solver's order.
+
+Without guidance, untried actions are tried in random order and rollouts pick actions uniformly. With guidance:
+
+- The rater rates a decision node's legal actions when the node is created. An action rated `None` gets the mean of
+  the other ratings; a node where every rating is `None` is searched unguided.
+- Untried actions are tried from the highest to the lowest rating; equal ratings keep a random order.
+- Selection adds `prior_weight × rating / (child visits + 1)` to the UCT score.
+- Rollouts draw each action with probability proportional to `exp((rating − best rating) / rollout_temperature)`.
+
+Also:
 
 - A search from a state with no legal action raises `ValueError`.
 - A state with no legal action whose payoffs are not all numbers raises `ValueError`.
