@@ -5,7 +5,7 @@ import pytest
 from openmind.agent.model.domain import Domain
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
-from openmind.csp.service.solver import Solver
+from openmind.csp.factory.csp_factory import create_solver
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
@@ -40,7 +40,7 @@ def new_match_runner() -> MatchRunner:
     names = VariableNameMapper()
     interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
     return MatchRunner(
-        Solver(interpreter, expression_text, action_text),
+        create_solver(),
         Predictor(interpreter, names, expression_text, action_text),
         StateReader(),
     )

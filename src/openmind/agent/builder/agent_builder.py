@@ -2,7 +2,7 @@ from typing import Self
 
 from openmind.agent.constant.agent_constant import PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
 from openmind.agent.service.agent import Agent
-from openmind.csp.service.solver import Solver
+from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
 from openmind.mcts.model.action_rater import ActionRater
@@ -49,7 +49,7 @@ class AgentBuilder:
         names = VariableNameMapper()
         interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
         tree_search = TreeSearch(
-            Solver(interpreter, expression_text, action_text),
+            SolverBuilder().build(),
             Predictor(interpreter, names, expression_text, action_text),
             StateReader(),
             action_text,

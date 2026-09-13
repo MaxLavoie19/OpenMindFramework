@@ -1,6 +1,7 @@
 from typing import Any
 
 from openmind.expression.model.action_parameter import ActionParameter
+from openmind.expression.model.all_different import AllDifferent
 from openmind.expression.model.all_of import AllOf
 from openmind.expression.model.any_of import AnyOf
 from openmind.expression.model.constant import Constant
@@ -29,6 +30,8 @@ class ExpressionJsonMapper:
                 return {"all_of": [self.to_data(operand) for operand in operands]}
             case AnyOf(operands):
                 return {"any_of": [self.to_data(operand) for operand in operands]}
+            case AllDifferent(operands):
+                return {"all_different": [self.to_data(operand) for operand in operands]}
             case _:
                 raise TypeError(f"Not an expression: {expression!r}")
 
@@ -48,4 +51,6 @@ class ExpressionJsonMapper:
             return AllOf(tuple(self.from_data(operand) for operand in data["all_of"]))
         if "any_of" in data:
             return AnyOf(tuple(self.from_data(operand) for operand in data["any_of"]))
+        if "all_different" in data:
+            return AllDifferent(tuple(self.from_data(operand) for operand in data["all_different"]))
         raise ValueError(f"Not an expression: {data!r}")

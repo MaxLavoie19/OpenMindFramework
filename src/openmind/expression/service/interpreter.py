@@ -1,4 +1,5 @@
 from openmind.expression.model.action_parameter import ActionParameter
+from openmind.expression.model.all_different import AllDifferent
 from openmind.expression.model.all_of import AllOf
 from openmind.expression.model.any_of import AnyOf
 from openmind.expression.model.constant import Constant
@@ -36,6 +37,9 @@ class Interpreter:
                 return all(self.evaluate(operand, state, action) for operand in operands)
             case AnyOf(operands):
                 return any(self.evaluate(operand, state, action) for operand in operands)
+            case AllDifferent(operands):
+                values = [self.evaluate(operand, state, action) for operand in operands]
+                return len(set(values)) == len(values)
             case _:
                 raise TypeError(f"Not an expression: {expression!r}")
 

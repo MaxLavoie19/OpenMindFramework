@@ -2,6 +2,7 @@ import pytest
 
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.model.action_parameter import ActionParameter
+from openmind.expression.model.all_different import AllDifferent
 from openmind.expression.model.all_of import AllOf
 from openmind.expression.model.any_of import AnyOf
 from openmind.expression.model.constant import Constant
@@ -26,6 +27,7 @@ from openmind.world.mapper.variable_name_mapper import VariableNameMapper
         (Not(Constant(True)), "not(True)"),
         (AllOf((Constant(True), Constant(False))), "all(True, False)"),
         (AnyOf((Constant(True), Constant(False))), "any(True, False)"),
+        (AllDifferent((ActionParameter("cell(1,3)"), StateVariable("cell(1,1)"))), "all_different(cell(1,3), cell(1,1))"),
     ],
 )
 def test_to_text(expression: Expression, text: str) -> None:

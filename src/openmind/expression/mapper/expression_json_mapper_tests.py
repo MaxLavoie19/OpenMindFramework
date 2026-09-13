@@ -4,6 +4,7 @@ import pytest
 
 from openmind.expression.mapper.expression_json_mapper import ExpressionJsonMapper
 from openmind.expression.model.action_parameter import ActionParameter
+from openmind.expression.model.all_different import AllDifferent
 from openmind.expression.model.all_of import AllOf
 from openmind.expression.model.any_of import AnyOf
 from openmind.expression.model.constant import Constant
@@ -27,6 +28,7 @@ from openmind.expression.model.state_variable import StateVariable
         Not(Constant(False)),
         AllOf((Constant(True), Equals(ActionParameter("row"), Constant(2)))),
         AnyOf((Constant(False), Constant(True))),
+        AllDifferent((ActionParameter("cell(1,3)"), StateVariable("cell(1,1)"), Constant(4))),
     ],
 )
 def test_round_trip_through_json_text(expression: Expression) -> None:

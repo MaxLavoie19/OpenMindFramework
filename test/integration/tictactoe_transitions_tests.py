@@ -3,7 +3,7 @@ from openmind.agent.factory.tictactoe_factory import (
     create_tictactoe_problem,
     create_tictactoe_transitions,
 )
-from openmind.csp.service.solver import Solver
+from openmind.csp.factory.csp_factory import create_solver
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
 from openmind.predictor.service.predictor import Predictor
@@ -32,8 +32,7 @@ def values_of(state: State, *names: str) -> tuple[Value, ...]:
 
 
 def legal_action_count(state: State) -> int:
-    names = VariableNameMapper()
-    solver = Solver(Interpreter(names), ExpressionTextMapper(names), ActionTextMapper())
+    solver = create_solver()
     return len(solver.solve(create_tictactoe_problem(), state))
 
 

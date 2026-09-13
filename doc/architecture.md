@@ -29,9 +29,9 @@ become rules.
 |---|---|---|
 | `world` | `Value`, `State`, `Action` | iteration 1 |
 | `expression` | Rule expressions and the `Interpreter` that evaluates them | iteration 1 |
-| `csp` | Action definitions, parameter domains, constraints, `Solver` | iteration 1 |
+| `csp` | Constraint satisfaction: action definitions, domains, constraints, and a solver with propagation and backtracking | iterations 1 and 7 |
 | `agent` | The agent and its domains | iteration 4 |
-| `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill` | iterations 3–6 |
+| `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-solve` | iterations 3–7 |
 | `predictor` | Transitions, outcome probability distributions | iteration 2 |
 | `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater` | iterations 4–6 |
 | `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play | iteration 5 |
@@ -54,6 +54,7 @@ become rules.
   candidates, predictor effects, search iterations) log at DEBUG; decisions (choices, search results) at INFO.
 - Unit tests sit beside their target as `<module>_tests.py`; integration and end-to-end tests live in `test/`.
 - `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Evaluation reports go in
-  `data/evaluation/<domain>/` and rule bases in `data/rbs/<domain>/`, both ignored by git. Tests save their logs
+  `data/evaluation/<domain>/`, rule bases in `data/rbs/<domain>/` and published sudoku collections in `data/sudoku/`,
+  all ignored by git. Tests save their logs
   in `data/log/<test file>/<test name>.log`, which git ignores; a test marked `@pytest.mark.log_level("INFO")` saves
   only INFO and above.

@@ -5,7 +5,7 @@ import pytest
 
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
-from openmind.csp.service.solver import Solver
+from openmind.csp.factory.csp_factory import create_solver
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.model.constant import Constant
 from openmind.expression.model.equals import Equals
@@ -52,7 +52,7 @@ def search(
     names = VariableNameMapper()
     interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
     tree_search = TreeSearch(
-        Solver(interpreter, expression_text, action_text),
+        create_solver(),
         Predictor(interpreter, names, expression_text, action_text),
         StateReader(),
         action_text,

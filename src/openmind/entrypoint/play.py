@@ -9,7 +9,7 @@ from openmind.agent.factory.agent_factory import create_agent
 from openmind.agent.factory.domain_factory import create_domain
 from openmind.agent.model.domain import Domain
 from openmind.agent.service.agent import Agent
-from openmind.csp.service.solver import Solver
+from openmind.csp.factory.csp_factory import create_solver
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
 from openmind.predictor.service.predictor import Predictor
@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> None:
 def _play(domain: Domain, agent_players: frozenset[str], agent: Agent | None) -> None:
     names = VariableNameMapper()
     interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-    solver = Solver(interpreter, expression_text, action_text)
+    solver = create_solver()
     predictor = Predictor(interpreter, names, expression_text, action_text)
     state_text, state_reader = StateTextMapper(), StateReader()
 

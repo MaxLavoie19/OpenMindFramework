@@ -17,9 +17,11 @@ the strategy RBS will use them too.
 | `model/not_.py` | `Not(operand)`: true when the operand is false (`not` is a Python keyword, hence `not_.py`) |
 | `model/all_of.py` | `AllOf(operands)`: true when every operand is true |
 | `model/any_of.py` | `AnyOf(operands)`: true when at least one operand is true |
+| `model/all_different.py` | `AllDifferent(operands)`: true when no two operands have the same value |
 | `model/expression.py` | `Expression`: the union of the types above |
 | `mapper/expression_text_mapper.py` | `ExpressionTextMapper`: readable text for logs, such as `all(payoff(X) == None, cell(row,col) == None)` |
 | `mapper/expression_json_mapper.py` | `ExpressionJsonMapper`: an expression as JSON-compatible data and back, for saved rules |
+| `mapper/parameter_scope_mapper.py` | `ParameterScopeMapper`: the names of the action parameters an expression reads |
 | `service/interpreter.py` | `Interpreter`: evaluates an expression against a state and an action |
 
 ## Usage
@@ -48,7 +50,8 @@ Interpreter(VariableNameMapper()).evaluate(cell_is_empty, state, action)   # Fal
 
 - The vocabulary is closed: the interpreter evaluates only the types above and raises `TypeError` for anything else.
 - An unknown state variable or action parameter raises `KeyError`.
-- Adding an expression type means adding its model, adding it to `Expression`, and handling it in `Interpreter`.
+- Adding an expression type means adding its model, adding it to `Expression`, and handling it in `Interpreter`,
+  `ExpressionTextMapper`, `ExpressionJsonMapper` and `ParameterScopeMapper`.
 - The interpreter doesn't log; the services that use it log their decisions.
 - Tests: `mapper/expression_json_mapper_tests.py`, `mapper/expression_text_mapper_tests.py`,
-  `service/interpreter_tests.py`.
+  `mapper/parameter_scope_mapper_tests.py`, `service/interpreter_tests.py`.

@@ -28,6 +28,27 @@ python3 -m venv .venv
 Humans pick legal actions by number; the agent searches with MCTS. Each game's log is saved in
 `data/log/play/tictactoe/`.
 
+## Solve
+
+```bash
+.venv/bin/openmind-solve sudoku                              # the puzzle written in the sudoku factory
+.venv/bin/openmind-solve sudoku/euler sudoku/top95 sudoku/hardest   # every puzzle of three collections
+.venv/bin/openmind-solve sudoku/top95/7                      # one puzzle of a collection
+```
+
+Solves domains' constraint problems with the CSP alone. A domain or a single puzzle prints each solution; a collection
+prints a summary line per puzzle, then its totals. Each argument's log is saved in `data/log/solve/<argument>/`, for
+example `data/log/solve/sudoku/top95/`.
+
+The published sudoku collections are not in the repository. Download them into `data/sudoku/`, which git ignores:
+
+```bash
+mkdir -p data/sudoku
+curl -o data/sudoku/euler.txt https://projecteuler.net/project/resources/p096_sudoku.txt   # Project Euler, problem 96: 50 puzzles
+curl -o data/sudoku/top95.txt https://norvig.com/top95.txt                                 # Peter Norvig: 95 puzzles
+curl -o data/sudoku/hardest.txt https://norvig.com/hardest.txt                             # Peter Norvig: 11 puzzles
+```
+
 ## Distill
 
 ```bash
@@ -58,6 +79,9 @@ Unit tests sit beside the code they test (`solver.py` → `solver_tests.py`); in
 
 Each test saves its logs, from DEBUG up, in `data/log/<test file>/<test name>.log`, for example
 `data/log/test/integration/tictactoe_transitions_tests/test_winning_move_sets_payoffs_and_ends_the_game.log`.
+
+`test/integration/sudoku_collections_solve_tests.py` solves every puzzle in `data/sudoku/`, one test per puzzle; it is
+skipped when that folder holds no collection.
 
 ## Layout
 

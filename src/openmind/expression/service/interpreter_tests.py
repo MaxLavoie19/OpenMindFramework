@@ -1,6 +1,7 @@
 import pytest
 
 from openmind.expression.model.action_parameter import ActionParameter
+from openmind.expression.model.all_different import AllDifferent
 from openmind.expression.model.all_of import AllOf
 from openmind.expression.model.any_of import AnyOf
 from openmind.expression.model.constant import Constant
@@ -36,6 +37,8 @@ def evaluate(expression: Expression) -> Value:
         (AllOf((Constant(True), Constant(False))), False),
         (AnyOf((Constant(False), Constant(True))), True),
         (AnyOf((Constant(False), Constant(False))), False),
+        (AllDifferent((Constant(1), StateVariable("turn"), ActionParameter("row"))), True),
+        (AllDifferent((ActionParameter("row"), Constant(2))), False),
     ],
 )
 def test_evaluate(expression: Expression, expected: Value) -> None:

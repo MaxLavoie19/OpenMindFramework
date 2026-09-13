@@ -5,7 +5,7 @@ import pytest
 
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
-from openmind.csp.service.solver import Solver
+from openmind.csp.factory.csp_factory import create_solver
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
 from openmind.predictor.service.predictor import Predictor
@@ -22,7 +22,7 @@ def test_play_collects_the_samples_of_every_search(caplog: pytest.LogCaptureFixt
     names = VariableNameMapper()
     interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
     self_play = SelfPlay(
-        Solver(interpreter, expression_text, action_text),
+        create_solver(),
         Predictor(interpreter, names, expression_text, action_text),
         StateReader(),
     )

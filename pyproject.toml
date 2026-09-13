@@ -17,6 +17,7 @@ dependencies = []
 openmind-play = "openmind.entrypoint.play:main"
 openmind-evaluate = "openmind.entrypoint.evaluate:main"
 openmind-distill = "openmind.entrypoint.distill:main"
+openmind-solve = "openmind.entrypoint.solve:main"
 
 [dependency-groups]
 dev = ["pytest>=9.1"]

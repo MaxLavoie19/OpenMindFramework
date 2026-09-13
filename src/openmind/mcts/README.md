@@ -27,7 +27,7 @@ player gets through the variables named in `Players`. It knows nothing about any
 import math
 
 from openmind.agent.factory.domain_factory import create_domain
-from openmind.csp.service.solver import Solver
+from openmind.csp.factory.csp_factory import create_solver
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
 from openmind.mcts.model.search_settings import SearchSettings
@@ -40,7 +40,7 @@ from openmind.world.service.state_reader import StateReader
 names = VariableNameMapper()
 interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
 tree_search = TreeSearch(
-    Solver(interpreter, expression_text, action_text),
+    create_solver(),
     Predictor(interpreter, names, expression_text, action_text),
     StateReader(),
     action_text,

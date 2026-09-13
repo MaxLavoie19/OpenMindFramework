@@ -1,4 +1,4 @@
-from openmind.csp.service.solver import Solver
+from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
 from openmind.predictor.service.predictor import Predictor
@@ -17,7 +17,7 @@ class DistillerBuilder:
         names = VariableNameMapper()
         interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
         self_play = SelfPlay(
-            Solver(interpreter, expression_text, action_text),
+            SolverBuilder().build(),
             Predictor(interpreter, names, expression_text, action_text),
             StateReader(),
         )

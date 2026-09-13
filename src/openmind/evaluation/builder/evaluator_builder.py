@@ -1,4 +1,4 @@
-from openmind.csp.service.solver import Solver
+from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.evaluation.service.evaluator import Evaluator
 from openmind.evaluation.service.exact_search import ExactSearch
 from openmind.evaluation.service.match_runner import MatchRunner
@@ -17,7 +17,7 @@ class EvaluatorBuilder:
     def build(self) -> Evaluator:
         names = VariableNameMapper()
         interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-        solver = Solver(interpreter, expression_text, action_text)
+        solver = SolverBuilder().build()
         predictor = Predictor(interpreter, names, expression_text, action_text)
         state_reader = StateReader()
         return Evaluator(

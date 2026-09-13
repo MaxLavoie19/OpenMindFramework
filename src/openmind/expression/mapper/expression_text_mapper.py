@@ -1,4 +1,5 @@
 from openmind.expression.model.action_parameter import ActionParameter
+from openmind.expression.model.all_different import AllDifferent
 from openmind.expression.model.all_of import AllOf
 from openmind.expression.model.any_of import AnyOf
 from openmind.expression.model.constant import Constant
@@ -33,6 +34,8 @@ class ExpressionTextMapper:
                 return f"all({', '.join(self.to_text(operand) for operand in operands)})"
             case AnyOf(operands):
                 return f"any({', '.join(self.to_text(operand) for operand in operands)})"
+            case AllDifferent(operands):
+                return f"all_different({', '.join(self.to_text(operand) for operand in operands)})"
             case _:
                 raise TypeError(f"Not an expression: {expression!r}")
 
