@@ -3,15 +3,18 @@
 ## Purpose
 
 The agent and the domains it works on. Tic-tac-toe is a domain within the agent, not a domain in the code: it exists
-only as this domain's factory recipes and their constants. So far this domain holds only the tic-tac-toe factory; the
-agent itself arrives with MCTS.
+only as this domain's factory recipes and their constants. So far this domain holds the `Domain` model and the
+factories; the agent itself arrives with MCTS.
 
 ## Content
 
 | File | What it is |
 |---|---|
-| `constant/tictactoe_constant.py` | Board size, players, empty and unset values, payoff values, variable and action names |
-| `factory/tictactoe_factory.py` | `create_tictactoe_initial_state()`, `create_tictactoe_problem()` and `create_tictactoe_transitions()` |
+| `model/domain.py` | `Domain(name, initial_state, problem, transitions)`: a domain within the agent |
+| `builder/domain_builder.py` | `DomainBuilder`: collects a domain's parts; rejects missing parts |
+| `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`) |
+| `constant/tictactoe_constant.py` | Domain name, board size, players, empty and unset values, payoff values, variable and action names |
+| `factory/tictactoe_factory.py` | `create_tictactoe_domain()`, assembled from `create_tictactoe_initial_state()`, `create_tictactoe_problem()` and `create_tictactoe_transitions()` |
 
 ## Tic-tac-toe
 
@@ -44,11 +47,7 @@ The action `place(row, col)`, with row and col in 1..3, is legal when all of the
 ## Usage
 
 ```python
-from openmind.agent.factory.tictactoe_factory import (
-    create_tictactoe_initial_state,
-    create_tictactoe_problem,
-    create_tictactoe_transitions,
-)
+from openmind.agent.factory.domain_factory import create_domain
 from openmind.csp.service.solver import Solver
 from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
 from openmind.expression.service.interpreter import Interpreter
@@ -58,15 +57,16 @@ from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 names = VariableNameMapper()
 interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-state = create_tictactoe_initial_state()
-actions = Solver(interpreter, expression_text, action_text).solve(create_tictactoe_problem(), state)
+domain = create_domain("tictactoe")
+actions = Solver(interpreter, expression_text, action_text).solve(domain.problem, domain.initial_state)
 # 9 actions; actions[0] is Action(name='place', parameters=(('col', 1), ('row', 1)))
 predictor = Predictor(interpreter, names, expression_text, action_text)
-distribution = predictor.predict(create_tictactoe_transitions(), state, actions[0])
+distribution = predictor.predict(domain.transitions, domain.initial_state, actions[0])
 # OutcomeDistribution(outcomes=((State(variables=(('cell(1,1)', 'X'), ('cell(1,2)', None), …, ('turn', 'O'))), 1.0),))
 ```
 
 ## Notes
 
-- Tests: `factory/tictactoe_factory_tests.py`; integration: `test/integration/tictactoe_actions_tests.py`,
-  `test/integration/tictactoe_transitions_tests.py`.
+- Tests: `builder/domain_builder_tests.py`, `factory/domain_factory_tests.py`, `factory/tictactoe_factory_tests.py`;
+  integration: `test/integration/tictactoe_actions_tests.py`, `test/integration/tictactoe_transitions_tests.py`;
+  end-to-end: `test/end_to_end/play_tictactoe_tests.py`.

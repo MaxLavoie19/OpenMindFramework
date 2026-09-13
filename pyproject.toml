@@ -13,6 +13,9 @@ license-files = ["LICENSE"]
 authors = [{ name = "Maxime Lavoie" }]
 dependencies = []
 
+[project.scripts]
+openmind-play = "openmind.entrypoint.play:main"
+
 [dependency-groups]
 dev = ["pytest>=9.1"]
 

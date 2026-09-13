@@ -1,3 +1,4 @@
+from openmind.agent.builder.domain_builder import DomainBuilder
 from openmind.agent.constant.tictactoe_constant import (
     BOARD_SIZE,
     CELL,
@@ -6,6 +7,7 @@ from openmind.agent.constant.tictactoe_constant import (
     DRAW,
     EMPTY,
     LOSS,
+    NAME,
     PAYOFF,
     PLACE,
     PLAYERS,
@@ -14,6 +16,7 @@ from openmind.agent.constant.tictactoe_constant import (
     UNSET,
     WIN,
 )
+from openmind.agent.model.domain import Domain
 from openmind.csp.builder.problem_builder import ProblemBuilder
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
@@ -120,5 +123,17 @@ def create_tictactoe_transitions() -> TransitionModel:
     return (
         TransitionModelBuilder()
         .with_transition(PLACE, (Branch(CERTAIN, (mark_cell, *wins, draw, pass_turn)),))
+        .build()
+    )
+
+
+def create_tictactoe_domain() -> Domain:
+    """Tic-tac-toe: its initial state, constraints and transitions."""
+    return (
+        DomainBuilder()
+        .with_name(NAME)
+        .with_initial_state(create_tictactoe_initial_state())
+        .with_problem(create_tictactoe_problem())
+        .with_transitions(create_tictactoe_transitions())
         .build()
     )

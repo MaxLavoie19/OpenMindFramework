@@ -30,7 +30,8 @@ become rules.
 | `world` | `Value`, `State`, `Action` | iteration 1 |
 | `expression` | Rule expressions and the `Interpreter` that evaluates them | iteration 1 |
 | `csp` | Action definitions, parameter domains, constraints, `Solver` | iteration 1 |
-| `agent` | The agent and its domains | iterations 1–2: tic-tac-toe factory only |
+| `agent` | The agent and its domains | iteration 3: `Domain` and factories; the agent itself is planned |
+| `entrypoint` | Ways to run the framework: `openmind-play` | iteration 3 |
 | `predictor` | Transitions, outcome probability distributions | iteration 2 |
 | `mcts` | Search | planned |
 | `tracking` | Played games, training runs, metrics and logs in `data/` | planned |

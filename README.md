@@ -18,6 +18,14 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e . --group dev
 ```
 
+## Play
+
+```bash
+.venv/bin/openmind-play tictactoe
+```
+
+Players pick legal actions by number. Each game's log is saved in `data/log/play/tictactoe/`.
+
 ## Tests
 
 Unit tests sit beside the code they test (`solver.py` → `solver_tests.py`); integration and end-to-end tests live in

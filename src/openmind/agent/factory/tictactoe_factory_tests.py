@@ -1,8 +1,10 @@
 from openmind.agent.factory.tictactoe_factory import (
+    create_tictactoe_domain,
     create_tictactoe_initial_state,
     create_tictactoe_problem,
     create_tictactoe_transitions,
 )
+from openmind.agent.model.domain import Domain
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
@@ -50,3 +52,12 @@ def test_transitions_give_place_one_certain_branch() -> None:
     (branch,) = transition.branches
 
     assert (transition.action, branch.probability) == ("place", 1.0)
+
+
+def test_domain_holds_the_tictactoe_recipes() -> None:
+    assert create_tictactoe_domain() == Domain(
+        "tictactoe",
+        create_tictactoe_initial_state(),
+        create_tictactoe_problem(),
+        create_tictactoe_transitions(),
+    )
