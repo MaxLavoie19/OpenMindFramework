@@ -14,12 +14,8 @@ from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
 from openmind.agent.repository.sudoku_puzzle_repository import SudokuPuzzleRepository
 from openmind.csp.constant.solver_constant import DEFAULT_SOLUTION_LIMIT
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.mapper.state_text_mapper import StateTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +56,7 @@ def main(argv: list[str] | None = None) -> None:
     runs = [_resolve(parser, repository, Path(arguments.puzzle_directory), domain) for domain in arguments.domains]
 
     solver = create_solver()
-    names = VariableNameMapper()
-    predictor = Predictor(Interpreter(names), names, ExpressionTextMapper(names), ActionTextMapper())
+    predictor = create_predictor()
     state_text = StateTextMapper()
     for name, domains, is_collection in runs:
         directory = Path(arguments.log_directory) / name

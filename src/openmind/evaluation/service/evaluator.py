@@ -1,49 +1,64 @@
 import logging
 import math
 import random
-import time
+import warnings
 from datetime import datetime
+from functools import partial
+
+import numpy as np
+from scipy.stats import binomtest, wilcoxon
 
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.factory.agent_factory import create_agent
+from openmind.agent.constant.agent_constant import EXPLORATION
 from openmind.agent.model.domain import Domain
-from openmind.agent.model.policy import Policy
-from openmind.agent.service.agent import Agent
-from openmind.agent.service.random_policy import RandomPolicy
-from openmind.csp.service.solver import Solver
-from openmind.evaluation.constant.evaluation_constant import RANDOM_OPPONENT, UNTRAINED_OPPONENT
+from openmind.agent.model.policy_factory import PolicyFactory
+from openmind.evaluation.constant.evaluation_constant import RANDOM_OPPONENT, REFERENCE_TOLERANCE, UNTRAINED_OPPONENT
+from openmind.evaluation.factory.baseline_policy_factory import create_built_agent, create_random_policy
+from openmind.evaluation.model.action_values import ActionValues
 from openmind.evaluation.model.agreement import Agreement
 from openmind.evaluation.model.evaluation_report import EvaluationReport
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
+from openmind.evaluation.model.guidance_test import GuidanceTest
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.model.rater_agreement import RaterAgreement
+from openmind.evaluation.service.choice_measurer import ChoiceMeasurer
 from openmind.evaluation.service.exact_search import ExactSearch
 from openmind.evaluation.service.match_runner import MatchRunner
+from openmind.evaluation.service.reference_search import ReferenceSearch
 from openmind.mcts.model.action_rater import ActionRater
+from openmind.parallel.service.task_runner import TaskRunner
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.state_text_mapper import StateTextMapper
-from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)
 
+type Measures = tuple[np.ndarray, np.ndarray, np.ndarray]
+
 
 class Evaluator:
-    """Measures how well an agent plays a domain: results against baselines and agreement with perfect play. When a
-    rater guides the agent, agreement is also measured, on the same positions, for an unguided agent and for the rater
-    alone."""
+    """Measures how well an agent plays a domain: results against baselines and agreement with perfect play, from exact
+    search or, with reference_iterations, from long unguided searches on positions of random games. When a rater guides
+    the agent, agreement is also measured, on the same positions, for an unguided agent and for the rater alone, and the
+    guided and unguided agents are compared position by position with paired tests. Baseline games, reference searches
+    and the positions searched at each budget run in the task runner's workers; every search is seeded, so the
+    results don't depend on the number of workers."""
 
     def __init__(
         self,
         match_runner: MatchRunner,
         exact_search: ExactSearch,
-        solver: Solver,
+        reference_search: ReferenceSearch,
+        choice_measurer: ChoiceMeasurer,
+        task_runner: TaskRunner,
         state_text_mapper: StateTextMapper,
         action_text_mapper: ActionTextMapper,
     ) -> None:
         self._match_runner = match_runner
         self._exact_search = exact_search
-        self._solver = solver
+        self._reference_search = reference_search
+        self._choice_measurer = choice_measurer
+        self._task_runner = task_runner
         self._state_text_mapper = state_text_mapper
         self._action_text_mapper = action_text_mapper
 
@@ -55,42 +70,52 @@ class Evaluator:
         rules_file: str | None = None,
         rater: ActionRater | None = None,
     ) -> EvaluationReport:
-        """Sets the builder's iterations and seed for every agent it builds. rules_file names what guides the agent, and
-        rater is that same model, to compare the agent with an unguided one and to measure the rater alone."""
+        """Sets the builder's iterations, seed and rollout guidance for every agent it builds. rules_file names what
+        guides the agent, and rater is that same model, to compare the agent with an unguided one and to measure the
+        rater alone. A reference search samples positions, so it needs a number of positions rather than all of them.
+        To run in several workers, the builder, with its rater, must pickle."""
         rng = random.Random(settings.seed)
-        evaluated = agent_builder.with_iterations(settings.iterations).with_seed(settings.seed).build()
-        opponents: tuple[tuple[str, Policy], ...] = (
-            (RANDOM_OPPONENT, RandomPolicy(self._solver, random.Random(settings.seed))),
-            (UNTRAINED_OPPONENT, create_agent(settings.iterations, settings.seed)),
+        agent_builder.with_guided_rollouts(settings.guided_rollouts)
+        agent_builder.with_iterations(settings.iterations).with_seed(settings.seed)
+        untrained = AgentBuilder().with_exploration(EXPLORATION).with_iterations(settings.iterations).with_seed(settings.seed)
+        opponents: tuple[tuple[str, PolicyFactory], ...] = (
+            (RANDOM_OPPONENT, create_random_policy),
+            (UNTRAINED_OPPONENT, partial(create_built_agent, untrained)),
         )
+        evaluated = partial(create_built_agent, agent_builder)
         baselines = tuple(
             self._series(domain, evaluated, name, opponent, settings.games, rng) for name, opponent in opponents
         )
         every_action_optimal = 0
         agreement: list[Agreement] = []
         unguided_agreement: list[Agreement] = []
+        guidance_tests: list[GuidanceTest] = []
         rater_agreement: RaterAgreement | None = None
         if settings.positions == 0:
             logger.info("Agreement with perfect play skipped: no positions")
         else:
-            positions = self._exact_search.positions(domain)
-            if settings.positions is None:
-                sample = list(positions)
-            else:
-                sample = rng.sample(positions, min(settings.positions, len(positions)))
-            values = [self._exact_search.action_values(domain, state) for state in sample]
-            every_action_optimal = sum(1 for action_values in values if len(self._optimal(action_values)) == len(action_values))
+            sample, values, tolerance = self._reference(domain, settings, rng)
+            every_action_optimal = sum(
+                1
+                for action_values in values
+                if len(self._choice_measurer.optimal(action_values, tolerance)) == len(action_values)
+            )
             logger.info("Every action is optimal in %d of %d positions", every_action_optimal, len(sample))
             for iterations in settings.budgets:
-                guided = agent_builder.with_iterations(iterations).with_seed(settings.seed).build()
-                agreement.append(self._agreement(domain, guided, iterations, sample, values, "Agreement"))
+                agent_builder.with_iterations(iterations).with_seed(settings.seed)
+                guided_result, guided_measures = self._agreement(
+                    domain, agent_builder, iterations, sample, values, tolerance, "Agreement"
+                )
+                agreement.append(guided_result)
                 if rater is not None:
-                    unguided = create_agent(iterations, settings.seed)
-                    unguided_agreement.append(
-                        self._agreement(domain, unguided, iterations, sample, values, "Unguided agreement")
+                    unguided = AgentBuilder().with_exploration(EXPLORATION).with_iterations(iterations).with_seed(settings.seed)
+                    unguided_result, unguided_measures = self._agreement(
+                        domain, unguided, iterations, sample, values, tolerance, "Unguided agreement"
                     )
+                    unguided_agreement.append(unguided_result)
+                    guidance_tests.append(self._guidance_test(iterations, guided_measures, unguided_measures))
             if rater is not None:
-                rater_agreement = self._rater_agreement(rater, sample, values)
+                rater_agreement = self._rater_agreement(rater, sample, values, tolerance)
         created_at = datetime.now().replace(microsecond=0)
         return EvaluationReport(
             domain.name,
@@ -102,14 +127,45 @@ class Evaluator:
             tuple(agreement),
             tuple(unguided_agreement),
             rater_agreement,
+            tuple(guidance_tests),
         )
+
+    def _reference(
+        self, domain: Domain, settings: EvaluationSettings, rng: random.Random
+    ) -> tuple[list[State], list[ActionValues], float]:
+        """The positions to measure, every legal action's value in each, and how far from the best an optimal action's
+        value may be."""
+        if settings.reference_iterations is None:
+            positions = self._exact_search.positions(domain)
+            if settings.positions is None:
+                sample = list(positions)
+            else:
+                sample = rng.sample(positions, min(settings.positions, len(positions)))
+            return sample, [self._exact_search.action_values(domain, state) for state in sample], 0.0
+        if settings.positions is None:
+            raise ValueError("A reference search samples positions: give a number of positions, not all of them")
+        sample = list(self._reference_search.positions(domain, settings.positions, rng))
+        count = len(sample)
+        values = self._task_runner.map(
+            self._reference_search.action_values,
+            [domain] * count,
+            sample,
+            [settings.reference_iterations] * count,
+            [settings.seed] * count,
+        )
+        logger.info(
+            "Reference values from %d-iteration unguided searches on %d positions",
+            settings.reference_iterations,
+            len(sample),
+        )
+        return sample, values, REFERENCE_TOLERANCE
 
     def _series(
         self,
         domain: Domain,
-        evaluated: Policy,
+        evaluated: PolicyFactory,
         name: str,
-        opponent: Policy,
+        opponent: PolicyFactory,
         games: int,
         rng: random.Random,
     ) -> MatchResults:
@@ -127,49 +183,35 @@ class Evaluator:
     def _agreement(
         self,
         domain: Domain,
-        agent: Agent,
+        agent_builder: AgentBuilder,
         iterations: int,
         sample: list[State],
-        values: list[tuple[tuple[Action, float], ...]],
+        values: list[ActionValues],
+        tolerance: float,
         kind: str,
-    ) -> Agreement:
-        optimal = 0
-        shares: list[float] = []
-        regrets: list[float] = []
-        seconds: list[float] = []
-        for state, action_values in zip(sample, values, strict=True):
-            started = time.perf_counter()
-            result = agent.search(domain, state)
-            seconds.append(time.perf_counter() - started)
-            value_of = dict(action_values)
-            best = max(value_of.values())
-            optimal_actions = self._optimal(action_values)
-            visits = sum(item.visits for item in result.statistics)
-            optimal_visits = sum(item.visits for item in result.statistics if item.action in optimal_actions)
-            share = optimal_visits / visits if visits else 0.0
-            regret = best - value_of[result.chosen]
-            optimal += result.chosen in optimal_actions
-            shares.append(share)
-            regrets.append(regret)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "%s at %d iterations: chose %s, regret %s; optimal: %s; %s of visits on optimal actions; state: %s",
-                    kind,
-                    iterations,
-                    self._action_text_mapper.to_text(result.chosen),
-                    regret,
-                    ", ".join(self._action_text_mapper.to_text(action) for action, _ in action_values if action in optimal_actions),
-                    share,
-                    self._state_text_mapper.to_text(state).replace("\n", ", "),
-                )
-        count = len(sample)
+    ) -> tuple[Agreement, Measures]:
+        """The agreement, and per position whether the choice was optimal, the share of visits on low-value actions and
+        the regret. The positions are split between the workers, each slice searched by an agent built once."""
+        slices = self._task_runner.split(list(zip(sample, values, strict=True)))
+        count = len(slices)
+        results = self._task_runner.map(
+            self._choice_measurer.measure,
+            [domain] * count,
+            [agent_builder] * count,
+            slices,
+            [tolerance] * count,
+            [kind] * count,
+            [iterations] * count,
+        )
+        measures = [measure for result in results for measure in result]
+        positions = len(measures)
         agreement = Agreement(
             iterations,
-            count,
-            optimal,
-            math.fsum(shares) / count if count else 0.0,
-            math.fsum(regrets) / count if count else 0.0,
-            math.fsum(seconds) / count if count else 0.0,
+            positions,
+            sum(measure.optimal for measure in measures),
+            math.fsum(measure.optimal_visit_share for measure in measures) / positions if positions else 0.0,
+            math.fsum(measure.regret for measure in measures) / positions if positions else 0.0,
+            math.fsum(measure.seconds for measure in measures) / positions if positions else 0.0,
         )
         logger.info(
             "%s with perfect play at %d iterations: %d of %d positions, %s of visits on optimal actions, mean regret %s, "
@@ -182,10 +224,57 @@ class Evaluator:
             agreement.mean_regret,
             agreement.seconds_per_choice,
         )
-        return agreement
+        return agreement, (
+            np.array([measure.optimal for measure in measures], dtype=bool),
+            1.0 - np.array([measure.optimal_visit_share for measure in measures], dtype=float),
+            np.array([measure.regret for measure in measures], dtype=float),
+        )
+
+    def _guidance_test(self, iterations: int, guided: Measures, unguided: Measures) -> GuidanceTest:
+        guided_optimal, guided_low_value, guided_regret = guided
+        unguided_optimal, unguided_low_value, unguided_regret = unguided
+        only_guided = int(np.count_nonzero(guided_optimal & ~unguided_optimal))
+        only_unguided = int(np.count_nonzero(unguided_optimal & ~guided_optimal))
+        discordant = only_guided + only_unguided
+        low_value_differences = guided_low_value - unguided_low_value
+        regret_differences = guided_regret - unguided_regret
+        test = GuidanceTest(
+            iterations,
+            len(low_value_differences),
+            float(low_value_differences.mean()) if len(low_value_differences) else 0.0,
+            self._signed_rank(low_value_differences),
+            float(regret_differences.mean()) if len(regret_differences) else 0.0,
+            self._signed_rank(regret_differences),
+            only_guided,
+            only_unguided,
+            float(binomtest(only_guided, discordant, 0.5).pvalue) if discordant else 1.0,
+        )
+        logger.info(
+            "Guided against unguided at %d iterations on %d positions: low-value visit share %+f (p %s), regret %+f "
+            "(p %s), optimal choice only guided %d, only unguided %d (p %s)",
+            test.iterations,
+            test.positions,
+            test.low_value_share_difference,
+            test.low_value_share_p,
+            test.regret_difference,
+            test.regret_p,
+            test.optimal_only_guided,
+            test.optimal_only_unguided,
+            test.optimal_choice_p,
+        )
+        return test
+
+    def _signed_rank(self, differences: np.ndarray) -> float:
+        """The two-sided Wilcoxon signed-rank p-value, zero differences split between the signs; 1 without a nonzero
+        difference."""
+        if not np.any(differences != 0):
+            return 1.0
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return float(wilcoxon(differences, zero_method="zsplit").pvalue)
 
     def _rater_agreement(
-        self, rater: ActionRater, sample: list[State], values: list[tuple[tuple[Action, float], ...]]
+        self, rater: ActionRater, sample: list[State], values: list[ActionValues], tolerance: float
     ) -> RaterAgreement:
         """Picks uniformly among the top-rated actions; like the search, an action rated None gets the mean of the
         other ratings, and a position where every rating is None has every action top-rated."""
@@ -202,7 +291,7 @@ class Evaluator:
             picks = [(action, value) for (action, value), rating in zip(action_values, filled, strict=True) if math.isclose(rating, top)]
             distinguishing += len(picks) < len(actions)
             best = max(value for _, value in action_values)
-            optimal_actions = self._optimal(action_values)
+            optimal_actions = self._choice_measurer.optimal(action_values, tolerance)
             optimal.append(sum(1 for action, _ in picks if action in optimal_actions) / len(picks))
             regrets.append(math.fsum(best - value for _, value in picks) / len(picks))
             if logger.isEnabledFor(logging.DEBUG):
@@ -227,7 +316,3 @@ class Evaluator:
             rater_agreement.mean_regret,
         )
         return rater_agreement
-
-    def _optimal(self, action_values: tuple[tuple[Action, float], ...]) -> frozenset[Action]:
-        best = max(value for _, value in action_values)
-        return frozenset(action for action, value in action_values if math.isclose(value, best))

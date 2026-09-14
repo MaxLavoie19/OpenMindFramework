@@ -38,6 +38,31 @@ def test_build_with_guidance_expands_the_best_rated_action_first() -> None:
     assert agent.choose(domain, domain.initial_state) == CENTER
 
 
+class CountingCenter(FavourCenter):
+    """FavourCenter, counting how often it is asked to rate."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def rate(self, state: State, actions: tuple[Action, ...]) -> tuple[float | None, ...]:
+        self.calls += 1
+        return super().rate(state, actions)
+
+
+@pytest.mark.log_level("INFO")
+def test_build_without_guided_rollouts_rates_only_the_tree_nodes() -> None:
+    domain = create_tictactoe_domain()
+    guided, unguided = CountingCenter(), CountingCenter()
+
+    for rater, rollouts in ((guided, True), (unguided, False)):
+        builder = AgentBuilder().with_iterations(1).with_exploration(1.4).with_seed(1).with_guidance(rater)
+        builder.with_guided_rollouts(rollouts).build().choose(domain, domain.initial_state)
+
+    # One iteration creates the root and the node after the center; only a guided rollout rates its steps too.
+    assert unguided.calls == 2
+    assert guided.calls > 2
+
+
 def test_build_rejects_missing_settings() -> None:
     with pytest.raises(ValueError, match="iterations"):
         AgentBuilder().with_exploration(1.4).build()

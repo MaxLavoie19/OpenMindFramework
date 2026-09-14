@@ -21,6 +21,8 @@ class ReportJsonMapper:
                     "positions": settings.positions,
                     "budgets": list(settings.budgets),
                     "seed": settings.seed,
+                    "reference_iterations": settings.reference_iterations,
+                    "guided_rollouts": settings.guided_rollouts,
                 },
                 "baselines": [
                     {
@@ -43,6 +45,20 @@ class ReportJsonMapper:
                     "optimal": rater.optimal,
                     "mean_regret": rater.mean_regret,
                 },
+                "guidance_tests": [
+                    {
+                        "iterations": test.iterations,
+                        "positions": test.positions,
+                        "low_value_share_difference": test.low_value_share_difference,
+                        "low_value_share_p": test.low_value_share_p,
+                        "regret_difference": test.regret_difference,
+                        "regret_p": test.regret_p,
+                        "optimal_only_guided": test.optimal_only_guided,
+                        "optimal_only_unguided": test.optimal_only_unguided,
+                        "optimal_choice_p": test.optimal_choice_p,
+                    }
+                    for test in report.guidance_tests
+                ],
             },
             indent=2,
         )

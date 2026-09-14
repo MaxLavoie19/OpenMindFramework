@@ -3,12 +3,8 @@ import pytest
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.evaluation.service.exact_search import ExactSearch
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.builder.state_builder import StateBuilder
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 from openmind.world.service.state_reader import StateReader
 
@@ -17,13 +13,7 @@ pytestmark = pytest.mark.log_level("INFO")
 
 @pytest.fixture(scope="module")
 def exact_search() -> ExactSearch:
-    names = VariableNameMapper()
-    interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-    return ExactSearch(
-        create_solver(),
-        Predictor(interpreter, names, expression_text, action_text),
-        StateReader(),
-    )
+    return ExactSearch(create_solver(), create_predictor(), StateReader())
 
 
 def test_tictactoe_has_4520_positions_with_a_legal_action(exact_search: ExactSearch) -> None:

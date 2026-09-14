@@ -1,24 +1,36 @@
+from typing import Self
+
 from openmind.csp.builder.solver_builder import SolverBuilder
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
-from openmind.rbs.builder.rule_inducer_builder import RuleInducerBuilder
+from openmind.parallel.service.task_runner import TaskRunner
+from openmind.predictor.builder.predictor_builder import PredictorBuilder
+from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
+from openmind.rbs.builder.rule_generator_builder import RuleGeneratorBuilder
+from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.rule.service.rule_runner import RuleRunner
 from openmind.training.service.distiller import Distiller
 from openmind.training.service.self_play import SelfPlay
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.service.state_reader import StateReader
 
 
 class DistillerBuilder:
-    """Wires the services a distiller works with."""
+    """Sets how many worker processes a distiller's self-play games run in, 1 by default, and wires the services it
+    works with."""
+
+    def __init__(self) -> None:
+        self._workers = 1
+
+    def with_workers(self, workers: int) -> Self:
+        self._workers = workers
+        return self
 
     def build(self) -> Distiller:
-        names = VariableNameMapper()
-        interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-        self_play = SelfPlay(
-            SolverBuilder().build(),
-            Predictor(interpreter, names, expression_text, action_text),
-            StateReader(),
+        self_play = SelfPlay(SolverBuilder().build(), PredictorBuilder().build(), StateReader(), TaskRunner(self._workers))
+        return Distiller(
+            self_play,
+            RuleGeneratorBuilder().build(),
+            RuleCompiler(),
+            RuleRunner(StateNamespaceMapper(VariableNameMapper())),
+            ConsequenceLibraryBuilder().build(),
         )
-        return Distiller(self_play, RuleInducerBuilder().build(), interpreter)

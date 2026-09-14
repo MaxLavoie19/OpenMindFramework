@@ -56,8 +56,10 @@ curl -o data/sudoku/hardest.txt https://norvig.com/hardest.txt                  
 .venv/bin/openmind-distill tictactoe
 ```
 
-Lets the agent play itself, induces rules from its searches, and prints them with their measures. The rule base is
-saved in `data/rbs/tictactoe/` and the log in `data/log/distill/tictactoe/`.
+Lets the agent play itself and generates rules from its searches: hypotheses about which moves deserve more or less
+exploration, discovered in some games and kept only when a permutation test on held-out games supports them at a
+false discovery rate. It prints the rules and the validated hypotheses with their measures. The rule base is saved in
+`data/rbs/tictactoe/` and the log in `data/log/distill/tictactoe/`.
 
 ## Evaluate
 
@@ -68,9 +70,14 @@ saved in `data/rbs/tictactoe/` and the log in `data/log/distill/tictactoe/`.
 Plays the agent against baselines and compares its choices with perfect play. The report is saved in
 `data/evaluation/tictactoe/` and the log in `data/log/evaluate/tictactoe/`. Add `--rules PATH` to evaluate an agent
 guided by a distilled rule base: the summary then puts it side by side with an unguided agent on the same positions
-(optimal choices, share of the search's visits on optimal moves, mean regret, time per choice) and measures the rules
-alone. `--positions all` measures every position instead of a sample. A domain too large to search for perfect play, such as `tictactoe/fourinarow`, is
-evaluated against the baselines alone with `--positions 0`.
+(optimal choices, share of the search's visits on optimal moves, mean regret, time per choice), measures the rules
+alone, and tests, position by position, whether the rules cut the search's visits on low-value moves and its regret.
+`--positions all` measures every position instead of a sample. A domain too large to search for perfect play, such as
+`tictactoe/fourinarow`, is measured against long unguided searches with `--reference-iterations N`, or against the
+baselines alone with `--positions 0`.
+
+Both `openmind-distill` and `openmind-evaluate` run games and searches in worker processes: `--workers N` sets how many
+(half the logical CPUs by default), and the results are the same whatever the number.
 
 ## Tests
 

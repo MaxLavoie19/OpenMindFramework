@@ -1,17 +1,14 @@
 from typing import Self
 
-from openmind.agent.constant.agent_constant import PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
+from openmind.agent.constant.agent_constant import GUIDED_ROLLOUTS, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
 from openmind.agent.service.agent import Agent
 from openmind.csp.builder.solver_builder import SolverBuilder
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
 from openmind.mcts.model.action_rater import ActionRater
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
-from openmind.predictor.service.predictor import Predictor
+from openmind.predictor.builder.predictor_builder import PredictorBuilder
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.service.state_reader import StateReader
 
 
@@ -23,6 +20,7 @@ class AgentBuilder:
         self._exploration: float | None = None
         self._seed: int | None = None
         self._rater: ActionRater | None = None
+        self._guided_rollouts = GUIDED_ROLLOUTS
 
     def with_iterations(self, iterations: int) -> Self:
         self._iterations = iterations
@@ -40,19 +38,21 @@ class AgentBuilder:
         self._rater = rater
         return self
 
+    def with_guided_rollouts(self, guided: bool) -> Self:
+        """Whether a guided agent's rollouts follow the ratings; without, only its tree's nodes are rated."""
+        self._guided_rollouts = guided
+        return self
+
     def build(self) -> Agent:
         iterations, exploration = self._iterations, self._exploration
         if iterations is None or exploration is None:
             raise ValueError("Agent needs iterations and exploration")
         if iterations < 1:
             raise ValueError(f"Agent needs at least 1 iteration, not {iterations}")
-        names = VariableNameMapper()
-        interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-        tree_search = TreeSearch(
-            SolverBuilder().build(),
-            Predictor(interpreter, names, expression_text, action_text),
-            StateReader(),
-            action_text,
+        tree_search = TreeSearch(SolverBuilder().build(), PredictorBuilder().build(), StateReader(), ActionTextMapper())
+        guidance = (
+            Guidance(self._rater, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE, self._guided_rollouts)
+            if self._rater is not None
+            else None
         )
-        guidance = Guidance(self._rater, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE) if self._rater is not None else None
         return Agent(tree_search, SearchSettings(iterations, exploration, self._seed), guidance)

@@ -1,9 +1,11 @@
+from dataclasses import replace
 from datetime import datetime
 
 from openmind.evaluation.mapper.report_text_mapper import ReportTextMapper
 from openmind.evaluation.model.agreement import Agreement
 from openmind.evaluation.model.evaluation_report import EvaluationReport
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
+from openmind.evaluation.model.guidance_test import GuidanceTest
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.model.rater_agreement import RaterAgreement
 
@@ -62,6 +64,50 @@ def test_an_unguided_evaluation_has_a_single_agreement_table() -> None:
         "iterations  optimal  visits on optimal  mean regret  seconds per choice",
         "        10       86              0.550        0.031            0.003277",
     ]
+
+
+def test_paired_tests_follow_as_a_table_and_a_reference_search_is_named() -> None:
+    text = ReportTextMapper().to_text(
+        replace(
+            report(
+                (Agreement(10, 100, 89, 0.6123, 0.02, 0.003792),),
+                (Agreement(10, 100, 86, 0.55, 0.031, 0.003277),),
+                None,
+                "rules.json",
+            ),
+            settings=EvaluationSettings(games=2, iterations=10, positions=100, budgets=(10,), seed=1, reference_iterations=2000),
+            guidance_tests=(GuidanceTest(10, 100, -0.052, 0.0012, -0.004, 0.31, 7, 2, 0.18),),
+        )
+    )
+
+    assert text.splitlines()[2:] == [
+        "Guided by rules.json against unguided, on the same 100 positions "
+        "(reference: 2000-iteration unguided searches; every action optimal in 12):",
+        "iterations  optimal  visits on optimal    mean regret   seconds per choice",
+        "        10  89 / 86      0.612 / 0.550  0.020 / 0.031  0.003792 / 0.003277",
+        "Guided against unguided, paired by position (guided minus unguided; Wilcoxon and McNemar p-values):",
+        "iterations  low-value visits       p  regret     p  optimal only guided / unguided     p",
+        "        10            -0.052  0.0012  -0.004  0.31                           7 / 2  0.18",
+    ]
+
+
+def test_unguided_rollouts_are_named_in_the_heading() -> None:
+    text = ReportTextMapper().to_text(
+        replace(
+            report(
+                (Agreement(10, 100, 89, 0.6123, 0.02, 0.003792),),
+                (Agreement(10, 100, 86, 0.55, 0.031, 0.003277),),
+                None,
+                "rules.json",
+            ),
+            settings=EvaluationSettings(games=2, iterations=10, positions=100, budgets=(10,), seed=1, guided_rollouts=False),
+        )
+    )
+
+    assert text.splitlines()[2] == (
+        "Guided by rules.json with unguided rollouts against unguided, on the same 100 positions "
+        "(every action optimal in 12):"
+    )
 
 
 def test_skipped_agreement_is_said() -> None:

@@ -15,14 +15,15 @@ constants.
 | `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`, a variant such as `"tictactoe/fourinarow"`, or `"sudoku"`); an unknown name or variant raises `ValueError` listing the known ones |
 | `service/agent.py` | `Agent`: searches a domain's state with MCTS, guided by a rater when built with one; `search` gives the whole result, `choose` the action |
 | `model/policy.py` | `Policy`: anything with `choose(domain, state) -> Action`; `Agent` and `RandomPolicy` are policies |
+| `model/policy_factory.py` | `PolicyFactory`: gives the policy that plays a game from the game's seed; to run in worker processes, it must pickle |
 | `service/random_policy.py` | `RandomPolicy`: chooses uniformly among the legal actions; a baseline opponent |
-| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed and guidance (`with_guidance(rater)`), and wires the services the agent searches with; rejects missing settings and fewer than 1 iteration |
+| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed, guidance (`with_guidance(rater)`) and whether guided rollouts follow the ratings (`with_guided_rollouts(guided)`), and wires the services the agent searches with; rejects missing settings and fewer than 1 iteration |
 | `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None)`: an agent searching with the exploration weight √2 |
-| `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), and the guidance's prior weight (1.0) and rollout temperature (0.2) |
+| `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), and the guidance's prior weight (1.0), rollout temperature (0.2) and guided rollouts (true) |
 | `model/tictactoe_variant.py` | `TicTacToeVariant(name, width, height, line, gravity)`: how a variant differs from standard tic-tac-toe |
 | `constant/tictactoe_constant.py` | Domain name and the variant separator, players, empty and unset values, payoff values, variable and action names, the four line directions, and the variants (`STANDARD`, `VARIANTS`) |
-| `factory/tictactoe_factory.py` | `create_tictactoe_domain(variant=STANDARD)`, assembled from `create_tictactoe_initial_state(variant)`, `create_tictactoe_problem(variant)`, `create_tictactoe_transitions(variant)` and `create_tictactoe_players()`; a variant without room for its line raises `ValueError` |
-| `constant/sudoku_constant.py` | Domain name and the separator of puzzle names, box and grid size, digits, the puzzle, empty and clue marks, empty and unset values, the collection file suffix and Project Euler's format marks, payoff values, variable and action names |
+| `factory/tictactoe_factory.py` | `create_tictactoe_domain(variant=STANDARD)`, assembled from `create_tictactoe_initial_state(variant)`, `create_tictactoe_problem(variant)`, `create_tictactoe_transitions(variant)` and `create_tictactoe_players()`, with `create_tictactoe_definitions(variant)` giving the script every rule of the variant sees; a variant without room for its line raises `ValueError` |
+| `constant/sudoku_constant.py` | Domain name and the separator of puzzle names, box and grid size, digits, the puzzle, empty and clue marks, empty and unset values, the collection file suffix and Project Euler's format marks, payoff values, variable and action names, and the parameter name template (`cell_{row}_{col}`) |
 | `factory/sudoku_factory.py` | `create_sudoku_domain(name="sudoku", grid=PUZZLE)`, assembled from `create_sudoku_initial_state(grid)`, `create_sudoku_problem(grid)`, `create_sudoku_transitions(grid)` and `create_sudoku_players()` |
 | `model/sudoku_puzzle.py` | `SudokuPuzzle(collection, number, grid)`: a published puzzle, numbered from 1 in its collection, its grid 81 characters row by row with `.` for an empty cell |
 | `mapper/sudoku_collection_mapper.py` | `SudokuCollectionMapper`: reads a collection's text into puzzles, from one 81-character line per puzzle (Norvig) or a `Grid NN` line and 9 rows (Project Euler), with `.` or `0` for an empty cell; anything else raises `ValueError` |
@@ -60,30 +61,42 @@ read.
 
 ### Constraints (CSP)
 
-Without gravity, the action `place(row, col)`, with row in 1..height and col in 1..width, is legal when all of these
+Every rule of a variant sees the names of `create_tictactoe_definitions(variant)`, a script run once: `WIDTH`,
+`HEIGHT`, `LINE`, `PLAYERS`, `WIN`, `DRAW`, `LOSS`, `other(player)`, and `LINES_THROUGH[row, col]`, every line of
+`LINE` cells through a cell that fits the grid.
+
+Without gravity, the action `place(row, col)`, with row in 1..height and col in 1..width, is legal when these rules
 hold, checked in this order:
 
-1. `payoff(X)` is unset.
-2. `payoff(O)` is unset.
-3. `cell(row,col)` is empty.
+```python
+payoff['X'] is None
+payoff['O'] is None
+cell[row, col] is None
+```
 
-With gravity, the action `drop(col)`, with col in 1..width, is legal when `payoff(X)` and `payoff(O)` are unset and
-`cell(1,col)`, the column's top cell, is empty.
+With gravity, the action `drop(col)`, with col in 1..width, has the same payoff rules and `cell[1, col] is None`, the
+column's top cell.
 
 ### Transitions (predictor)
 
-The action has one branch with probability 1. Its effects apply in order:
+The action has one branch with probability 1, whose effects are this script:
 
-1. **Mark:** the landing cell gets `turn`. Without gravity it is `cell(row,col)`; with gravity, the lowest empty cell of
-   column col, tried from row `height` upward.
-2. **Win:** only the lines of `line` cells through the landing cell are checked: across, down and along both
-   diagonals, within the grid. When the other cells of one of them all hold `turn`, `payoff(turn)` = 1 and the other
-   player's payoff = 0.
-3. **Draw:** when `payoff(X)` is unset and the board is full, `payoff(X)` = 0.5 and `payoff(O)` = 0.5. Without gravity
-   every cell is checked; with gravity, the top row alone tells.
-4. **Turn:** when `turn` is X, `turn` = O; otherwise `turn` = X.
+```python
+cell[row, col] = turn
+if any(all(cell[r, c] == turn for r, c in line) for line in LINES_THROUGH[row, col]):
+    payoff[turn] = WIN
+    payoff[other(turn)] = LOSS
+elif all(mark is not None for mark in cell.values()):
+    payoff['X'] = DRAW
+    payoff['O'] = DRAW
+turn = other(turn)
+```
 
-Every landing cell carries its own win check, so a move in 4 in a row checks at most 13 lines rather than all 69.
+With gravity it first finds the landing row, `row = max(r for r in range(1, HEIGHT + 1) if cell[r, col] is None)`, and
+the draw check reads only the top row: `all(cell[1, c] is not None for c in range(1, WIDTH + 1))`.
+
+Only the lines through the landing cell are checked, so a move in 4 in a row checks at most 13 lines rather than all
+69.
 
 ## Sudoku
 
@@ -121,17 +134,15 @@ domain = create_sudoku_domain(f"sudoku/{puzzle.collection}/{puzzle.number}", puz
 
 ### Constraints (CSP)
 
-The action `fill` has one parameter per empty cell, named like the cell (`cell(1,3)`), with domain 1..9. It is legal
-when:
-
-1. `payoff` is unset.
-2. For each of the 27 rows, columns and boxes, `all_different` holds over its cells: the parameters of its empty cells
-   and the state variables of its clues.
+The action `fill` has one parameter per empty cell, named `cell_<row>_<col>` (`cell_1_3`), with domain 1..9. It is
+legal when `payoff is None` holds and, for each of the 27 rows, columns and boxes, an `all_different` rule over its
+cells, the parameters of its empty cells and the clues read from the state:
+`all_different(cell[1, 1], cell[1, 2], cell_1_3, cell_1_4, cell[1, 5], cell_1_6, cell_1_7, cell_1_8, cell_1_9)`.
 
 ### Transitions (predictor)
 
-`fill` has one branch with probability 1: it writes every parameter into its cell, then sets `payoff` = 1.0, the
-share of cells filled.
+`fill` has one branch with probability 1, a script writing every parameter into its cell (`cell[1, 3] = cell_1_3`, one
+line per empty cell), then `payoff = 1.0`, the share of cells filled.
 
 ## Usage
 
@@ -150,19 +161,12 @@ Using the solver and predictor directly:
 ```python
 from openmind.agent.factory.domain_factory import create_domain
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.predictor.factory.predictor_factory import create_predictor
 
-names = VariableNameMapper()
-interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
 domain = create_domain("tictactoe")
 actions = create_solver().solve(domain.problem, domain.initial_state)
 # 9 actions; actions[0] is Action(name='place', parameters=(('col', 1), ('row', 1)))
-predictor = Predictor(interpreter, names, expression_text, action_text)
-distribution = predictor.predict(domain.transitions, domain.initial_state, actions[0])
+distribution = create_predictor().predict(domain.transitions, domain.initial_state, actions[0])
 # OutcomeDistribution(outcomes=((State(variables=(('cell(1,1)', 'X'), ('cell(1,2)', None), …, ('turn', 'O'))), 1.0),))
 ```
 

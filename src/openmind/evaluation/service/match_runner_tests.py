@@ -3,23 +3,17 @@ import random
 import pytest
 
 from openmind.agent.model.domain import Domain
+from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
-from openmind.csp.factory.csp_factory import create_solver
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.service.match_runner import MatchRunner
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.model.constant import Constant
-from openmind.expression.model.equals import Equals
-from openmind.expression.model.state_variable import StateVariable
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.model.assign import Assign
+from openmind.parallel.service.task_runner import TaskRunner
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
 from openmind.predictor.model.transition_model import TransitionModel
-from openmind.predictor.service.predictor import Predictor
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -37,24 +31,17 @@ class Always:
 
 
 def new_match_runner() -> MatchRunner:
-    names = VariableNameMapper()
-    interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-    return MatchRunner(
-        create_solver(),
-        Predictor(interpreter, names, expression_text, action_text),
-        StateReader(),
-    )
+    return MatchRunner(create_solver(), create_predictor(), StateReader(), TaskRunner(1))
 
 
 def first_mover_decides(players: tuple[str, ...] = ("A", "B")) -> Domain:
     """Only the first player acts: win gives them 1 and the other 0, lose the reverse, tie 0.5 each."""
     first, *others = players
-    unset = Equals(StateVariable("payoff", (Constant(first),)), Constant(None))
+    unset = PythonRule(f"payoff[{first!r}] is None")
 
-    def payoffs(mine: float, theirs: float) -> tuple[Assign, ...]:
-        return (
-            Assign(StateVariable("payoff", (Constant(first),)), Constant(mine)),
-            *(Assign(StateVariable("payoff", (Constant(other),)), Constant(theirs)) for other in others),
+    def payoffs(mine: float, theirs: float) -> PythonRule:
+        return PythonRule(
+            "\n".join((f"payoff[{first!r}] = {mine!r}", *(f"payoff[{other!r}] = {theirs!r}" for other in others)))
         )
 
     return Domain(
@@ -74,7 +61,12 @@ def first_mover_decides(players: tuple[str, ...] = ("A", "B")) -> Domain:
 
 def series(evaluated: str, opponent: str, games: int = 2) -> MatchResults:
     return new_match_runner().series(
-        first_mover_decides(), Always(evaluated), Always(opponent), "always " + opponent, games, random.Random(1)
+        first_mover_decides(),
+        lambda seed: Always(evaluated),
+        lambda seed: Always(opponent),
+        "always " + opponent,
+        games,
+        random.Random(1),
     )
 
 
@@ -91,8 +83,20 @@ def test_equal_payoffs_are_draws() -> None:
     assert series("tie", "tie", games=3) == MatchResults("always tie", 3, 0, 3, 0)
 
 
+def test_each_game_creates_its_policies_from_its_own_seed() -> None:
+    seeds: list[int] = []
+
+    def remember(seed: int) -> Always:
+        seeds.append(seed)
+        return Always("tie")
+
+    new_match_runner().series(first_mover_decides(), remember, lambda seed: Always("tie"), "always tie", 3, random.Random(1))
+
+    assert len(set(seeds)) == 3
+
+
 def test_a_domain_without_two_players_raises() -> None:
     with pytest.raises(ValueError, match="two players"):
         new_match_runner().series(
-            first_mover_decides(("A",)), Always("win"), Always("win"), "always win", 1, random.Random(1)
+            first_mover_decides(("A",)), lambda seed: Always("win"), lambda seed: Always("win"), "always win", 1, random.Random(1)
         )

@@ -1,14 +1,15 @@
 from dataclasses import dataclass
 
-from openmind.rbs.model.induction_settings import InductionSettings
+from openmind.rbs.model.generation_settings import GenerationSettings
 
 
 @dataclass(frozen=True, slots=True)
 class DistillationSettings:
-    """Self-play games to learn from, held-out games to measure on, the agent's iterations, the seed, and induction."""
+    """Self-play games to discover rules in, held-out games to validate and measure them on, the agent's iterations, the
+    seed, and how rules are generated."""
 
     games: int
     held_out_games: int
     iterations: int
     seed: int
-    induction: InductionSettings
+    generation: GenerationSettings

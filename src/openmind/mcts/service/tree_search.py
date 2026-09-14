@@ -184,7 +184,7 @@ class TreeSearch:
     ) -> tuple[State, int]:
         length = 0
         while actions := self._solver.solve(problem, state):
-            ratings = self._ratings(guidance, state, actions)
+            ratings = self._ratings(guidance, state, actions) if guidance is not None and guidance.guided_rollouts else ()
             if guidance is not None and ratings:
                 best = max(ratings)
                 weights = [math.exp((rating - best) / guidance.rollout_temperature) for rating in ratings]

@@ -20,6 +20,14 @@ class ExactSearch:
         self._state_reader = state_reader
         self._values: dict[tuple[str, State], tuple[float, ...]] = {}
 
+    def __getstate__(self) -> dict[str, object]:
+        """The values stay behind when the search is copied to another process, which computes its own."""
+        return {name: value for name, value in self.__dict__.items() if name != "_values"}
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        self.__dict__.update(state)
+        self._values = {}
+
     def action_values(self, domain: Domain, state: State) -> tuple[tuple[Action, float], ...]:
         """Each legal action with its expected payoff for the player to act under perfect play, in the solver's order."""
         actions = self._solver.solve(domain.problem, state)

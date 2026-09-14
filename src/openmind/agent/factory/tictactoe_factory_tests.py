@@ -4,6 +4,7 @@ import pytest
 
 from openmind.agent.constant.tictactoe_constant import STANDARD, VARIANTS
 from openmind.agent.factory.tictactoe_factory import (
+    create_tictactoe_definitions,
     create_tictactoe_domain,
     create_tictactoe_initial_state,
     create_tictactoe_players,
@@ -16,16 +17,15 @@ from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
 from openmind.csp.model.variable import Variable
-from openmind.expression.model.action_parameter import ActionParameter
-from openmind.expression.model.constant import Constant
-from openmind.expression.model.equals import Equals
-from openmind.expression.model.state_variable import StateVariable
+from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.rule.service.rule_runner import RuleRunner
+from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
+from openmind.world.model.state import State
 
-NO_PAYOFF_SET = (
-    Equals(StateVariable("payoff", (Constant("X"),)), Constant(None)),
-    Equals(StateVariable("payoff", (Constant("O"),)), Constant(None)),
-)
+NO_PAYOFF_SET = (PythonRule("payoff['X'] is None"), PythonRule("payoff['O'] is None"))
 
 
 def test_initial_state_has_empty_cells_x_to_play_and_no_payoff() -> None:
@@ -47,15 +47,10 @@ def test_problem_places_a_mark_on_an_empty_cell_while_no_payoff_is_set() -> None
             ActionDefinition(
                 "place",
                 (Variable("row", positions), Variable("col", positions)),
-                (
-                    *NO_PAYOFF_SET,
-                    Equals(
-                        StateVariable("cell", (ActionParameter("row"), ActionParameter("col"))),
-                        Constant(None),
-                    ),
-                ),
+                (*NO_PAYOFF_SET, PythonRule("cell[row, col] is None")),
             ),
-        )
+        ),
+        create_tictactoe_definitions(),
     )
 
 
@@ -76,10 +71,22 @@ def test_fourinarow_drops_a_mark_in_a_column_whose_top_cell_is_empty() -> None:
             ActionDefinition(
                 "drop",
                 (Variable("col", DiscreteDomain((1, 2, 3, 4, 5, 6, 7))),),
-                (*NO_PAYOFF_SET, Equals(StateVariable("cell", (Constant(1), ActionParameter("col"))), Constant(None))),
+                (*NO_PAYOFF_SET, PythonRule("cell[1, col] is None")),
             ),
-        )
+        ),
+        create_tictactoe_definitions(VARIANTS["fourinarow"]),
     )
+
+
+@pytest.mark.parametrize(("name", "expected"), [("standard", (3, 3, 3, 4)), ("fourinarow", (7, 6, 4, 13)), ("gomoku", (15, 15, 5, 20))])
+def test_definitions_give_the_sizes_and_the_lines_through_the_centre(name: str, expected: tuple[int, ...]) -> None:
+    reading = RuleCompiler().compile_value(
+        PythonRule("(WIDTH, HEIGHT, LINE, len(LINES_THROUGH[(HEIGHT + 1) // 2, (WIDTH + 1) // 2]))"),
+        (),
+        create_tictactoe_definitions(VARIANTS[name]),
+    )
+
+    assert RuleRunner(StateNamespaceMapper(VariableNameMapper())).value(reading, State(())) == expected
 
 
 @pytest.mark.parametrize(("name", "action"), [("standard", "place"), ("fourinarow", "drop"), ("gomoku", "place")])

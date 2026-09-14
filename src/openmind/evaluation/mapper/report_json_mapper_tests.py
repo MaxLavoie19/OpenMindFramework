@@ -5,6 +5,7 @@ from openmind.evaluation.mapper.report_json_mapper import ReportJsonMapper
 from openmind.evaluation.model.agreement import Agreement
 from openmind.evaluation.model.evaluation_report import EvaluationReport
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
+from openmind.evaluation.model.guidance_test import GuidanceTest
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.model.rater_agreement import RaterAgreement
 
@@ -20,13 +21,22 @@ def test_to_json_holds_every_measure() -> None:
         (Agreement(10, 10, 6, 0.5, 0.125, 0.25), Agreement(50, 10, 9, 0.75, 0.0625, 1.5)),
         (Agreement(10, 10, 5, 0.25, 0.25, 0.125), Agreement(50, 10, 8, 0.5, 0.125, 1.0)),
         RaterAgreement(10, 4, 5.5, 0.2),
+        (GuidanceTest(10, 10, -0.25, 0.03, -0.125, 0.5, 3, 1, 0.625),),
     )
 
     assert json.loads(ReportJsonMapper().to_json(report)) == {
         "domain": "tictactoe",
         "created_at": "2026-09-13T15:30:00",
         "rules_file": "data/rbs/tictactoe/2026-09-13_15-00-00.json",
-        "settings": {"games": 4, "iterations": 50, "positions": 10, "budgets": [10, 50], "seed": 3},
+        "settings": {
+            "games": 4,
+            "iterations": 50,
+            "positions": 10,
+            "budgets": [10, 50],
+            "seed": 3,
+            "reference_iterations": None,
+            "guided_rollouts": True,
+        },
         "baselines": [
             {"opponent": "random", "games": 4, "wins": 3, "draws": 1, "losses": 0},
             {"opponent": "untrained MCTS", "games": 4, "wins": 0, "draws": 4, "losses": 0},
@@ -69,6 +79,19 @@ def test_to_json_holds_every_measure() -> None:
             },
         ],
         "rater": {"positions": 10, "distinguishing": 4, "optimal": 5.5, "mean_regret": 0.2},
+        "guidance_tests": [
+            {
+                "iterations": 10,
+                "positions": 10,
+                "low_value_share_difference": -0.25,
+                "low_value_share_p": 0.03,
+                "regret_difference": -0.125,
+                "regret_p": 0.5,
+                "optimal_only_guided": 3,
+                "optimal_only_unguided": 1,
+                "optimal_choice_p": 0.625,
+            }
+        ],
     }
 
 
@@ -87,4 +110,9 @@ def test_an_unguided_report_has_no_unguided_agreement_and_no_rater() -> None:
 
     document = json.loads(ReportJsonMapper().to_json(report))
 
-    assert (document["settings"]["positions"], document["unguided_agreement"], document["rater"]) == (None, [], None)
+    assert (document["settings"]["positions"], document["unguided_agreement"], document["rater"], document["guidance_tests"]) == (
+        None,
+        [],
+        None,
+        [],
+    )

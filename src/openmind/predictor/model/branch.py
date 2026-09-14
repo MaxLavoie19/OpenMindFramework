@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 
-from openmind.predictor.model.effect import Effect
+from openmind.rule.model.python_rule import PythonRule
 
 
 @dataclass(frozen=True, slots=True)
 class Branch:
-    """One possible outcome of an action: its probability and the effects that produce it."""
+    """One possible outcome of an action: its probability and its effects, a Python script whose assignments to state
+    variables make the new state."""
 
     probability: float
-    effects: tuple[Effect, ...]
+    effects: PythonRule

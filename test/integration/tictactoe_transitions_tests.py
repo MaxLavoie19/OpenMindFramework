@@ -4,19 +4,14 @@ from openmind.agent.factory.tictactoe_factory import (
     create_tictactoe_transitions,
 )
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
 
 
 def play(*cells: tuple[int, int]) -> State:
-    names = VariableNameMapper()
-    predictor = Predictor(Interpreter(names), names, ExpressionTextMapper(names), ActionTextMapper())
+    predictor = create_predictor()
     transitions = create_tictactoe_transitions()
     state = create_tictactoe_initial_state()
     for row, col in cells:

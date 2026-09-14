@@ -19,7 +19,7 @@ from openmind.evaluation.mapper.report_json_mapper import ReportJsonMapper
 from openmind.evaluation.mapper.report_text_mapper import ReportTextMapper
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.repository.report_repository import ReportRepository
-from openmind.expression.mapper.expression_json_mapper import ExpressionJsonMapper
+from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
 from openmind.rbs.factory.rbs_factory import create_rule_rater
 from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
 from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
@@ -55,7 +55,27 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help=f"random seed (default: {DEFAULT_SEED})")
     parser.add_argument(
+        "--reference-iterations",
+        type=_iterations,
+        default=None,
+        help="stand in for perfect play with unguided searches of this many iterations on positions of random games, "
+        "for domains exact search can't reach (default: exact search)",
+    )
+    parser.add_argument(
         "--rules", type=Path, default=None, help="rule base guiding the evaluated agent (default: unguided)"
+    )
+    parser.add_argument(
+        "--rollouts",
+        default="guided",
+        choices=("guided", "unguided"),
+        help="whether the guided agent's rollouts follow the rules' ratings, or only its tree's nodes are rated "
+        "(default: guided)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help=f"worker processes games and searches run in (default: {DEFAULT_WORKERS}, half the logical CPUs)",
     )
     parser.add_argument(
         "--log-level",
@@ -72,7 +92,13 @@ def main(argv: list[str] | None = None) -> None:
     arguments = parser.parse_args(argv)
     domain = create_domain(arguments.domain)
     settings = EvaluationSettings(
-        arguments.games, arguments.iterations, arguments.positions, arguments.budgets, arguments.seed
+        arguments.games,
+        arguments.iterations,
+        arguments.positions,
+        arguments.budgets,
+        arguments.seed,
+        arguments.reference_iterations,
+        arguments.rollouts == "guided",
     )
 
     directory = Path(arguments.log_directory) / domain.name
@@ -88,12 +114,13 @@ def main(argv: list[str] | None = None) -> None:
         rules_file = None
         rater = None
         if arguments.rules is not None:
-            rule_base = RuleBaseRepository(RuleBaseJsonMapper(ExpressionJsonMapper())).load(arguments.rules)
-            rater = create_rule_rater(rule_base)
+            rule_base = RuleBaseRepository(RuleBaseJsonMapper()).load(arguments.rules)
+            rater = create_rule_rater(rule_base, domain)
             agent_builder.with_guidance(rater)
             rules_file = str(arguments.rules)
             logger.info("Evaluating with rules %s", rules_file)
-        report = create_evaluator().evaluate(domain, agent_builder, settings, rules_file, rater)
+        logger.info("Running games and searches in %d worker processes", arguments.workers)
+        report = create_evaluator(arguments.workers).evaluate(domain, agent_builder, settings, rules_file, rater)
         path = ReportRepository(ReportJsonMapper()).save(report, Path(arguments.report_directory))
         logger.info("Saved report %s", path)
         print(path.read_text(encoding="utf-8"), end="")
@@ -103,6 +130,16 @@ def main(argv: list[str] | None = None) -> None:
         root.setLevel(level)
         root.removeHandler(handler)
         handler.close()
+
+
+def _iterations(text: str) -> int:
+    try:
+        iterations = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, not {text!r}") from None
+    if iterations < 1:
+        raise argparse.ArgumentTypeError(f"needs at least 1 iteration, not {iterations}")
+    return iterations
 
 
 def _positions(text: str) -> int | None:

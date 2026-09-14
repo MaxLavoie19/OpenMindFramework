@@ -10,9 +10,7 @@ from openmind.agent.factory.domain_factory import create_domain
 from openmind.agent.model.domain import Domain
 from openmind.agent.service.agent import Agent
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
@@ -71,11 +69,10 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _play(domain: Domain, agent_players: frozenset[str], agent: Agent | None) -> None:
-    names = VariableNameMapper()
-    interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
+    action_text = ActionTextMapper()
     solver = create_solver()
-    predictor = Predictor(interpreter, names, expression_text, action_text)
-    state_text, state_reader = GridTextMapper(names), StateReader()
+    predictor = create_predictor()
+    state_text, state_reader = GridTextMapper(VariableNameMapper()), StateReader()
 
     logger.info("Playing %s", domain.name)
     state = domain.initial_state

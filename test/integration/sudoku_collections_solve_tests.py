@@ -7,11 +7,7 @@ from openmind.agent.mapper.sudoku_collection_mapper import SudokuCollectionMappe
 from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
 from openmind.agent.repository.sudoku_puzzle_repository import SudokuPuzzleRepository
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.predictor.factory.predictor_factory import create_predictor
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -34,8 +30,7 @@ def test_every_published_puzzle_has_one_solution_that_keeps_its_clues_and_follow
     puzzle: SudokuPuzzle,
 ) -> None:
     domain = create_sudoku_domain(f"sudoku/{puzzle.collection}/{puzzle.number}", puzzle.grid)
-    names = VariableNameMapper()
-    predictor = Predictor(Interpreter(names), names, ExpressionTextMapper(names), ActionTextMapper())
+    predictor = create_predictor()
 
     actions = create_solver().solve(domain.problem, domain.initial_state, limit=2)
 

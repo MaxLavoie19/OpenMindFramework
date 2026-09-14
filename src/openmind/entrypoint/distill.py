@@ -6,17 +6,24 @@ from pathlib import Path
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
-from openmind.expression.mapper.expression_json_mapper import ExpressionJsonMapper
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.rbs.constant.induction_constant import (
+from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
+from openmind.rbs.constant.generation_constant import (
+    DEFAULT_BEAM_WIDTH,
+    DEFAULT_CONFIDENCE,
+    DEFAULT_FALSE_DISCOVERY_RATE,
     DEFAULT_MAX_CONDITIONS,
+    DEFAULT_MAX_OFFSET,
     DEFAULT_MIN_GAIN,
     DEFAULT_MIN_RULE_VISITS,
     DEFAULT_MIN_VISITS,
+    DEFAULT_PATTERNS,
+    DEFAULT_PERMUTATIONS,
+    DEFAULT_SOLO_LIMIT,
 )
+from openmind.rbs.mapper.hypothesis_text_mapper import HypothesisTextMapper
 from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
 from openmind.rbs.mapper.rule_text_mapper import RuleTextMapper
-from openmind.rbs.model.induction_settings import InductionSettings
+from openmind.rbs.model.generation_settings import GenerationSettings
 from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
 from openmind.training.constant.training_constant import (
     DEFAULT_GAMES,
@@ -26,55 +33,35 @@ from openmind.training.constant.training_constant import (
 )
 from openmind.training.factory.training_factory import create_distiller
 from openmind.training.model.distillation_settings import DistillationSettings
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Distills rules from self-play, prints them with their measures, and saves the rule base."""
-    parser = argparse.ArgumentParser(prog="openmind-distill", description="Distill rules from self-play.")
+    """Generates rules from self-play, validates them on held-out games, prints them with their measures, and saves the
+    rule base."""
+    parser = argparse.ArgumentParser(prog="openmind-distill", description="Generate and validate rules from self-play.")
     parser.add_argument("domain", help="domain to distill, such as tictactoe")
-    parser.add_argument(
-        "--games", type=int, default=DEFAULT_GAMES, help=f"self-play games to learn from (default: {DEFAULT_GAMES})"
-    )
-    parser.add_argument(
-        "--held-out-games",
-        type=int,
-        default=DEFAULT_HELD_OUT_GAMES,
-        help=f"self-play games to measure the rules on (default: {DEFAULT_HELD_OUT_GAMES})",
-    )
-    parser.add_argument(
-        "--iterations",
-        type=int,
-        default=DEFAULT_ITERATIONS,
-        help=f"MCTS iterations per self-play move (default: {DEFAULT_ITERATIONS})",
-    )
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help=f"random seed (default: {DEFAULT_SEED})")
-    parser.add_argument(
-        "--min-visits",
-        type=int,
-        default=DEFAULT_MIN_VISITS,
-        help=f"visits a sample needs to count (default: {DEFAULT_MIN_VISITS})",
-    )
-    parser.add_argument(
-        "--max-conditions",
-        type=int,
-        default=DEFAULT_MAX_CONDITIONS,
-        help=f"conditions per rule at most (default: {DEFAULT_MAX_CONDITIONS})",
-    )
-    parser.add_argument(
-        "--min-rule-visits",
-        type=int,
-        default=DEFAULT_MIN_RULE_VISITS,
-        help=f"visits a rule needs (default: {DEFAULT_MIN_RULE_VISITS})",
-    )
-    parser.add_argument(
-        "--min-gain",
-        type=float,
-        default=DEFAULT_MIN_GAIN,
-        help=f"change in expected value a condition needs (default: {DEFAULT_MIN_GAIN})",
-    )
+    options: list[tuple[str, type, object, str]] = [
+        ("--games", int, DEFAULT_GAMES, "self-play games to discover rules in"),
+        ("--held-out-games", int, DEFAULT_HELD_OUT_GAMES, "self-play games to validate and measure rules on"),
+        ("--iterations", int, DEFAULT_ITERATIONS, "MCTS iterations per self-play move"),
+        ("--seed", int, DEFAULT_SEED, "random seed"),
+        ("--min-visits", int, DEFAULT_MIN_VISITS, "visits an action needs in a state to count"),
+        ("--max-conditions", int, DEFAULT_MAX_CONDITIONS, "conditions per rule at most"),
+        ("--min-rule-visits", int, DEFAULT_MIN_RULE_VISITS, "visits the actions a rule matches need"),
+        ("--min-gain", float, DEFAULT_MIN_GAIN, "difference in advantage a hypothesis needs in discovery"),
+        ("--confidence", float, DEFAULT_CONFIDENCE, "confidence of the payoff bound that marks priority rules"),
+        ("--beam-width", int, DEFAULT_BEAM_WIDTH, "hypotheses of each size kept and extended"),
+        ("--max-offset", int, DEFAULT_MAX_OFFSET, "largest index offset near() reads from the variable an action sets"),
+        ("--solo-limit", int, DEFAULT_SOLO_LIMIT, "own moves solo_distance() looks ahead"),
+        ("--patterns", int, DEFAULT_PATTERNS, "winning moves probed for goal patterns"),
+        ("--false-discovery-rate", float, DEFAULT_FALSE_DISCOVERY_RATE, "false discovery rate hypotheses are kept at"),
+        ("--permutations", int, DEFAULT_PERMUTATIONS, "permutations of each validation test"),
+        ("--workers", int, DEFAULT_WORKERS, "worker processes the self-play games run in"),
+    ]
+    for flag, kind, default, meaning in options:
+        parser.add_argument(flag, type=kind, default=default, help=f"{meaning} (default: {default})")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -89,11 +76,21 @@ def main(argv: list[str] | None = None) -> None:
     )
     arguments = parser.parse_args(argv)
     domain = create_domain(arguments.domain)
-    induction = InductionSettings(
-        arguments.min_visits, arguments.max_conditions, arguments.min_rule_visits, arguments.min_gain
+    generation = GenerationSettings(
+        arguments.min_visits,
+        arguments.max_conditions,
+        arguments.min_rule_visits,
+        arguments.min_gain,
+        arguments.confidence,
+        arguments.beam_width,
+        arguments.max_offset,
+        arguments.solo_limit,
+        arguments.patterns,
+        arguments.false_discovery_rate,
+        arguments.permutations,
     )
     settings = DistillationSettings(
-        arguments.games, arguments.held_out_games, arguments.iterations, arguments.seed, induction
+        arguments.games, arguments.held_out_games, arguments.iterations, arguments.seed, generation
     )
 
     directory = Path(arguments.log_directory) / domain.name
@@ -105,13 +102,24 @@ def main(argv: list[str] | None = None) -> None:
     root.addHandler(handler)
     root.setLevel(arguments.log_level)
     try:
-        result = create_distiller().distill(domain, AgentBuilder().with_exploration(EXPLORATION), settings)
-        repository = RuleBaseRepository(RuleBaseJsonMapper(ExpressionJsonMapper()))
+        logger.info("Running self-play in %d worker processes", arguments.workers)
+        result = create_distiller(arguments.workers).distill(domain, AgentBuilder().with_exploration(EXPLORATION), settings)
+        repository = RuleBaseRepository(RuleBaseJsonMapper())
         path = repository.save(result.rule_base, Path(arguments.rules_directory), datetime.now())
-        rule_text = RuleTextMapper(ExpressionTextMapper(VariableNameMapper()))
+        rule_text, hypothesis_text = RuleTextMapper(), HypothesisTextMapper()
         for rule in result.rule_base.rules:
             print(rule_text.to_text(rule))
         print(f"Rules: {len(result.rule_base.rules)}, conditions per rule on average: {result.mean_conditions}")
+        validated = [test for test in result.hypotheses if test.validated]
+        print(
+            f"Goal patterns: {len(result.patterns)}; hypotheses: {len(result.hypotheses)} tested, {len(validated)} "
+            f"validated at a false discovery rate of {generation.false_discovery_rate}; {len(result.covered)} covered by "
+            "a simpler rule"
+        )
+        for test in validated:
+            print(f"  {hypothesis_text.to_text(test)}")
+        for coverage in result.covered:
+            print(f"  {rule_text.to_text(coverage.rule)}: covered by {rule_text.to_text(coverage.covering)}")
         print(
             f"Samples: {result.training_samples} for training, {result.held_out_samples} held out; "
             f"rating error on held-out samples: {result.rating_error}"

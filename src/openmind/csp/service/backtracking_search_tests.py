@@ -14,11 +14,10 @@ from openmind.csp.service.all_different_propagator import AllDifferentPropagator
 from openmind.csp.service.arc_consistency import ArcConsistency
 from openmind.csp.service.backtracking_search import BacktrackingSearch
 from openmind.csp.service.constraint_checker import ConstraintChecker
-from openmind.expression.model.action_parameter import ActionParameter
-from openmind.expression.model.any_of import AnyOf
-from openmind.expression.model.constant import Constant
-from openmind.expression.model.equals import Equals
-from openmind.expression.service.interpreter import Interpreter
+from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.rule.service.rule_runner import RuleRunner
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
@@ -39,7 +38,9 @@ def search(
         constraints,
     )
     backtracking = BacktrackingSearch(
-        ArcConsistency(), AllDifferentPropagator(), ConstraintChecker(Interpreter(VariableNameMapper()))
+        ArcConsistency(),
+        AllDifferentPropagator(),
+        ConstraintChecker(RuleRunner(StateNamespaceMapper(VariableNameMapper()))),
     )
     return backtracking.search(space, State(()), limit)
 
@@ -83,7 +84,7 @@ def test_an_empty_domain_gives_no_solution() -> None:
 
 def test_a_larger_constraint_leads_to_dead_ends(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG, logger="openmind.csp.service.backtracking_search")
-    never = AnyOf(tuple(Equals(ActionParameter(name), Constant(3)) for name in ("a", "b", "c")))
+    never = RuleCompiler().compile_value(PythonRule("a == 3 or b == 3 or c == 3"), ("a", "b", "c"))
 
     solutions, statistics = search(
         {"a": (1, 2), "b": (1, 2), "c": (1, 2)}, constraints=(ScopedConstraint(never, ("a", "b", "c")),)

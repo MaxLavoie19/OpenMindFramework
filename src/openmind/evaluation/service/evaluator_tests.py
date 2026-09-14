@@ -10,13 +10,10 @@ from openmind.csp.model.problem import Problem
 from openmind.evaluation.factory.evaluator_factory import create_evaluator
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.model.rater_agreement import RaterAgreement
-from openmind.expression.model.constant import Constant
-from openmind.expression.model.equals import Equals
-from openmind.expression.model.state_variable import StateVariable
-from openmind.predictor.model.assign import Assign
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
 from openmind.predictor.model.transition_model import TransitionModel
+from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -26,13 +23,10 @@ pytestmark = pytest.mark.log_level("INFO")
 
 def first_mover_decides() -> Domain:
     """Only A acts: win gives A 1 and B 0, lose the reverse, tie 0.5 each."""
-    unset = Equals(StateVariable("payoff", (Constant("A"),)), Constant(None))
+    unset = PythonRule("payoff['A'] is None")
 
-    def payoffs(a: float, b: float) -> tuple[Assign, Assign]:
-        return (
-            Assign(StateVariable("payoff", (Constant("A"),)), Constant(a)),
-            Assign(StateVariable("payoff", (Constant("B"),)), Constant(b)),
-        )
+    def payoffs(a: float, b: float) -> PythonRule:
+        return PythonRule(f"payoff['A'] = {a!r}\npayoff['B'] = {b!r}")
 
     return Domain(
         "first mover decides",
@@ -96,6 +90,13 @@ def test_a_rater_is_compared_with_an_unguided_agent_on_the_same_positions_and_me
     assert [(item.iterations, item.positions) for item in report.agreement] == [(5, 1), (20, 1)]
     assert [(item.iterations, item.positions) for item in report.unguided_agreement] == [(5, 1), (20, 1)]
     assert report.rater == RaterAgreement(positions=1, distinguishing=1, optimal=1.0, mean_regret=0.0)
+    assert [(test.iterations, test.positions) for test in report.guidance_tests] == [(5, 1), (20, 1)]
+    assert all(
+        0.0 <= p <= 1.0
+        for test in report.guidance_tests
+        for p in (test.low_value_share_p, test.regret_p, test.optimal_choice_p)
+    )
+    assert any(message.startswith("Guided against unguided at 20 iterations on 1 positions: ") for message in caplog.messages)
     assert "Every action is optimal in 0 of 1 positions" in caplog.messages
     assert any(message.startswith("Unguided agreement with perfect play at 20 iterations: ") for message in caplog.messages)
     assert (
@@ -124,6 +125,26 @@ def test_all_positions_takes_every_position(caplog: pytest.LogCaptureFixture) ->
 
     assert [(item.iterations, item.positions) for item in report.agreement] == [(5, 1)]
     assert "Every action is optimal in 0 of 1 positions" in caplog.messages
+
+
+def test_a_reference_search_stands_in_for_perfect_play_on_positions_of_random_games(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.evaluation")
+    settings = EvaluationSettings(games=0, iterations=5, positions=3, budgets=(5,), seed=1, reference_iterations=50)
+
+    report = create_evaluator().evaluate(first_mover_decides(), AgentBuilder().with_exploration(math.sqrt(2)), settings)
+
+    assert [(item.iterations, item.positions) for item in report.agreement] == [(5, 1)]
+    assert "Reference values from 50-iteration unguided searches on 1 positions" in caplog.messages
+    assert not any("positions with a legal action" in message for message in caplog.messages)
+
+
+def test_a_reference_search_needs_a_number_of_positions() -> None:
+    settings = EvaluationSettings(games=0, iterations=5, positions=None, budgets=(5,), seed=1, reference_iterations=50)
+
+    with pytest.raises(ValueError, match="number of positions"):
+        create_evaluator().evaluate(first_mover_decides(), AgentBuilder().with_exploration(math.sqrt(2)), settings)
 
 
 def test_no_positions_skips_agreement_and_the_exact_search(caplog: pytest.LogCaptureFixture) -> None:

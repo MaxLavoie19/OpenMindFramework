@@ -5,11 +5,7 @@ import pytest
 from openmind.agent.constant.tictactoe_constant import VARIANTS
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.predictor.factory.predictor_factory import create_predictor
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -30,9 +26,8 @@ def test_random_games_follow_the_rules_after_every_move(name: str, games: int) -
     variant = VARIANTS[name]
     domain = create_tictactoe_domain(variant)
     lines = every_line(variant.width, variant.height, variant.line)
-    names = VariableNameMapper()
     solver = create_solver()
-    predictor = Predictor(Interpreter(names), names, ExpressionTextMapper(names), ActionTextMapper())
+    predictor = create_predictor()
     rng = random.Random(1)
 
     for _ in range(games):

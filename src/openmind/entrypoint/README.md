@@ -10,7 +10,7 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 |---|---|
 | `play.py` | `openmind-play`: play a domain within the agent in the terminal, as humans or with the agent |
 | `evaluate.py` | `openmind-evaluate`: measure how well the agent plays a domain and save the report |
-| `distill.py` | `openmind-distill`: distill a rule base from self-play and save it |
+| `distill.py` | `openmind-distill`: generate a rule base from self-play, validate it on held-out games, and save it |
 | `solve.py` | `openmind-solve`: solve a domain's constraint problem with the CSP alone and print the solutions |
 
 ## `openmind-play`
@@ -59,8 +59,9 @@ agent's rollouts.
 ```bash
 .venv/bin/openmind-evaluate tictactoe
 .venv/bin/openmind-evaluate tictactoe --games 20 --positions 50 --budgets 10,100 --seed 3
-.venv/bin/openmind-evaluate tictactoe/fourinarow --positions 0 --games 20   # too large for perfect play
+.venv/bin/openmind-evaluate tictactoe/fourinarow --positions 0 --games 20   # baselines only
 .venv/bin/openmind-evaluate tictactoe --rules data/rbs/tictactoe/<rule base>.json --positions all   # guided against unguided
+.venv/bin/openmind-evaluate tictactoe/fourinarow --rules <rule base>.json --positions 50 --reference-iterations 2000   # too large for exact search
 ```
 
 | Option | Default | Meaning |
@@ -70,7 +71,10 @@ agent's rollouts.
 | `--positions N` | `100` | positions sampled to measure agreement with perfect play; `all` takes every position; `0` skips agreement and the exact search, for domains too large to search |
 | `--budgets LIST` | `10,20,50,100,200,500` | comma-separated iteration budgets for agreement |
 | `--seed S` | `1` | random seed |
+| `--reference-iterations N` | exact search | stand in for perfect play with unguided searches of N iterations on positions of random games, for domains exact search can't reach; needs a number of `--positions`, not `all` |
 | `--rules PATH` | none | rule base guiding the evaluated agent; its path is recorded in the report |
+| `--workers N` | half the logical CPUs | worker processes baseline games, reference searches and the positions searched at each budget run in; the report is the same whatever the number, apart from seconds per choice, and every worker holds its own caches, so memory grows with it |
+| `--rollouts MODE` | `guided` | with `--rules`: `guided` rollouts follow the rules' ratings; `unguided` rollouts pick uniformly and only the search tree's nodes are rated, which is much cheaper with rules reading lookahead such as `wins()` |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/evaluate` | where logs are saved |
 | `--report-directory DIR` | `data/evaluation` | where reports are saved |
@@ -78,45 +82,73 @@ agent's rollouts.
 Runs the measures described in `evaluation/README.md` and prints the report's JSON, then its summary: the baseline
 results, then a table of optimal choices, visit share on optimal actions, mean regret and seconds per choice at each
 budget. With `--rules`, the table shows the guided and the unguided agent side by side (`guided / unguided`) on the
-same positions and is followed by the rules alone:
+same positions and is followed by the rules alone and the paired tests of guided against unguided (see
+`evaluation/README.md`):
 
 ```
 Guided by data/rbs/tictactoe/<rule base>.json against unguided, on the same 100 positions (every action optimal in <n>):
 iterations  optimal  visits on optimal    mean regret   seconds per choice
         10  <g> / <u>  ...
 Rules alone: ratings separate actions in <n> of 100 positions; a top-rated action is optimal in <expected> of 100; mean regret <regret>
+Guided against unguided, paired by position (guided minus unguided; Wilcoxon and McNemar p-values):
+iterations  low-value visits  p  regret  p  optimal only guided / unguided  p
+        10            -0.052  ...
 ```
+
+With `--rollouts unguided`, the heading reads `Guided by <rule base> with unguided rollouts against unguided`.
+With `--reference-iterations N`, the heading names the reference: `(reference: N-iteration unguided searches; every
+action optimal in <n>)`.
 
 It saves the report as
 `<report directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, ending with `INFO Saved report <path>` from logger
 `openmind.entrypoint.evaluate`.
 
-With `--rules`, the log also has `INFO Evaluating with rules <path>`.
+With `--rules`, the log also has `INFO Evaluating with rules <path>`. Every log starts with
+`INFO Running games and searches in <n> worker processes`, and `openmind-distill`'s with
+`INFO Running self-play in <n> worker processes`.
 
 ## `openmind-distill`
 
 ```bash
 .venv/bin/openmind-distill tictactoe
-.venv/bin/openmind-distill tictactoe --games 40 --iterations 500 --max-conditions 3
+.venv/bin/openmind-distill tictactoe --games 40 --held-out-games 40 --iterations 500 --max-conditions 3
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--games N` | `20` | self-play games to learn from |
-| `--held-out-games N` | `5` | self-play games to measure the rules on |
+| `--games N` | `20` | self-play games to discover rules in |
+| `--held-out-games N` | `5` | self-play games to validate and measure rules on; validation needs enough of them to reach the false discovery rate |
 | `--iterations N` | `200` | MCTS iterations per self-play move |
-| `--seed S` | `1` | random seed |
-| `--min-visits N` | `5` | visits a sample needs to count |
+| `--seed S` | `1` | random seed, also drawing the validation permutations |
+| `--min-visits N` | `5` | visits an action needs in a state to count |
 | `--max-conditions N` | `2` | conditions per rule at most |
-| `--min-rule-visits N` | `50` | visits a rule needs |
-| `--min-gain X` | `0.05` | change in expected value a condition needs |
+| `--min-rule-visits N` | `50` | visits the actions a rule matches need |
+| `--min-gain X` | `0.05` | difference in advantage a hypothesis needs in discovery |
+| `--confidence X` | `0.95` | confidence of the payoff bound that marks priority rules |
+| `--beam-width N` | `20` | hypotheses of each size kept and extended |
+| `--max-offset N` | `2` | largest index offset `near()` reads from the variable an action sets |
+| `--solo-limit N` | `2` | own moves `solo_distance()` looks ahead; `0` leaves it out |
+| `--patterns N` | `200` | winning moves probed for goal patterns |
+| `--false-discovery-rate X` | `0.05` | false discovery rate hypotheses are kept at |
+| `--permutations N` | `10000` | permutations of each validation test |
+| `--workers N` | half the logical CPUs | worker processes the self-play games run in; the rules are the same whatever the number |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/distill` | where logs are saved |
 | `--rules-directory DIR` | `data/rbs` | where rule bases are saved |
 
-Runs the distillation described in `training/README.md`. It prints every rule as text, then the number of rules and
-conditions per rule, the sample counts and the rating error on held-out samples. It saves the rule base as
+Runs the distillation described in `training/README.md` and `rbs/README.md`. It prints every rule as text, then:
+
+```
+Rules: <n>, conditions per rule on average: <mean>
+Goal patterns: <n>; hypotheses: <m> tested, <k> validated at a false discovery rate of <q>; <c> covered by a simpler rule
+  <validated hypothesis as text>, one line each
+  <covered rule as text>: covered by <covering rule as text>, one line each
+Samples: <training> for training, <held out> held out; rating error on held-out samples: <error>
+Saved rules <path>
+```
+
+Every hypothesis, rejected ones included, is in the log at `--log-level DEBUG`. It saves the rule base as
 `<rules directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, ending with `INFO Saved rules <path>` from logger
 `openmind.entrypoint.distill`.

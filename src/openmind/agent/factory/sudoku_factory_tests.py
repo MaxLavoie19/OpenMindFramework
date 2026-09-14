@@ -10,12 +10,7 @@ from openmind.agent.factory.sudoku_factory import (
 from openmind.agent.model.domain import Domain
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.variable import Variable
-from openmind.expression.model.action_parameter import ActionParameter
-from openmind.expression.model.all_different import AllDifferent
-from openmind.expression.model.constant import Constant
-from openmind.expression.model.equals import Equals
-from openmind.expression.model.state_variable import StateVariable
-from openmind.predictor.model.assign import Assign
+from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.players import Players
 
 TOP95_FIRST = "4.....8.5.3..........7......2.....6.....8.4......1.......6.3.7.5..2.....1.4......"
@@ -38,30 +33,20 @@ def test_problem_fills_every_empty_cell_under_one_all_different_per_row_column_a
     (fill,) = create_sudoku_problem().actions
 
     assert (fill.name, len(fill.variables), len(fill.constraints)) == ("fill", 51, 28)
-    assert fill.variables[0] == Variable("cell(1,3)", DiscreteDomain((1, 2, 3, 4, 5, 6, 7, 8, 9)))
-    assert fill.constraints[0] == Equals(StateVariable("payoff"), Constant(None))
-    assert fill.constraints[1] == AllDifferent(
-        (
-            StateVariable("cell(1,1)"),
-            StateVariable("cell(1,2)"),
-            ActionParameter("cell(1,3)"),
-            ActionParameter("cell(1,4)"),
-            StateVariable("cell(1,5)"),
-            ActionParameter("cell(1,6)"),
-            ActionParameter("cell(1,7)"),
-            ActionParameter("cell(1,8)"),
-            ActionParameter("cell(1,9)"),
-        )
+    assert fill.variables[0] == Variable("cell_1_3", DiscreteDomain((1, 2, 3, 4, 5, 6, 7, 8, 9)))
+    assert fill.constraints[0] == PythonRule("payoff is None")
+    assert fill.constraints[1] == PythonRule(
+        "all_different(cell[1, 1], cell[1, 2], cell_1_3, cell_1_4, cell[1, 5], cell_1_6, cell_1_7, cell_1_8, cell_1_9)"
     )
 
 
 def test_transitions_write_every_parameter_into_its_cell_and_pay_one() -> None:
     (transition,) = create_sudoku_transitions().transitions
     (branch,) = transition.branches
+    lines = branch.effects.source.splitlines()
 
-    assert (transition.action, branch.probability, len(branch.effects)) == ("fill", 1.0, 52)
-    assert branch.effects[0] == Assign(StateVariable("cell(1,3)"), ActionParameter("cell(1,3)"))
-    assert branch.effects[-1] == Assign(StateVariable("payoff"), Constant(1.0))
+    assert (transition.action, branch.probability, len(lines)) == ("fill", 1.0, 52)
+    assert (lines[0], lines[-1]) == ("cell[1, 3] = cell_1_3", "payoff = 1.0")
 
 
 def test_players_are_a_single_solver() -> None:
@@ -86,7 +71,7 @@ def test_a_name_and_a_grid_make_a_domain_of_that_puzzle() -> None:
 
     assert domain.name == "sudoku/top95/1"
     assert (variables["cell(1,1)"], variables["cell(1,2)"], variables["cell(1,7)"]) == (4, None, 8)
-    assert (len(fill.variables), len(branch.effects)) == (64, 65)
+    assert (len(fill.variables), len(branch.effects.source.splitlines())) == (64, 65)
 
 
 @pytest.mark.parametrize("grid", [TOP95_FIRST[:80], TOP95_FIRST + ".", TOP95_FIRST.replace(".", "0", 1)])

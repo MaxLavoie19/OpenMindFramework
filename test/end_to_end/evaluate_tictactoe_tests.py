@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from openmind.entrypoint.evaluate import main
-from openmind.expression.mapper.expression_json_mapper import ExpressionJsonMapper
 from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
 from openmind.rbs.model.rule import Rule
 from openmind.rbs.model.rule_base import RuleBase
@@ -26,7 +25,15 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
     (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
     report = json.loads(report_file.read_text(encoding="utf-8"))
     assert report["rules_file"] is None
-    assert report["settings"] == {"games": 2, "iterations": 10, "positions": 3, "budgets": [5, 10], "seed": 1}
+    assert report["settings"] == {
+        "games": 2,
+        "iterations": 10,
+        "positions": 3,
+        "budgets": [5, 10],
+        "seed": 1,
+        "reference_iterations": None,
+        "guided_rollouts": True,
+    }
     assert [(item["opponent"], item["wins"] + item["draws"] + item["losses"]) for item in report["baselines"]] == [
         ("random", 2),
         ("untrained MCTS", 2),
@@ -46,7 +53,7 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
 def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    repository = RuleBaseRepository(RuleBaseJsonMapper(ExpressionJsonMapper()))
+    repository = RuleBaseRepository(RuleBaseJsonMapper())
     rules_file = repository.save(
         RuleBase("tictactoe", (Rule("place", (), 0.5, 100),)), tmp_path / "rules", datetime(2026, 9, 13, 12, 0, 0)
     )
@@ -69,10 +76,59 @@ def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(
     output = capsys.readouterr().out
     assert f"\nGuided by {rules_file} against unguided, on the same 3 positions (every action optimal in " in output
     assert "\nRules alone: ratings separate actions in " in output
+    assert "\nGuided against unguided, paired by position (guided minus unguided; Wilcoxon and McNemar p-values):\n" in output
+    assert [test["iterations"] for test in report["guidance_tests"]] == [5]
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
     lines = log_file.read_text(encoding="utf-8").splitlines()
     assert f"INFO  openmind.entrypoint.evaluate Evaluating with rules {rules_file}" in lines
     assert any(line.startswith("INFO  openmind.evaluation.service.evaluator Rater alone: ") for line in lines)
+
+
+def test_unguided_rollouts_are_recorded_and_named(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    repository = RuleBaseRepository(RuleBaseJsonMapper())
+    rules_file = repository.save(
+        RuleBase("tictactoe", (Rule("place", (), 0.5, 100),)), tmp_path / "rules", datetime(2026, 9, 13, 12, 0, 0)
+    )
+
+    main(
+        [
+            "tictactoe",
+            *("--games", "0", "--iterations", "10", "--positions", "3", "--budgets", "5", "--seed", "1"),
+            *("--rules", str(rules_file), "--rollouts", "unguided"),
+            *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
+        ]
+    )
+
+    (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
+    assert json.loads(report_file.read_text(encoding="utf-8"))["settings"]["guided_rollouts"] is False
+    output = capsys.readouterr().out
+    assert f"\nGuided by {rules_file} with unguided rollouts against unguided, on the same 3 positions " in output
+
+
+def test_several_workers_give_the_same_report(tmp_path: Path) -> None:
+    repository = RuleBaseRepository(RuleBaseJsonMapper())
+    rules_file = repository.save(
+        RuleBase("tictactoe", (Rule("place", (), 0.5, 100),)), tmp_path / "rules", datetime(2026, 9, 13, 12, 0, 0)
+    )
+    reports = []
+    for workers in ("1", "2"):
+        main(
+            [
+                "tictactoe",
+                *("--games", "4", "--iterations", "10", "--positions", "6", "--budgets", "5", "--seed", "1"),
+                *("--rules", str(rules_file), "--workers", workers),
+                *("--log-directory", str(tmp_path / workers / "log"), "--report-directory", str(tmp_path / workers / "report")),
+            ]
+        )
+        (report_file,) = (tmp_path / workers / "report" / "tictactoe").glob("*.json")
+        report = json.loads(report_file.read_text(encoding="utf-8"))
+        for key in ("agreement", "unguided_agreement"):
+            for item in report[key]:
+                del item["seconds_per_choice"]
+        del report["created_at"]
+        reports.append(report)
+
+    assert reports[0] == reports[1]
 
 
 def test_all_positions_measures_every_position(tmp_path: Path) -> None:

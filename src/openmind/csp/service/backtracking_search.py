@@ -126,14 +126,14 @@ class BacktrackingSearch:
             return domains
         fixed = {name: next(iter(domains[name])) for name in constraint.scope if len(domains[name]) == 1}
         if not open_variables:
-            if self._constraint_checker.holds(constraint.expression, state, action, fixed):
+            if self._constraint_checker.holds(constraint.rule, state, action, fixed):
                 return domains
             raise Wipeout(constraint.scope[-1])
         (target,) = open_variables
         kept = frozenset(
             value
             for value in domains[target]
-            if self._constraint_checker.holds(constraint.expression, state, action, fixed | {target: value})
+            if self._constraint_checker.holds(constraint.rule, state, action, fixed | {target: value})
         )
         if not kept:
             raise Wipeout(target)

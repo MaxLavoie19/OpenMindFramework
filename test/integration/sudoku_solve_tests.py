@@ -2,11 +2,7 @@ import pytest
 
 from openmind.agent.factory.sudoku_factory import create_sudoku_domain
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.predictor.factory.predictor_factory import create_predictor
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -15,8 +11,7 @@ SOLUTION = "53467891267219534819834256785976142342685379171392485696153728428741
 
 def test_the_single_solution_fills_the_known_grid_and_pays_one() -> None:
     domain = create_sudoku_domain()
-    names = VariableNameMapper()
-    predictor = Predictor(Interpreter(names), names, ExpressionTextMapper(names), ActionTextMapper())
+    predictor = create_predictor()
 
     actions = create_solver().solve(domain.problem, domain.initial_state, limit=2)
 

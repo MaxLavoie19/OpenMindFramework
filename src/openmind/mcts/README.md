@@ -16,7 +16,7 @@ player gets through the variables named in `Players`. It knows nothing about any
 | `model/action_sample.py` | `ActionSample(state, player, action, visits, mean_payoff)`: an action expanded anywhere in the tree, with its visits and mean payoff for the player to act |
 | `model/search_result.py` | `SearchResult(player, statistics, chosen, samples)`: every root action's statistics, the most visited action, and a sample for every expanded action |
 | `model/action_rater.py` | `ActionRater`: the interface of a model rating actions, `rate(state, actions)` giving each action's expected payoff for the player to act, or `None` |
-| `model/guidance.py` | `Guidance(rater, prior_weight, rollout_temperature)`: how a rater steers the search |
+| `model/guidance.py` | `Guidance(rater, prior_weight, rollout_temperature, guided_rollouts=True)`: how a rater steers the search, and whether rollouts follow its ratings |
 | `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action, with the rater's ratings when guided; mutable |
 | `model/chance_node.py` | `ChanceNode`: an action in the tree with its possible outcomes; mutable |
 | `service/tree_search.py` | `TreeSearch`: runs the search, guided or not |
@@ -28,23 +28,13 @@ import math
 
 from openmind.agent.factory.domain_factory import create_domain
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
-from openmind.predictor.service.predictor import Predictor
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.service.state_reader import StateReader
 
-names = VariableNameMapper()
-interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-tree_search = TreeSearch(
-    create_solver(),
-    Predictor(interpreter, names, expression_text, action_text),
-    StateReader(),
-    action_text,
-)
+tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
 domain = create_domain("tictactoe")
 result = tree_search.search(
     domain.problem, domain.transitions, domain.players, domain.initial_state, SearchSettings(500, math.sqrt(2), 1)
@@ -53,7 +43,8 @@ result.chosen   # Action(name='place', parameters=(('col', 2), ('row', 2)))
 # result.statistics holds every root action's visits and mean payoff; result.samples every expanded action's
 ```
 
-To guide the search, pass `Guidance(rater, prior_weight, rollout_temperature)` as the last argument.
+To guide the search, pass `Guidance(rater, prior_weight, rollout_temperature, guided_rollouts=True)` as the last
+argument.
 `agent/builder/agent_builder.py` does this wiring for the agent.
 
 ## How a search works
@@ -76,6 +67,8 @@ Without guidance, untried actions are tried in random order and rollouts pick ac
 - Untried actions are tried from the highest to the lowest rating; equal ratings keep a random order.
 - Selection adds `prior_weight × rating / (child visits + 1)` to the UCT score.
 - Rollouts draw each action with probability proportional to `exp((rating − best rating) / rollout_temperature)`.
+  With `guided_rollouts` false, rollouts pick uniformly and the rater only rates the tree's decision nodes: rating
+  every rollout step is where a costly rater, such as rules reading `wins()`, spends most of a search.
 
 Also:
 

@@ -1,29 +1,41 @@
+from typing import Self
+
 from openmind.csp.builder.solver_builder import SolverBuilder
+from openmind.evaluation.service.choice_measurer import ChoiceMeasurer
 from openmind.evaluation.service.evaluator import Evaluator
 from openmind.evaluation.service.exact_search import ExactSearch
 from openmind.evaluation.service.match_runner import MatchRunner
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
+from openmind.evaluation.service.reference_search import ReferenceSearch
+from openmind.parallel.service.task_runner import TaskRunner
+from openmind.predictor.builder.predictor_builder import PredictorBuilder
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.state_text_mapper import StateTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.service.state_reader import StateReader
 
 
 class EvaluatorBuilder:
-    """Wires the services an evaluator measures with."""
+    """Sets how many worker processes an evaluator runs games and searches in, 1 by default, and wires the services it
+    measures with."""
+
+    def __init__(self) -> None:
+        self._workers = 1
+
+    def with_workers(self, workers: int) -> Self:
+        self._workers = workers
+        return self
 
     def build(self) -> Evaluator:
-        names = VariableNameMapper()
-        interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
         solver = SolverBuilder().build()
-        predictor = Predictor(interpreter, names, expression_text, action_text)
+        predictor = PredictorBuilder().build()
         state_reader = StateReader()
+        task_runner = TaskRunner(self._workers)
+        state_text_mapper, action_text_mapper = StateTextMapper(), ActionTextMapper()
         return Evaluator(
-            MatchRunner(solver, predictor, state_reader),
+            MatchRunner(solver, predictor, state_reader, task_runner),
             ExactSearch(solver, predictor, state_reader),
-            solver,
-            StateTextMapper(),
-            action_text,
+            ReferenceSearch(solver, predictor),
+            ChoiceMeasurer(state_text_mapper, action_text_mapper),
+            task_runner,
+            state_text_mapper,
+            action_text_mapper,
         )

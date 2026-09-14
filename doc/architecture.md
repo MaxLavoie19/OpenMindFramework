@@ -22,24 +22,27 @@
 | Strategy, weighted by expected value | the strategy rule-based system (RBS) |
 | Players and initial state | the domain's factory |
 
-Rules are structured Python objects that an interpreter evaluates. They are never functions and cannot generate code.
-Factories bootstrap them for now; later, a decoder will turn unstructured data into structured instructions that
-become rules.
+Rules are Python: every constraint, effect and RBS condition is the source of a Python expression or script, compiled
+once and run against states (see `src/openmind/rule/README.md`). Any Python is allowed, imports and libraries included,
+because OpenMind is a general-purpose framework that people use to write the rules of their own problems; nothing in
+the framework is specific to one game. A domain's definitions script runs once and gives all of its rules shared
+names. Factories write rules for now; later, a decoder will turn unstructured data into rules.
 
 ## Code domains
 
 | Domain | Owns | Status |
 |---|---|---|
 | `world` | `Value`, `State`, `Action`, and their readable text | iterations 1 and 8 |
-| `expression` | Rule expressions and the `Interpreter` that evaluates them | iteration 1 |
-| `csp` | Constraint satisfaction: action definitions, domains, constraints, and a solver with propagation and backtracking | iterations 1 and 7 |
+| `rule` | Python rules: compiling them, running them against states, and a state as the names a rule reads | iteration 9 |
+| `csp` | Constraint satisfaction: action definitions, domains, constraints, and a solver with propagation and backtracking | iterations 1, 7 and 9 |
 | `agent` | The agent and its domains: tic-tac-toe with its variants, and sudoku | iterations 4, 7 and 8 |
 | `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-solve` | iterations 3–7 |
-| `predictor` | Transitions, outcome probability distributions | iteration 2 |
+| `predictor` | Transitions, outcome probability distributions | iterations 2 and 9 |
 | `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater` | iterations 4–6 |
-| `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play | iterations 5 and 8 |
-| `rbs` | Rules induced from search that rate actions and explain their ratings; position evaluation planned | iteration 6 |
-| `training` | Self-play and distillation of models from search | iteration 6 |
+| `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play or a reference search, paired tests of guidance | iterations 5, 8 and 10 |
+| `rbs` | Rules generated from search for any domain, as hypotheses validated on held-out games, that rate actions and explain their ratings; position evaluation planned | iterations 6, 9 and 10 |
+| `training` | Self-play and distillation of models from search | iterations 6 and 10 |
+| `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded | iteration 10 |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |
 
 ## Conventions
@@ -52,10 +55,13 @@ become rules.
   (`not_.py`).
 - Models are frozen, slotted dataclasses, except the search tree's nodes, which change while searching. Logic lives in
   services; I/O only in entrypoints.
-- Services log through `logging.getLogger(__name__)`: what was decided and why, with the key values. Actions and
-  expressions appear in logs as readable text (`ActionTextMapper`, `ExpressionTextMapper`). Per-call details (solver
+- Services log through `logging.getLogger(__name__)`: what was decided and why, with the key values. Actions appear
+  in logs as readable text (`ActionTextMapper`) and rules as their source. Per-call details (solver
   candidates, predictor effects, search iterations) log at DEBUG; decisions (choices, search results) at INFO.
 - Unit tests sit beside their target as `<module>_tests.py`; integration and end-to-end tests live in `test/`.
+- Work that can run in worker processes goes through `parallel`'s `TaskRunner`. Services that keep caches leave them
+  behind when pickled, so any service can travel to a worker; work in workers draws its seeds up front, so results
+  don't depend on the number of workers.
 - `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Evaluation reports go in
   `data/evaluation/<domain>/`, rule bases in `data/rbs/<domain>/` and published sudoku collections in `data/sudoku/`,
   all ignored by git. Tests save their logs

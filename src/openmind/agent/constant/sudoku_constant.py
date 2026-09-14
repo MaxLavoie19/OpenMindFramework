@@ -18,6 +18,7 @@ SOLVED = 1.0
 CERTAIN = 1.0
 
 CELL = "cell"
+PARAMETER = "cell_{row}_{col}"
 TURN = "turn"
 PAYOFF = "payoff"
 PLAYER = "solver"

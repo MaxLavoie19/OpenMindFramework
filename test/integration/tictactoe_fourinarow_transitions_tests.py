@@ -5,12 +5,8 @@ from openmind.agent.factory.tictactoe_factory import (
     create_tictactoe_transitions,
 )
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.service.interpreter import Interpreter
-from openmind.predictor.service.predictor import Predictor
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.builder.state_builder import StateBuilder
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
@@ -21,8 +17,7 @@ DRAWN_BOARD = ("OXXXOOX", "XXOOXXO", "OOOXOOO", "OXOXOXX", "XOXXXOX", "OXOOXOX")
 
 
 def drop(state: State, *columns: int) -> State:
-    names = VariableNameMapper()
-    predictor = Predictor(Interpreter(names), names, ExpressionTextMapper(names), ActionTextMapper())
+    predictor = create_predictor()
     transitions = create_tictactoe_transitions(FOURINAROW)
     for col in columns:
         ((state, probability),) = predictor.predict(transitions, state, Action("drop", (("col", col),))).outcomes

@@ -3,25 +3,19 @@ import math
 
 import pytest
 
+from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
-from openmind.csp.factory.csp_factory import create_solver
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.model.constant import Constant
-from openmind.expression.model.equals import Equals
-from openmind.expression.model.state_variable import StateVariable
-from openmind.expression.service.interpreter import Interpreter
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.search_result import SearchResult
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
-from openmind.predictor.model.assign import Assign
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
 from openmind.predictor.model.transition_model import TransitionModel
-from openmind.predictor.service.predictor import Predictor
+from openmind.rule.model.python_rule import PythonRule
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -49,53 +43,46 @@ def search(
     seed: int | None = 1,
     guidance: Guidance | None = None,
 ) -> SearchResult:
-    names = VariableNameMapper()
-    interpreter, expression_text, action_text = Interpreter(names), ExpressionTextMapper(names), ActionTextMapper()
-    tree_search = TreeSearch(
-        create_solver(),
-        Predictor(interpreter, names, expression_text, action_text),
-        StateReader(),
-        action_text,
-    )
+    tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
     problem, transitions, state = game
     players = Players(("me",), "turn", ("payoff",))
     settings = SearchSettings(iterations, exploration, seed)
     return tree_search.search(problem, transitions, players, state, settings, guidance)
 
 
+def pay(payoff: float) -> PythonRule:
+    return PythonRule(f"payoff = {payoff!r}")
+
+
 def one_move_game(*transitions: Transition) -> Game:
     """Every action is legal until the payoff is set, and every action sets it."""
-    no_payoff = Equals(StateVariable("payoff"), Constant(None))
+    no_payoff = PythonRule("payoff is None")
     problem = Problem(tuple(ActionDefinition(transition.action, (), (no_payoff,)) for transition in transitions))
     return problem, TransitionModel(transitions), State((("payoff", None), ("turn", "me")))
 
 
 def two_step_game() -> Game:
     """go moves to stage 1, where win pays 1.0 and lose pays 0.0."""
-    unset = Equals(StateVariable("payoff"), Constant(None))
+    unset = PythonRule("payoff is None")
     problem = Problem(
         (
-            ActionDefinition("go", (), (unset, Equals(StateVariable("stage"), Constant(0)))),
-            ActionDefinition("lose", (), (unset, Equals(StateVariable("stage"), Constant(1)))),
-            ActionDefinition("win", (), (unset, Equals(StateVariable("stage"), Constant(1)))),
+            ActionDefinition("go", (), (unset, PythonRule("stage == 0"))),
+            ActionDefinition("lose", (), (unset, PythonRule("stage == 1"))),
+            ActionDefinition("win", (), (unset, PythonRule("stage == 1"))),
         )
     )
     transitions = TransitionModel(
         (
-            Transition("go", (Branch(1.0, (Assign(StateVariable("stage"), Constant(1)),)),)),
-            Transition("lose", (Branch(1.0, (pay(0.0),)),)),
-            Transition("win", (Branch(1.0, (pay(1.0),)),)),
+            Transition("go", (Branch(1.0, PythonRule("stage = 1")),)),
+            Transition("lose", (Branch(1.0, pay(0.0)),)),
+            Transition("win", (Branch(1.0, pay(1.0)),)),
         )
     )
     return problem, transitions, State((("payoff", None), ("stage", 0), ("turn", "me")))
 
 
-def pay(payoff: float) -> Assign:
-    return Assign(StateVariable("payoff"), Constant(payoff))
-
-
 def win_or_lose() -> Game:
-    return one_move_game(Transition("lose", (Branch(1.0, (pay(0.0),)),)), Transition("win", (Branch(1.0, (pay(1.0),)),)))
+    return one_move_game(Transition("lose", (Branch(1.0, pay(0.0)),)), Transition("win", (Branch(1.0, pay(1.0)),)))
 
 
 def test_picks_a_winning_action_over_a_losing_one() -> None:
@@ -108,8 +95,8 @@ def test_picks_a_winning_action_over_a_losing_one() -> None:
 
 def test_prefers_a_sure_payoff_to_a_coin_flip_with_a_lower_mean() -> None:
     game = one_move_game(
-        Transition("gamble", (Branch(0.5, (pay(1.0),)), Branch(0.5, (pay(0.0),)))),
-        Transition("safe", (Branch(1.0, (pay(0.8),)),)),
+        Transition("gamble", (Branch(0.5, pay(1.0)), Branch(0.5, pay(0.0)))),
+        Transition("safe", (Branch(1.0, pay(0.8)),)),
     )
 
     assert search(game, iterations=300, exploration=1.0).chosen == Action("safe", ())
@@ -117,16 +104,16 @@ def test_prefers_a_sure_payoff_to_a_coin_flip_with_a_lower_mean() -> None:
 
 def test_the_same_seed_gives_the_same_result() -> None:
     game = one_move_game(
-        Transition("gamble", (Branch(0.5, (pay(1.0),)), Branch(0.5, (pay(0.0),)))),
-        Transition("safe", (Branch(1.0, (pay(0.6),)),)),
+        Transition("gamble", (Branch(0.5, pay(1.0)), Branch(0.5, pay(0.0)))),
+        Transition("safe", (Branch(1.0, pay(0.6)),)),
     )
 
     assert search(game, iterations=100, seed=3) == search(game, iterations=100, seed=3)
 
 
 def test_no_legal_action_with_an_unset_payoff_raises() -> None:
-    problem = Problem((ActionDefinition("finish", (), (Equals(StateVariable("done"), Constant(False)),)),))
-    finish = Transition("finish", (Branch(1.0, (Assign(StateVariable("done"), Constant(True)),)),))
+    problem = Problem((ActionDefinition("finish", (), (PythonRule("done == False"),)),))
+    finish = Transition("finish", (Branch(1.0, PythonRule("done = True")),))
     game = (problem, TransitionModel((finish,)), State((("done", False), ("payoff", None), ("turn", "me"))))
 
     with pytest.raises(ValueError, match="payoff"):
@@ -134,7 +121,7 @@ def test_no_legal_action_with_an_unset_payoff_raises() -> None:
 
 
 def test_no_legal_action_at_the_root_raises() -> None:
-    problem, transitions, _ = one_move_game(Transition("win", (Branch(1.0, (pay(1.0),)),)))
+    problem, transitions, _ = one_move_game(Transition("win", (Branch(1.0, pay(1.0)),)))
 
     with pytest.raises(ValueError, match="No legal action"):
         search((problem, transitions, State((("payoff", 1.0), ("turn", "me")))), iterations=1)
@@ -174,3 +161,25 @@ def test_guided_rollouts_follow_the_ratings() -> None:
     result = search(two_step_game(), iterations=1, guidance=Guidance(Favour("win"), 1.0, 0.01))
 
     assert [(sample.action.name, sample.mean_payoff) for sample in result.samples] == [("go", 1.0)]
+
+
+class Counting:
+    """Counts how often a rater is asked to rate."""
+
+    def __init__(self, rater: Favour) -> None:
+        self._rater = rater
+        self.calls = 0
+
+    def rate(self, state: State, actions: tuple[Action, ...]) -> tuple[float | None, ...]:
+        self.calls += 1
+        return self._rater.rate(state, actions)
+
+
+def test_without_guided_rollouts_only_the_tree_nodes_are_rated() -> None:
+    guided, unguided = Counting(Favour("win")), Counting(Favour("win"))
+
+    search(two_step_game(), iterations=1, guidance=Guidance(guided, 1.0, 0.01))
+    search(two_step_game(), iterations=1, guidance=Guidance(unguided, 1.0, 0.01, guided_rollouts=False))
+
+    # The root and the node go leads to are rated either way; the guided rollout also rates its one step.
+    assert (guided.calls, unguided.calls) == (3, 2)

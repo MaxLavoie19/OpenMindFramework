@@ -4,70 +4,62 @@
 
 Transitions: what performing an action does to a state. Given a domain's transition model, a state and an action, the
 predictor gives the outcome probability distribution: each possible new state with its probability. Transitions also
-end the game and set payoffs, since a payoff is a predicted outcome of a transition to a win or a draw.
+end the game and set payoffs, since a payoff is a predicted outcome of a transition to a win or a draw. Games of chance
+are branches with probabilities below 1.
 
 ## Content
 
 | File | What it is |
 |---|---|
-| `model/assign.py` | `Assign(target, value)`: sets an existing state variable to the value of an expression |
-| `model/when.py` | `When(condition, then, otherwise)`: applies `then` when the condition is true, otherwise `otherwise` |
-| `model/effect.py` | `Effect`: `Assign` or `When` |
-| `model/branch.py` | `Branch(probability, effects)`: one possible outcome of an action |
+| `model/branch.py` | `Branch(probability, effects)`: one possible outcome of an action; `effects` is a Python script (`PythonRule`) |
 | `model/transition.py` | `Transition(action, branches)`: what performing an action does |
-| `model/transition_model.py` | `TransitionModel(transitions)`: every transition of a domain |
+| `model/transition_model.py` | `TransitionModel(transitions, definitions)`: every transition of a domain, and the definitions their effects see (`None` for none) |
 | `model/outcome_distribution.py` | `OutcomeDistribution(outcomes)`: each outcome (new state) with its probability |
-| `builder/transition_model_builder.py` | `TransitionModelBuilder`: collects transitions; rejects a repeated action or probabilities that don't sum to 1 |
-| `service/predictor.py` | `Predictor`: applies a transition's branches to give the outcome distribution |
+| `builder/transition_model_builder.py` | `TransitionModelBuilder`: collects transitions and definitions; rejects a repeated action or probabilities that don't sum to 1 |
+| `service/predictor.py` | `Predictor`: runs each branch's effects on the state to give the outcome distribution |
+| `builder/predictor_builder.py` | `PredictorBuilder`: wires a predictor with its rule compiler, rule runner and action text mapper |
+| `factory/predictor_factory.py` | `create_predictor()` |
 
 ## Usage
 
 ```python
-from openmind.expression.mapper.expression_text_mapper import ExpressionTextMapper
-from openmind.expression.model.constant import Constant
-from openmind.expression.model.state_variable import StateVariable
-from openmind.expression.service.interpreter import Interpreter
 from openmind.predictor.builder.transition_model_builder import TransitionModelBuilder
-from openmind.predictor.model.assign import Assign
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.predictor.model.branch import Branch
-from openmind.predictor.service.predictor import Predictor
-from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
-hit = Branch(0.25, (Assign(StateVariable("score"), Constant(1)),))
-miss = Branch(0.75, ())
-model = TransitionModelBuilder().with_transition("shoot", (hit, miss)).build()
+hit = Branch(0.25, PythonRule("score = score + POINTS"))
+miss = Branch(0.75, PythonRule(""))
+model = TransitionModelBuilder().with_transition("shoot", (hit, miss)).with_definitions(PythonRule("POINTS = 1")).build()
 
-names = VariableNameMapper()
-predictor = Predictor(Interpreter(names), names, ExpressionTextMapper(names), ActionTextMapper())
-predictor.predict(model, State((("score", 0),)), Action("shoot", ()))
+create_predictor().predict(model, State((("score", 0),)), Action("shoot", ()))
 # OutcomeDistribution(outcomes=((State(variables=(('score', 1),)), 0.25), (State(variables=(('score', 0),)), 0.75)))
 ```
 
 ## How transitions apply
 
-- Each branch starts from the given state and applies its effects in order; each effect sees the state left by the
-  ones before it.
-- `Assign` changes only variables that already exist; an unknown variable raises `KeyError`. A state never gains or
-  loses variables.
-- A `When` condition must evaluate to `True` or `False`; any other value raises `TypeError`.
+- Each branch's effects script runs on its own copy of the state, with the action's parameters by name and the model's
+  definitions (see `rule/README.md` for what a script sees). What it leaves in the state's variables is the outcome;
+  statements run in order, so each sees what the ones before it changed.
+- A state never gains or loses variables: an index the state doesn't have raises `KeyError`.
 - Each branch gives its own entry, even when two branches produce the same state.
 - Predicting an action that has no transition raises `KeyError`.
 - Branches are discrete; continuous distributions come with the first domain that needs them.
 
 ## Logs
 
-Logger `openmind.predictor.service.predictor`:
+Logger `openmind.predictor.service.predictor`, per branch, one line per variable whose value changed, in the state's
+order, then the summary:
 
 - `DEBUG Set cell(1,1) = 'X'`
-- `DEBUG When turn == 'X': true` (or `false`)
 - `DEBUG place(col=1, row=1) gives 1 outcome(s) with probabilities [1.0]`
 
-Actions and conditions are written by `ActionTextMapper` and `ExpressionTextMapper`.
+Actions are written by `ActionTextMapper`.
 
 ## Notes
 
-- Tests: `builder/transition_model_builder_tests.py`, `service/predictor_tests.py`; integration:
-  `test/integration/tictactoe_transitions_tests.py`.
+- Tests: `builder/predictor_builder_tests.py`, `builder/transition_model_builder_tests.py`,
+  `factory/predictor_factory_tests.py`, `service/predictor_tests.py`; integration:
+  `test/integration/tictactoe_transitions_tests.py`, `test/integration/tictactoe_fourinarow_transitions_tests.py`.

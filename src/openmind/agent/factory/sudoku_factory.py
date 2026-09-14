@@ -10,6 +10,7 @@ from openmind.agent.constant.sudoku_constant import (
     EMPTY_MARK,
     FILL,
     NAME,
+    PARAMETER,
     PAYOFF,
     PLAYER,
     PUZZLE,
@@ -23,16 +24,11 @@ from openmind.csp.builder.problem_builder import ProblemBuilder
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
 from openmind.csp.model.variable import Variable
-from openmind.expression.model.action_parameter import ActionParameter
-from openmind.expression.model.all_different import AllDifferent
-from openmind.expression.model.constant import Constant
-from openmind.expression.model.equals import Equals
-from openmind.expression.model.expression import Expression
-from openmind.expression.model.state_variable import StateVariable
 from openmind.predictor.builder.transition_model_builder import TransitionModelBuilder
-from openmind.predictor.model.assign import Assign
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition_model import TransitionModel
+from openmind.rule.constant.rule_constant import ALL_DIFFERENT
+from openmind.rule.model.python_rule import PythonRule
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
@@ -42,37 +38,38 @@ from openmind.world.model.value import Value
 
 def create_sudoku_initial_state(grid: str = PUZZLE) -> State:
     """The grid's clues in their cells, every other cell empty, the solver to act, no payoff yet."""
+    names = VariableNameMapper()
     builder = StateBuilder()
-    for name, clue in _cells(grid):
-        builder.with_variable(name, clue)
+    for row, col, clue in _cells(grid):
+        builder.with_variable(names.to_name(CELL, (row, col)), clue)
     return builder.with_variable(TURN, PLAYER).with_variable(PAYOFF, UNSET).build()
 
 
 def create_sudoku_problem(grid: str = PUZZLE) -> Problem:
-    """Fill every empty cell of the grid at once, with no digit twice in a row, a column or a box."""
-    clues = dict(_cells(grid))
+    """Fill every empty cell of the grid at once, with no digit twice in a row, a column or a box. Each empty cell is a
+    parameter named like cell_1_3; a clue is read from the state as cell[1, 1]."""
+    clues = {(row, col): clue for row, col, clue in _cells(grid)}
     digits = DiscreteDomain(DIGITS)
-    constraints: tuple[Expression, ...] = (
-        Equals(StateVariable(PAYOFF), Constant(UNSET)),
+    constraints = (
+        PythonRule(f"{PAYOFF} is {UNSET!r}"),
         *(
-            AllDifferent(
-                tuple(ActionParameter(name) if clues[name] is EMPTY else StateVariable(name) for name in unit)
-            )
+            PythonRule(f"{ALL_DIFFERENT}({', '.join(_operand(row, col, clues[row, col]) for row, col in unit)})")
             for unit in _units()
         ),
     )
-    variables = tuple(Variable(name, digits) for name, clue in clues.items() if clue is EMPTY)
+    variables = tuple(Variable(_parameter(row, col), digits) for (row, col), clue in clues.items() if clue is EMPTY)
     return ProblemBuilder().with_action(FILL, variables, constraints).build()
 
 
 def create_sudoku_transitions(grid: str = PUZZLE) -> TransitionModel:
     """Write every filled value into its cell of the grid; a full grid pays 1.0, the share of cells filled."""
-    empty = [name for name, clue in _cells(grid) if clue is EMPTY]
-    effects = (
-        *(Assign(StateVariable(name), ActionParameter(name)) for name in empty),
-        Assign(StateVariable(PAYOFF), Constant(SOLVED)),
+    effects = "\n".join(
+        (
+            *(f"{CELL}[{row}, {col}] = {_parameter(row, col)}" for row, col, clue in _cells(grid) if clue is EMPTY),
+            f"{PAYOFF} = {SOLVED!r}",
+        )
     )
-    return TransitionModelBuilder().with_transition(FILL, (Branch(CERTAIN, effects),)).build()
+    return TransitionModelBuilder().with_transition(FILL, (Branch(CERTAIN, PythonRule(effects)),)).build()
 
 
 def create_sudoku_players() -> Players:
@@ -94,29 +91,35 @@ def create_sudoku_domain(name: str = NAME, grid: str = PUZZLE) -> Domain:
     )
 
 
-def _cells(grid: str) -> list[tuple[str, Value]]:
-    """Every cell's variable name with its clue, or EMPTY, row by row; a grid that isn't 81 empty marks or digits
-    raises ValueError."""
+def _cells(grid: str) -> list[tuple[int, int, Value]]:
+    """Every cell's row, column and clue, or EMPTY, row by row; a grid that isn't 81 empty marks or digits raises
+    ValueError."""
     if len(grid) != CELLS or any(mark != EMPTY_MARK and mark not in CLUE_MARKS for mark in grid):
         raise ValueError(
             f"A sudoku grid needs {CELLS} characters, each {EMPTY_MARK!r} or a digit from 1 to {SIZE}: {grid!r}"
         )
-    names = VariableNameMapper()
     return [
-        (names.to_name(CELL, (index // SIZE + 1, index % SIZE + 1)), EMPTY if mark == EMPTY_MARK else int(mark))
+        (index // SIZE + 1, index % SIZE + 1, EMPTY if mark == EMPTY_MARK else int(mark))
         for index, mark in enumerate(grid)
     ]
 
 
-def _units() -> list[list[str]]:
-    """The cell names of every row, column and box."""
-    names = VariableNameMapper()
+def _units() -> list[list[tuple[int, int]]]:
+    """The cells of every row, column and box."""
     positions = range(1, SIZE + 1)
-    rows = [[names.to_name(CELL, (row, col)) for col in positions] for row in positions]
-    columns = [[names.to_name(CELL, (row, col)) for row in positions] for col in positions]
+    rows = [[(row, col) for col in positions] for row in positions]
+    columns = [[(row, col) for row in positions] for col in positions]
     boxes = [
-        [names.to_name(CELL, (top + row, left + col)) for row in range(1, BOX + 1) for col in range(1, BOX + 1)]
+        [(top + row, left + col) for row in range(1, BOX + 1) for col in range(1, BOX + 1)]
         for top in range(0, SIZE, BOX)
         for left in range(0, SIZE, BOX)
     ]
     return rows + columns + boxes
+
+
+def _parameter(row: int, col: int) -> str:
+    return PARAMETER.format(row=row, col=col)
+
+
+def _operand(row: int, col: int, clue: Value) -> str:
+    return _parameter(row, col) if clue is EMPTY else f"{CELL}[{row}, {col}]"

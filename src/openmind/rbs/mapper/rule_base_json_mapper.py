@@ -1,15 +1,13 @@
 import json
 
-from openmind.expression.mapper.expression_json_mapper import ExpressionJsonMapper
 from openmind.rbs.model.rule import Rule
 from openmind.rbs.model.rule_base import RuleBase
+from openmind.rule.model.python_rule import PythonRule
 
 
 class RuleBaseJsonMapper:
-    """Maps a rule base to JSON text and back."""
-
-    def __init__(self, expression_json_mapper: ExpressionJsonMapper) -> None:
-        self._expression_json_mapper = expression_json_mapper
+    """Maps a rule base to JSON text and back; each condition is stored as its Python source. A rule saved without
+    `priority` loads as not a priority rule."""
 
     def to_json(self, rule_base: RuleBase) -> str:
         return json.dumps(
@@ -18,9 +16,10 @@ class RuleBaseJsonMapper:
                 "rules": [
                     {
                         "action": rule.action,
-                        "conditions": [self._expression_json_mapper.to_data(condition) for condition in rule.conditions],
+                        "conditions": [condition.source for condition in rule.conditions],
                         "expected_value": rule.expected_value,
                         "visits": rule.visits,
+                        "priority": rule.priority,
                     }
                     for rule in rule_base.rules
                 ],
@@ -35,9 +34,10 @@ class RuleBaseJsonMapper:
             tuple(
                 Rule(
                     item["action"],
-                    tuple(self._expression_json_mapper.from_data(condition) for condition in item["conditions"]),
+                    tuple(PythonRule(source) for source in item["conditions"]),
                     item["expected_value"],
                     item["visits"],
+                    item.get("priority", False),
                 )
                 for item in data["rules"]
             ),
