@@ -115,8 +115,9 @@ class PrimitiveGenerator:
             if rows and pattern.action == rows[0].action.name:
                 sources.update(dict.fromkeys(condition.source for condition in pattern.conditions))
 
-        for quantity in self._quantities(settings):
-            values = self._condition_evaluator.values(domain, rows, PythonRule(quantity))
+        quantities = self._quantities(settings)
+        evaluated = self._condition_evaluator.all_values(domain, rows, [PythonRule(quantity) for quantity in quantities])
+        for quantity, values in zip(quantities, evaluated, strict=True):
             if values is None:
                 continue
             cuts = self._cuts([float(value) for value in values])  # type: ignore[arg-type]

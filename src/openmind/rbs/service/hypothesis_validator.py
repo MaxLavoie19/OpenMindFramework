@@ -48,18 +48,23 @@ class HypothesisValidator:
         for row in rows:
             by_action.setdefault(row.action.name, []).append(row)
         masks: dict[tuple[str, PythonRule], np.ndarray | None] = {}
-
-        def mask(action: str, condition: PythonRule) -> np.ndarray | None:
-            key = (action, condition)
-            if key not in masks:
-                masks[key] = self._condition_evaluator.mask(domain, by_action[action], condition)
-            return masks[key]
+        for action, action_rows in by_action.items():
+            conditions = list(
+                dict.fromkeys(
+                    condition
+                    for hypothesis in hypotheses
+                    if hypothesis.action == action
+                    for condition in (*hypothesis.conditions, *hypothesis.parent)
+                )
+            )
+            evaluated = self._condition_evaluator.masks(domain, action_rows, conditions)
+            masks.update(((action, condition), mask) for condition, mask in zip(conditions, evaluated, strict=True))
 
         measured: list[tuple[float | None, int, float]] = []
         for hypothesis in hypotheses:
             action_rows = by_action.get(hypothesis.action, [])
-            condition_masks = [mask(hypothesis.action, condition) for condition in hypothesis.conditions] if action_rows else []
-            parent_masks = [mask(hypothesis.action, condition) for condition in hypothesis.parent] if action_rows else []
+            condition_masks = [masks[(hypothesis.action, condition)] for condition in hypothesis.conditions] if action_rows else []
+            parent_masks = [masks[(hypothesis.action, condition)] for condition in hypothesis.parent] if action_rows else []
             if not action_rows or any(value is None for value in (*condition_masks, *parent_masks)):
                 measured.append((None, 0, 1.0))
                 continue

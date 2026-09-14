@@ -6,9 +6,10 @@ from openmind.rbs.service.rule_generator import RuleGenerator
 from openmind.rbs.service.rule_rater import RuleRater
 
 
-def create_rule_generator() -> RuleGenerator:
-    """A rule generator with its goal pattern miner, primitive generator, hypothesis discoverer and validator."""
-    return RuleGeneratorBuilder().build()
+def create_rule_generator(workers: int = 1) -> RuleGenerator:
+    """A rule generator with its goal pattern miner, primitive generator, hypothesis discoverer and validator, checking
+    conditions in that many worker processes."""
+    return RuleGeneratorBuilder().with_workers(workers).build()
 
 
 def create_rule_rater(rule_base: RuleBase, domain: Domain) -> RuleRater:

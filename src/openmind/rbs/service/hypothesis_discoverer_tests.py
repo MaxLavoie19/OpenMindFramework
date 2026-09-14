@@ -4,6 +4,7 @@ from dataclasses import replace
 import pytest
 
 from openmind.mcts.model.action_sample import ActionSample
+from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.mapper.action_row_mapper import ActionRowMapper
 from openmind.rbs.model.action_row import ActionRow
@@ -46,7 +47,10 @@ def rows() -> tuple[ActionRow, ...]:
 
 def new_discoverer() -> HypothesisDiscoverer:
     evaluator = ConditionEvaluator(
-        RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build()
+        RuleCompiler(),
+        RuleRunner(StateNamespaceMapper(VariableNameMapper())),
+        ConsequenceLibraryBuilder().build(),
+        TaskRunner(1),
     )
     return HypothesisDiscoverer(evaluator, ActionRowMapper(), AdvantageContrast())
 

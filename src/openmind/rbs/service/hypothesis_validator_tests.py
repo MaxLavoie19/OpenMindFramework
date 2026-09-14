@@ -1,5 +1,6 @@
 import pytest
 
+from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.mapper.action_row_mapper import ActionRowMapper
 from openmind.rbs.model.hypothesis import Hypothesis
@@ -18,7 +19,10 @@ from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 def new_validator() -> HypothesisValidator:
     evaluator = ConditionEvaluator(
-        RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build()
+        RuleCompiler(),
+        RuleRunner(StateNamespaceMapper(VariableNameMapper())),
+        ConsequenceLibraryBuilder().build(),
+        TaskRunner(1),
     )
     return HypothesisValidator(evaluator, ActionRowMapper(), AdvantageContrast())
 

@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> None:
         ("--patterns", int, DEFAULT_PATTERNS, "winning moves probed for goal patterns"),
         ("--false-discovery-rate", float, DEFAULT_FALSE_DISCOVERY_RATE, "false discovery rate hypotheses are kept at"),
         ("--permutations", int, DEFAULT_PERMUTATIONS, "permutations of each validation test"),
-        ("--workers", int, DEFAULT_WORKERS, "worker processes the self-play games run in"),
+        ("--workers", int, DEFAULT_WORKERS, "worker processes self-play games and rule condition checks run in"),
     ]
     for flag, kind, default, meaning in options:
         parser.add_argument(flag, type=kind, default=default, help=f"{meaning} (default: {default})")
@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> None:
     root.addHandler(handler)
     root.setLevel(arguments.log_level)
     try:
-        logger.info("Running self-play in %d worker processes", arguments.workers)
+        logger.info("Running self-play and rule generation in %d worker processes", arguments.workers)
         result = create_distiller(arguments.workers).distill(domain, AgentBuilder().with_exploration(EXPLORATION), settings)
         repository = RuleBaseRepository(RuleBaseJsonMapper())
         path = repository.save(result.rule_base, Path(arguments.rules_directory), datetime.now())

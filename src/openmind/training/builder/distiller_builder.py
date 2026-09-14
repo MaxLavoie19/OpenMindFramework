@@ -15,8 +15,8 @@ from openmind.world.service.state_reader import StateReader
 
 
 class DistillerBuilder:
-    """Sets how many worker processes a distiller's self-play games run in, 1 by default, and wires the services it
-    works with."""
+    """Sets how many worker processes a distiller's self-play games and rule condition checks run in, 1 by default, and
+    wires the services it works with."""
 
     def __init__(self) -> None:
         self._workers = 1
@@ -29,7 +29,7 @@ class DistillerBuilder:
         self_play = SelfPlay(SolverBuilder().build(), PredictorBuilder().build(), StateReader(), TaskRunner(self._workers))
         return Distiller(
             self_play,
-            RuleGeneratorBuilder().build(),
+            RuleGeneratorBuilder().with_workers(self._workers).build(),
             RuleCompiler(),
             RuleRunner(StateNamespaceMapper(VariableNameMapper())),
             ConsequenceLibraryBuilder().build(),

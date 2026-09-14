@@ -1,3 +1,4 @@
+from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.model.action_row import ActionRow
 from openmind.rbs.model.generation_settings import GenerationSettings
@@ -30,7 +31,7 @@ def new_generator() -> PrimitiveGenerator:
     names = VariableNameMapper()
     state_namespace_mapper = StateNamespaceMapper(names)
     library = ConsequenceLibraryBuilder().build()
-    evaluator = ConditionEvaluator(RuleCompiler(), RuleRunner(state_namespace_mapper), library)
+    evaluator = ConditionEvaluator(RuleCompiler(), RuleRunner(state_namespace_mapper), library, TaskRunner(1))
     return PrimitiveGenerator(library, evaluator, state_namespace_mapper, names)
 
 

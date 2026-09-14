@@ -1,5 +1,6 @@
 import pytest
 
+from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.model.action_row import ActionRow
 from openmind.rbs.service.condition_evaluator import ConditionEvaluator
@@ -17,9 +18,12 @@ ROWS = (
 )
 
 
-def new_evaluator() -> ConditionEvaluator:
+def new_evaluator(workers: int = 1) -> ConditionEvaluator:
     return ConditionEvaluator(
-        RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build()
+        RuleCompiler(),
+        RuleRunner(StateNamespaceMapper(VariableNameMapper())),
+        ConsequenceLibraryBuilder().build(),
+        TaskRunner(workers),
     )
 
 
@@ -44,3 +48,18 @@ def test_a_parameter_named_action_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="action"):
         new_evaluator().values(strip_domain(), rows, PythonRule("True"))
+
+
+@pytest.mark.log_level("INFO")
+def test_several_rules_split_between_workers_give_what_each_gives_alone() -> None:
+    rows = (*ROWS, ActionRow(position({4: "O"}, "X"), place(3), 10, 0.5, 0.0))
+    rules = (PythonRule("win_chance(action) >= 1"), PythonRule("lamp == 1"), PythonRule("(col, near(action, 0, 1))"))
+
+    split = new_evaluator(workers=2)
+
+    assert split.all_values(strip_domain(), rows, rules) == [new_evaluator().values(strip_domain(), rows, rule) for rule in rules]
+    assert [None if mask is None else mask.tolist() for mask in split.masks(strip_domain(), rows, rules)] == [
+        [True, False, False],
+        None,
+        [False, False, False],
+    ]

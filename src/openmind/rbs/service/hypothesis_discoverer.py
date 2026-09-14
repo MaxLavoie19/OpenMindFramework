@@ -62,8 +62,8 @@ class HypothesisDiscoverer:
         splitting: list[tuple[PythonRule, np.ndarray]] = []
         gates: list[tuple[PythonRule, np.ndarray]] = []
         seen: set[bytes] = set()
-        for primitive in primitives:
-            mask = self._condition_evaluator.mask(domain, rows, primitive)
+        known = dict(zip(primitives, self._condition_evaluator.masks(domain, rows, primitives), strict=True))
+        for primitive, mask in known.items():
             if mask is None or not mask.any() or mask.all():
                 continue
             if mask.tobytes() in seen or (~mask).tobytes() in seen:
@@ -111,10 +111,15 @@ class HypothesisDiscoverer:
             frontier = [(hypothesis.conditions, child, index) for hypothesis, child, index in level]
 
         shortened = 0
-        for pattern in patterns:
-            if pattern.action != action:
-                continue
-            pattern_masks = [self._condition_evaluator.mask(domain, rows, condition) for condition in pattern.conditions]
+        own_patterns = [pattern for pattern in patterns if pattern.action == action]
+        missing = list(
+            dict.fromkeys(
+                condition for pattern in own_patterns for condition in pattern.conditions if condition not in known
+            )
+        )
+        known.update(zip(missing, self._condition_evaluator.masks(domain, rows, missing), strict=True))
+        for pattern in own_patterns:
+            pattern_masks = [known[condition] for condition in pattern.conditions]
             if any(mask is None for mask in pattern_masks):
                 continue
             conditions, matching = self._shortened(pattern.conditions, pattern_masks, everything)  # type: ignore[arg-type]

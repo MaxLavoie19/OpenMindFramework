@@ -31,7 +31,7 @@ hypotheses that hold become rules.
 | `constant/consequence_constant.py` | The names generated rules read (`me`, `other`, `action`, `win_chance`, `wins`, `solo_distance`, `near`, `OUTSIDE`) and the consequence cache size (200,000) |
 | `service/consequence_library.py` | `ConsequenceLibrary`: what generated rules read besides state variables, worked out with the domain's own solver and predictor |
 | `service/goal_pattern_miner.py` | `GoalPatternMiner`: the variables winning moves need |
-| `service/condition_evaluator.py` | `ConditionEvaluator`: a rule's values, or where it is true, on action rows |
+| `service/condition_evaluator.py` | `ConditionEvaluator`: a rule's values, or where it is true, on action rows; several rules at once in the task runner's workers, the rows split in slices |
 | `service/primitive_generator.py` | `PrimitiveGenerator`: the single conditions hypotheses are built from |
 | `service/advantage_contrast.py` | `AdvantageContrast`: per state, the mean advantage of the actions a condition matches minus that of the others |
 | `service/hypothesis_discoverer.py` | `HypothesisDiscoverer`: hypotheses from discovery rows, by beam search over conjunctions |
@@ -45,9 +45,9 @@ hypotheses that hold become rules.
 | `mapper/rule_base_json_mapper.py` | `RuleBaseJsonMapper`: a rule base as JSON text and back, each condition as its Python source; `priority` defaults to false on load |
 | `repository/rule_base_repository.py` | `RuleBaseRepository`: saves a rule base as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and loads it |
 | `builder/consequence_library_builder.py` | `ConsequenceLibraryBuilder`: wires the library's solver, predictor, state reader and variable name mapper |
-| `builder/rule_generator_builder.py` | `RuleGeneratorBuilder`: wires the generator's services around one consequence library |
+| `builder/rule_generator_builder.py` | `RuleGeneratorBuilder`: sets how many worker processes conditions are checked in (`with_workers`, 1 by default) and wires the generator's services around one consequence library |
 | `builder/rule_rater_builder.py` | `RuleRaterBuilder`: sets the rule base and the domain and wires the rater; rejects a missing rule base or domain |
-| `factory/rbs_factory.py` | `create_rule_generator()` and `create_rule_rater(rule_base, domain)` |
+| `factory/rbs_factory.py` | `create_rule_generator(workers=1)` and `create_rule_rater(rule_base, domain)` |
 
 ## What generated rules read
 

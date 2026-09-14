@@ -14,7 +14,7 @@ held-out games and measures it; the expansion-and-distillation loop over rounds 
 | `constant/training_constant.py` | Default games (20), held-out games (5), iterations (200) and seed (1); the range of per-game seeds |
 | `service/self_play.py` | `SelfPlay`: an agent plays a domain against itself, games in the task runner's workers; returns the samples of every search |
 | `service/distiller.py` | `Distiller`: self-play, rule generation and validation, and the result's measures |
-| `builder/distiller_builder.py` | `DistillerBuilder`: sets how many worker processes self-play runs in (`with_workers`, 1 by default) and wires self-play, the rule generator, and the rule compiler, runner and consequence library its rater checks conditions with |
+| `builder/distiller_builder.py` | `DistillerBuilder`: sets how many worker processes self-play games and rule condition checks run in (`with_workers`, 1 by default) and wires self-play, the rule generator, and the rule compiler, runner and consequence library its rater checks conditions with |
 | `factory/training_factory.py` | `create_distiller(workers=1)` |
 
 ## How distillation works

@@ -26,10 +26,11 @@ class CoverageFilter:
         self, domain: Domain, rows: Sequence[ActionRow], rules: Sequence[Rule], min_gain: float
     ) -> tuple[tuple[Rule, ...], tuple[Coverage, ...]]:
         """One action's rows and rules; the kept rules and the coverages, both in the given order."""
-        conditions: dict[PythonRule, np.ndarray | None] = {}
+        unique = list(dict.fromkeys(condition for rule in rules for condition in rule.conditions))
+        conditions = dict(zip(unique, self._condition_evaluator.masks(domain, rows, unique), strict=True))
         visits = np.array([row.visits for row in rows], dtype=float)
         advantages = np.array([row.advantage for row in rows], dtype=float)
-        masks = [self._mask(domain, rows, rule, conditions) for rule in rules]
+        masks = [self._mask(len(rows), rule, conditions) for rule in rules]
         means = [self._mean_advantage(mask, visits, advantages) for mask in masks]
         order = sorted(
             range(len(rules)),
@@ -56,17 +57,9 @@ class CoverageFilter:
             tuple(Coverage(rules[index], rules[found]) for index, found in sorted(covering.items())),
         )
 
-    def _mask(
-        self,
-        domain: Domain,
-        rows: Sequence[ActionRow],
-        rule: Rule,
-        conditions: dict[PythonRule, np.ndarray | None],
-    ) -> np.ndarray | None:
-        mask = np.ones(len(rows), dtype=bool)
+    def _mask(self, rows: int, rule: Rule, conditions: dict[PythonRule, np.ndarray | None]) -> np.ndarray | None:
+        mask = np.ones(rows, dtype=bool)
         for condition in rule.conditions:
-            if condition not in conditions:
-                conditions[condition] = self._condition_evaluator.mask(domain, rows, condition)
             matching = conditions[condition]
             if matching is None:
                 return None

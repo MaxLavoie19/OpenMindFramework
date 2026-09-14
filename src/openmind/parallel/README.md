@@ -35,6 +35,7 @@ Who runs work in workers, and how their results stay the same whatever the numbe
 | `training/service/self_play.py` | self-play games | each game draws an agent seed and an outcome seed up front |
 | `evaluation/service/match_runner.py` | baseline games | each game draws a policy seed and an outcome seed up front |
 | `evaluation/service/evaluator.py` | positions searched at each budget, reference searches | every search uses the evaluation's seed |
+| `rbs/service/condition_evaluator.py` | rule conditions checked on search rows, the rows split in slices, for discovery, validation, coverage and primitives | none needed: a condition's value depends only on its row |
 
 ## Usage
 

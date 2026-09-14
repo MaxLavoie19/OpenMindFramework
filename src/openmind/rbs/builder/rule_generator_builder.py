@@ -1,4 +1,7 @@
+from typing import Self
+
 from openmind.csp.builder.solver_builder import SolverBuilder
+from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.mapper.action_row_mapper import ActionRowMapper
 from openmind.rbs.mapper.hypothesis_text_mapper import HypothesisTextMapper
@@ -18,14 +21,21 @@ from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 
 class RuleGeneratorBuilder:
-    """Wires a rule generator: one consequence library shared by its miner, primitive generator and condition
-    evaluator."""
+    """Sets how many worker processes a rule generator checks conditions in, 1 by default, and wires it: one
+    consequence library shared by its miner, primitive generator and condition evaluator."""
+
+    def __init__(self) -> None:
+        self._workers = 1
+
+    def with_workers(self, workers: int) -> Self:
+        self._workers = workers
+        return self
 
     def build(self) -> RuleGenerator:
         names = VariableNameMapper()
         state_namespace_mapper = StateNamespaceMapper(names)
         library = ConsequenceLibraryBuilder().build()
-        evaluator = ConditionEvaluator(RuleCompiler(), RuleRunner(state_namespace_mapper), library)
+        evaluator = ConditionEvaluator(RuleCompiler(), RuleRunner(state_namespace_mapper), library, TaskRunner(self._workers))
         row_mapper, contrast = ActionRowMapper(), AdvantageContrast()
         return RuleGenerator(
             row_mapper,

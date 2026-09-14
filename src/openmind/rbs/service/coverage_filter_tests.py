@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.model.coverage import Coverage
 from openmind.rbs.model.rule import Rule
@@ -19,7 +20,10 @@ BASE = Rule("place", (), 0.5, 100)
 
 def new_filter() -> CoverageFilter:
     evaluator = ConditionEvaluator(
-        RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build()
+        RuleCompiler(),
+        RuleRunner(StateNamespaceMapper(VariableNameMapper())),
+        ConsequenceLibraryBuilder().build(),
+        TaskRunner(1),
     )
     return CoverageFilter(evaluator)
 

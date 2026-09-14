@@ -52,5 +52,5 @@ def test_several_workers_distill_the_same_rules(tmp_path: Path) -> None:
     assert rule_bases[0] == rule_bases[1]
     (log_file,) = (tmp_path / "2" / "log" / "tictactoe").glob("*.log")
     lines = log_file.read_text(encoding="utf-8").splitlines()
-    assert "INFO  openmind.entrypoint.distill Running self-play in 2 worker processes" in lines
+    assert "INFO  openmind.entrypoint.distill Running self-play and rule generation in 2 worker processes" in lines
     assert any(line.startswith("INFO  openmind.mcts.service.tree_search Searching 20 iterations") for line in lines)

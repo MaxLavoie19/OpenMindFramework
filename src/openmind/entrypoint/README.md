@@ -106,7 +106,7 @@ It saves the report as
 
 With `--rules`, the log also has `INFO Evaluating with rules <path>`. Every log starts with
 `INFO Running games and searches in <n> worker processes`, and `openmind-distill`'s with
-`INFO Running self-play in <n> worker processes`.
+`INFO Running self-play and rule generation in <n> worker processes`.
 
 ## `openmind-distill`
 
@@ -132,7 +132,7 @@ With `--rules`, the log also has `INFO Evaluating with rules <path>`. Every log 
 | `--patterns N` | `200` | winning moves probed for goal patterns |
 | `--false-discovery-rate X` | `0.05` | false discovery rate hypotheses are kept at |
 | `--permutations N` | `10000` | permutations of each validation test |
-| `--workers N` | half the logical CPUs | worker processes the self-play games run in; the rules are the same whatever the number |
+| `--workers N` | half the logical CPUs | worker processes self-play games and rule condition checks run in; the rules are the same whatever the number |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/distill` | where logs are saved |
 | `--rules-directory DIR` | `data/rbs` | where rule bases are saved |
