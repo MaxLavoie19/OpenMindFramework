@@ -6,7 +6,9 @@ class EvaluationSettings:
     """Games per baseline series, the agent's iterations, sampled positions (0 skips agreement, None takes every
     position), iteration budgets for agreement, seed, where exact search can't reach, the iterations of the unguided
     searches that stand in for perfect play (None uses exact search), whether a guided agent's rollouts follow its
-    ratings, and how many rollout actions a valuing agent plays before valuing a position."""
+    ratings, how many rollout actions a valuing agent plays before valuing a position, and, for every agent the
+    evaluation builds, the most actions a rollout plays before every player gets the unfinished payoff (None plays
+    rollouts to the end)."""
 
     games: int
     iterations: int
@@ -16,3 +18,5 @@ class EvaluationSettings:
     reference_iterations: int | None = None
     guided_rollouts: bool = True
     rollout_actions: int = 0
+    rollout_limit: int | None = None
+    unfinished_payoff: float | None = None

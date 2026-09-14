@@ -66,6 +66,23 @@ def test_agent_plays_o_until_the_game_is_over(
     assert lines[-1] == "INFO  openmind.entrypoint.play No legal action left: game over"
 
 
+def test_the_agent_can_search_with_a_rollout_limit(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    options = ("--agent", "O", "--iterations", "9", "--seed", "1", "--rollout-limit", "0", "--unfinished-payoff", "0.25")
+
+    play(monkeypatch, tmp_path, "1", options=options)
+
+    assert "O chose place(" in capsys.readouterr().out
+    lines = log_lines(tmp_path)
+    assert "INFO  openmind.mcts.service.tree_search place(col=1, row=2): 1 visits, mean payoff 0.25 for O" in lines
+
+
+def test_a_negative_rollout_limit_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["tictactoe", "--rollout-limit", "-1", "--log-directory", str(tmp_path)])
+
+
 def test_unknown_agent_player_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["tictactoe", "--agent", "Z", "--log-directory", str(tmp_path)])

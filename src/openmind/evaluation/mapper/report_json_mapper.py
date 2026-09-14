@@ -25,6 +25,8 @@ class ReportJsonMapper:
                     "reference_iterations": settings.reference_iterations,
                     "guided_rollouts": settings.guided_rollouts,
                     "rollout_actions": settings.rollout_actions,
+                    "rollout_limit": settings.rollout_limit,
+                    "unfinished_payoff": settings.unfinished_payoff,
                 },
                 "baselines": [
                     {

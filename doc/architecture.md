@@ -34,22 +34,27 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
 |---|---|---|
 | `world` | `Value`, `State`, `Action`, and their readable text | iterations 1 and 8 |
 | `rule` | Python rules: compiling them, running them against states, and a state as the names a rule reads | iteration 9 |
-| `csp` | Constraint satisfaction: action definitions, domains, constraints, and a solver with propagation and backtracking | iterations 1, 7 and 9 |
-| `agent` | The agent and its domains: tic-tac-toe with its variants, and sudoku | iterations 4, 7 and 8 |
+| `csp` | Constraint satisfaction: action definitions, domains fixed or computed from the state, constraints, and a solver with propagation and backtracking | iterations 1, 7, 9 and 12 |
+| `agent` | The agent and its domains: tic-tac-toe with its variants, sudoku, and the domains installed projects register | iterations 4, 7, 8 and 12 |
 | `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-select`, `openmind-distill-values`, `openmind-solve` | iterations 3–7, 10 and 11 |
 | `predictor` | Transitions, outcome probability distributions | iterations 2 and 9 |
-| `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater` and valuing positions with a model behind `PositionValuer` | iterations 4–6 and 11 |
+| `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater`, valuing positions with a model behind `PositionValuer`, and stopping rollouts at a limit | iterations 4–6, 11 and 12 |
 | `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play or a reference search, paired tests of guidance, rules and values alone | iterations 5, 8, 10 and 11 |
 | `rbs` | Rules generated from search for any domain, as hypotheses validated on held-out games, that rate actions and explain their ratings; value rules, weighted terms fitted sparsely, that value positions | iterations 6, 9, 10 and 11 |
 | `training` | Self-play, distillation of models from search, selection of the rules that play no worse than all of them, and distillation of value rules | iterations 6, 10 and 11 |
 | `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded | iteration 10 |
+| `testing` | Test support shared with problem projects: a pytest plugin saving each test's logs | iteration 12 |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |
 
 ## Conventions
 
 - Code lives in `src/openmind/<domain>/<class type>/`. Class types: `model` (datatypes), `factory` (functions that
   build an object with a builder and a recipe), `builder`, `service` (operations on data), `repository` (storing and
-  retrieving data), `mapper` (format conversions) and `constant`. Entrypoints live in `src/openmind/entrypoint/`.
+  retrieving data), `mapper` (format conversions), `constant` and `plugin` (pytest plugins). Entrypoints live in
+  `src/openmind/entrypoint/`.
+- OpenMind ships without the libraries a problem needs. A problem lives in its own project, which installs OpenMind,
+  imports any library its rules need, and registers its domains under the `openmind.domains` entry points (see
+  `src/openmind/agent/README.md`); chess lives in the OpenMindChess project, with python-chess.
 - Each domain folder has a `README.md` covering its purpose, content, usage and logs.
 - One class per module, named after it; a name that clashes with a Python keyword gets a trailing underscore
   (`not_.py`).
@@ -65,6 +70,6 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
 - `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Evaluation reports go in
   `data/evaluation/<domain>/`, selection reports in `data/selection/<domain>/`, rule bases in `data/rbs/<domain>/`, value
   bases in `data/values/<domain>/` and published sudoku collections in `data/sudoku/`,
-  all ignored by git. Tests save their logs
+  all ignored by git. Tests save their logs, through the `openmind.testing.plugin.log_saving` plugin,
   in `data/log/<test file>/<test name>.log`, which git ignores; a test marked `@pytest.mark.log_level("INFO")` saves
   only INFO and above.

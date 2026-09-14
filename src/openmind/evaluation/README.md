@@ -13,7 +13,7 @@ with; when it does, they are measured here too.
 
 | File | What it is |
 |---|---|
-| `model/evaluation_settings.py` | `EvaluationSettings(games, iterations, positions, budgets, seed, reference_iterations=None, guided_rollouts=True, rollout_actions=0)`; `positions` 0 skips agreement, `None` takes every position; `reference_iterations` replaces exact search with long unguided searches; `guided_rollouts` false makes the guided agent rate only its tree's nodes; `rollout_actions` is how many rollout actions a valuing agent plays before valuing |
+| `model/evaluation_settings.py` | `EvaluationSettings(games, iterations, positions, budgets, seed, reference_iterations=None, guided_rollouts=True, rollout_actions=0, rollout_limit=None, unfinished_payoff=None)`; `positions` 0 skips agreement, `None` takes every position; `reference_iterations` replaces exact search with long unguided searches; `guided_rollouts` false makes the guided agent rate only its tree's nodes; `rollout_actions` is how many rollout actions a valuing agent plays before valuing; `rollout_limit` and `unfinished_payoff` stop the rollouts of every agent the evaluation builds, reference searches aside |
 | `model/match_results.py` | `MatchResults(opponent, games, wins, draws, losses)`: a series against one opponent, from the evaluated agent's side |
 | `model/agreement.py` | `Agreement(iterations, positions, optimal, optimal_visit_share, mean_regret, seconds_per_choice)`: how an agent searching with a number of iterations did on the sampled positions |
 | `model/rater_agreement.py` | `RaterAgreement(positions, distinguishing, optimal, mean_regret)`: how a rater alone did on the sampled positions |
@@ -38,7 +38,7 @@ with; when it does, they are measured here too.
 
 ## How it measures
 
-1. **Results against baselines:** the agent, built with `iterations`, `seed`, `guided_rollouts` and `rollout_actions`, plays `games` games against
+1. **Results against baselines:** the agent, built with `iterations`, `seed`, `guided_rollouts`, `rollout_actions` and the rollout limit, plays `games` games against
    `RandomPolicy`, then `games` games against untrained MCTS with the same iterations, switching seats every game. A
    higher payoff than the opponent is a win, an equal one a draw, a lower one a loss. Every game draws a policy seed
    and an outcome seed up front; the random policy chooses with its game's policy seed, and both agents search with

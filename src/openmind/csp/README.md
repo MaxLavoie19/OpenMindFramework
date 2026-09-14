@@ -14,7 +14,8 @@ backtracking.
 | File | What it is |
 |---|---|
 | `model/discrete_domain.py` | `DiscreteDomain(values)`: the finite values a variable can take, in order |
-| `model/variable.py` | `Variable(name, domain)`: an action parameter to solve for |
+| `model/state_domain.py` | `StateDomain(rule)`: the values a variable takes in a state, given in order by a value rule reading the state and the problem's definitions; a value given twice counts once |
+| `model/variable.py` | `Variable(name, domain)`: an action parameter to solve for, over a `DiscreteDomain` or a `StateDomain` |
 | `model/action_definition.py` | `ActionDefinition(name, variables, constraints)`: an action and the constraints, Python rules, that make it legal |
 | `model/problem.py` | `Problem(actions, definitions)`: every action definition of a domain, and the definitions its constraints see (`None` for none) |
 | `model/support_table.py` | `SupportTable(first, second, allowed)`: the value pairs a two-parameter constraint allows |
@@ -72,22 +73,25 @@ For each action definition:
 1. Each constraint is compiled once, with the problem's definitions; its scope is the set of the action's parameters
    it reads. A name that is neither a parameter, a state variable nor defined raises `NameError` when the constraint
    runs.
-2. Each constraint takes the strongest form its scope allows:
-   - **no parameter:** checked once; if it's false, the action has no solution;
+2. The constraints that read no parameter are checked first: if one is false, the action has no solution.
+3. Each variable gets its values: a `DiscreteDomain`'s, or those its `StateDomain`'s rule gives in the state, each value
+   once, in the order given. A game can so generate its legal moves once per position instead of checking every
+   combination of parameter values.
+4. Each other constraint takes the strongest form its scope allows:
    - **a single `all_different(...)` call whose arguments are parameters or parameter-free expressions:** the
      parameter-free values are removed from the parameters' domains, and the parameters form an all-different group
      (equal fixed values or a repeated parameter mean no solution);
    - **one parameter:** filters that parameter's domain;
    - **two parameters:** evaluated once per pair of values into a support table;
    - **three or more:** forward-checked during search.
-3. Before searching, arc consistency on the support tables, all-different filtering on the groups and forward checking
+5. Before searching, arc consistency on the support tables, all-different filtering on the groups and forward checking
    run until nothing changes. A variable left without values means no solution.
-4. Backtracking assigns the open variable with the fewest values left; ties go to the variable in the most
+6. Backtracking assigns the open variable with the fewest values left; ties go to the variable in the most
    constraints, then to declaration order. After every assignment the same propagation runs again (maintaining arc
    consistency); a variable left without values is a dead end.
-5. Values are tried in domain order, or least-constraining first when a limit is set. The search stops once it has
+7. Values are tried in domain order, or least-constraining first when a limit is set. The search stops once it has
    `limit` solutions.
-6. Solutions are sorted by the variables' domain order, first variable slowest, and cached per problem, state and
+8. Solutions are sorted by the variables' domain order, first variable slowest, and cached per problem, state and
    limit: up to 100,000 results, the least recently used going first.
 
 `solve_with_statistics` gives the same solutions with the search's statistics summed over the action definitions; an

@@ -87,6 +87,24 @@ def test_build_with_valuation_values_positions_instead_of_playing_them_out() -> 
     assert valuer.calls == 3
 
 
+@pytest.mark.log_level("INFO")
+def test_build_with_a_rollout_limit_gives_rollouts_still_in_play_the_unfinished_payoff() -> None:
+    domain = create_tictactoe_domain()
+
+    agent = AgentBuilder().with_iterations(9).with_exploration(1.4).with_seed(1).with_rollout_limit(0, 0.25).build()
+
+    # Each iteration tries a new first move, and its rollout stops at once.
+    assert {(item.visits, item.mean_payoff) for item in agent.search(domain, domain.initial_state).statistics} == {(1, 0.25)}
+
+
+@pytest.mark.parametrize(("limit", "payoff", "message"), [(-1, 0.5, "negative"), (5, None, "unfinished payoff")])
+def test_build_rejects_a_negative_rollout_limit_or_one_without_an_unfinished_payoff(
+    limit: int, payoff: float | None, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        AgentBuilder().with_iterations(1).with_exploration(1.4).with_rollout_limit(limit, payoff).build()
+
+
 def test_build_rejects_negative_rollout_actions() -> None:
     with pytest.raises(ValueError, match="-1"):
         AgentBuilder().with_iterations(1).with_exploration(1.4).with_rollout_actions(-1).build()

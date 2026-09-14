@@ -1,10 +1,11 @@
+import logging
 from collections.abc import Sequence
 
 import numpy as np
 
 from openmind.agent.model.domain import Domain
 from openmind.rbs.constant.consequence_constant import ME, OTHER, SOLO_DISTANCE, WINS
-from openmind.rbs.constant.value_constant import COUNT_VARIABLE
+from openmind.rbs.constant.value_constant import COUNT_VARIABLE, MAX_VALUE_TERMS
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.term_evaluator import TermEvaluator
@@ -12,6 +13,8 @@ from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rule.model.python_rule import PythonRule
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.value import Value
+
+logger = logging.getLogger(__name__)
 
 
 class TermGenerator:
@@ -24,7 +27,10 @@ class TermGenerator:
        `sum(value == me for value in cell.values())`;
     3. quantities worked out from the domain's rules, wins(me), wins(other) and, unless solo_limit is 0,
        solo_distance(me, None, solo_limit) and solo_distance(other, None, solo_limit), each as it is and at up to
-       `cuts` thresholds seen: `wins(other) >= 1`."""
+       `cuts` thresholds seen: `wins(other) >= 1`.
+
+    A variable with more than MAX_VALUE_TERMS distinct values, such as a history of positions or a move clock, gets no
+    term per value, and an indexed variable's base with that many gets no count terms."""
 
     def __init__(
         self,
@@ -46,7 +52,11 @@ class TermGenerator:
                 values_by_variable.setdefault(name, {})[value] = None
 
         values_by_base: dict[str, dict[Value, None]] = {}
+        left_out: list[str] = []
         for name, values in values_by_variable.items():
+            if len(values) > MAX_VALUE_TERMS:
+                left_out.append(name)
+                continue
             reading = self._state_namespace_mapper.to_source(name)
             for value in values:
                 renderings = self._rendered(value, players)
@@ -59,9 +69,20 @@ class TermGenerator:
                 values_by_base.setdefault(base, {}).update(values)
 
         for base, values in values_by_base.items():
+            if len(values) > MAX_VALUE_TERMS:
+                left_out.append(base)
+                continue
             for value in values:
                 for rendered in self._rendered(value, players):
                     sources[f"sum({COUNT_VARIABLE} == {rendered} for {COUNT_VARIABLE} in {base}.values())"] = None
+
+        if left_out:
+            logger.info(
+                "Left out the values of %d variables with more than %d distinct values: %s",
+                len(left_out),
+                MAX_VALUE_TERMS,
+                ", ".join(left_out),
+            )
 
         quantities = [f"{WINS}({ME})", f"{WINS}({OTHER})"]
         if settings.solo_limit > 0:

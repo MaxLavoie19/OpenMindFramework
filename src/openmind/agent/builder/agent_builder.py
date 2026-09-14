@@ -26,6 +26,8 @@ class AgentBuilder:
         self._guided_rollouts = GUIDED_ROLLOUTS
         self._valuer: PositionValuer | None = None
         self._rollout_actions = 0
+        self._rollout_limit: int | None = None
+        self._unfinished_payoff: float | None = None
 
     def with_iterations(self, iterations: int) -> Self:
         self._iterations = iterations
@@ -58,6 +60,13 @@ class AgentBuilder:
         self._rollout_actions = actions
         return self
 
+    def with_rollout_limit(self, limit: int | None, unfinished_payoff: float | None = None) -> Self:
+        """How many actions a rollout plays at most before every player gets the unfinished payoff; None plays rollouts to
+        the end."""
+        self._rollout_limit = limit
+        self._unfinished_payoff = unfinished_payoff
+        return self
+
     def build(self) -> Agent:
         iterations, exploration = self._iterations, self._exploration
         if iterations is None or exploration is None:
@@ -66,6 +75,10 @@ class AgentBuilder:
             raise ValueError(f"Agent needs at least 1 iteration, not {iterations}")
         if self._rollout_actions < 0:
             raise ValueError(f"Rollout actions can't be negative, not {self._rollout_actions}")
+        if self._rollout_limit is not None and self._rollout_limit < 0:
+            raise ValueError(f"The rollout limit can't be negative, not {self._rollout_limit}")
+        if self._rollout_limit is not None and self._unfinished_payoff is None:
+            raise ValueError("A rollout limit needs an unfinished payoff")
         tree_search = TreeSearch(SolverBuilder().build(), PredictorBuilder().build(), StateReader(), ActionTextMapper())
         guidance = (
             Guidance(self._rater, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE, self._guided_rollouts)
@@ -73,4 +86,5 @@ class AgentBuilder:
             else None
         )
         valuation = LeafValuation(self._valuer, self._rollout_actions) if self._valuer is not None else None
-        return Agent(tree_search, SearchSettings(iterations, exploration, self._seed), guidance, valuation)
+        settings = SearchSettings(iterations, exploration, self._seed, self._rollout_limit, self._unfinished_payoff)
+        return Agent(tree_search, settings, guidance, valuation)

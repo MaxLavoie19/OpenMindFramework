@@ -39,6 +39,8 @@ def test_to_json_holds_every_measure() -> None:
             "reference_iterations": None,
             "guided_rollouts": True,
             "rollout_actions": 0,
+            "rollout_limit": None,
+            "unfinished_payoff": None,
         },
         "baselines": [
             {"opponent": "random", "games": 4, "wins": 3, "draws": 1, "losses": 0},

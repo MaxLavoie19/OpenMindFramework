@@ -10,6 +10,7 @@ from openmind.csp.model.problem import Problem
 from openmind.csp.model.scoped_constraint import ScopedConstraint
 from openmind.csp.model.search_space import SearchSpace
 from openmind.csp.model.solve_statistics import SolveStatistics
+from openmind.csp.model.state_domain import StateDomain
 from openmind.csp.model.support_table import SupportTable
 from openmind.csp.model.variable import Variable
 from openmind.csp.service.backtracking_search import BacktrackingSearch
@@ -22,13 +23,15 @@ from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
+from openmind.world.model.value import Value
 
 logger = logging.getLogger(__name__)
 
 
 class Solver:
-    """Finds the actions whose parameter values satisfy all of their constraints in a state. Each constraint, a Python
-    rule, takes the strongest form the parameters it reads allow (a single check, a domain filter, an all-different
+    """Finds the actions whose parameter values satisfy all of their constraints in a state. The constraints reading no
+    parameter are checked first; then each parameter gets its values, fixed or computed from the state; each other
+    constraint, a Python rule, takes the strongest form the parameters it reads allow (a domain filter, an all-different
     group, a support table, or a forward-checked constraint), backtracking search does the rest, and results are cached
     per problem and state."""
 
@@ -93,18 +96,24 @@ class Solver:
     ) -> tuple[list[Action], SolveStatistics]:
         action = definition.name
         names = [variable.name for variable in definition.variables]
-        domains = {variable.name: variable.domain.values for variable in definition.variables}
+        compiled_constraints = [
+            (constraint, self._rule_compiler.compile_value(constraint, names, definitions))
+            for constraint in definition.constraints
+        ]
+        for constraint, compiled in compiled_constraints:
+            if not compiled.arguments and not self._constraint_checker.holds(compiled, state, action, {}):
+                return self._no_solution(action, constraint)
+        ordered = {variable.name: self._values(variable.domain, state, definitions) for variable in definition.variables}
+        domains = dict(ordered)
 
         groups: list[AllDifferentGroup] = []
         wider: list[CompiledRule] = []
-        for constraint in definition.constraints:
-            compiled = self._rule_compiler.compile_value(constraint, names, definitions)
+        for constraint, compiled in compiled_constraints:
             scope = compiled.arguments
-            group = self._group(constraint, names, definitions) if scope else None
             if not scope:
-                if not self._constraint_checker.holds(compiled, state, action, {}):
-                    return self._no_solution(action, constraint)
-            elif group is not None:
+                continue
+            group = self._group(constraint, names, definitions)
+            if group is not None:
                 parameters, fixed_rules = group
                 fixed = [self._rule_runner.value(rule, state) for rule in fixed_rules]
                 if len(set(parameters)) < len(parameters) or len(set(fixed)) < len(fixed):
@@ -148,10 +157,7 @@ class Solver:
             tuple(constraints),
         )
         solutions, statistics = self._backtracking_search.search(space, state, limit)
-        position = {
-            variable.name: {value: index for index, value in enumerate(variable.domain.values)}
-            for variable in definition.variables
-        }
+        position = {name: {value: index for index, value in enumerate(ordered[name])} for name in names}
         solutions = tuple(
             sorted(solutions, key=lambda solution: tuple(position[name][solution[name]] for name in names))
         )
@@ -164,6 +170,15 @@ class Solver:
             statistics.pruned_values,
         )
         return [Action(action, tuple(sorted(solution.items(), key=itemgetter(0)))) for solution in solutions], statistics
+
+    def _values(
+        self, domain: DiscreteDomain | StateDomain, state: State, definitions: PythonRule | None
+    ) -> tuple[Value, ...]:
+        """A discrete domain's values, or the values a state domain's rule gives in the state, each once, in order."""
+        if isinstance(domain, DiscreteDomain):
+            return domain.values
+        compiled = self._rule_compiler.compile_value(domain.rule, (), definitions)
+        return tuple(dict.fromkeys(self._rule_runner.value(compiled, state)))  # type: ignore[call-overload]
 
     def _group(
         self, constraint: PythonRule, names: list[str], definitions: PythonRule | None

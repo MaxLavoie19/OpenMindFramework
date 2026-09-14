@@ -59,7 +59,7 @@ hypotheses that hold become rules.
 | `model/sparse_fit.py` | `SparseFit(weights, bias, steps, settled)`: weights fitted at a price; a weight of 0 drops its term |
 | `model/value_fit.py` | `ValueFit(price, terms_kept, steps, settled, training_loss, held_out_loss)`: one price of a sweep |
 | `model/value_generation_result.py` | `ValueGenerationResult(value_base, fits, chosen, candidates)` |
-| `constant/value_constant.py` | Default value settings: pair pool 20, 6 cuts, prices 0.1, 0.03, 0.01, 0.003 and 0.001, 1,000 steps, tolerance 1e-6; `COUNT_VARIABLE` (`value`) |
+| `constant/value_constant.py` | Default value settings: pair pool 20, 6 cuts, prices 0.1, 0.03, 0.01, 0.003 and 0.001, 1,000 steps, tolerance 1e-6; `COUNT_VARIABLE` (`value`); `MAX_VALUE_TERMS` (32) |
 | `service/term_evaluator.py` | `TermEvaluator`: a term's values on position rows as numbers; several terms at once in the task runner's workers, the rows split in slices |
 | `service/term_generator.py` | `TermGenerator`: the single terms value rules are fitted from |
 | `service/sparse_fitter.py` | `SparseFitter`: a logistic fit with an L1 price on its weights, by accelerated proximal gradient |
@@ -184,6 +184,10 @@ where rows come from.
       `sum(value == me for value in cell.values())`;
    3. `wins(me)`, `wins(other)` and, unless `solo_limit` is 0, `solo_distance(me, None, solo_limit)` and
       `solo_distance(other, None, solo_limit)`, as they are and at up to `cuts` thresholds seen: `wins(other) >= 1`.
+
+   A variable with more than `MAX_VALUE_TERMS` (32) distinct values, such as a history of positions or a move clock,
+   gets no term per value, and an indexed variable's base with that many gets no count terms: each term would match a
+   handful of rows.
 3. **Usable terms.** A term is dropped when it raises `KeyError`, `NameError` or `TypeError`, or gives something other
    than a finite number, on a training or a held-out row; when it has the same value on every training row; or when its
    training values repeat an earlier term's.
@@ -262,6 +266,8 @@ Training does this from self-play too: see `openmind-distill-values`.
   - `DEBUG <tested hypothesis as text>`, one line per hypothesis, such as `place when win_chance(action) >= 1: raises advantage, discovery 0.61 over 40 states, validation 0.58 over 12 states, p 0.0001, q 0.002, validated`
   - `DEBUG <rule as text>`, one line per rule, such as `place when wins(me, action) >= 2: EV 0.9 over 120 visits, priority`
 
+- `openmind.rbs.service.term_generator`:
+  - `INFO Left out the values of <n> variables with more than 32 distinct values: <names>`
 - `openmind.rbs.service.value_generator`:
   - `INFO <n> single terms generated, <u> usable on <t> training and <h> held-out rows`
   - `INFO Every training payoff is <payoff>: nothing to fit`

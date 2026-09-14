@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.constant.agent_constant import EXPLORATION
+from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
 from openmind.evaluation.constant.evaluation_constant import (
     ALL_POSITIONS,
@@ -81,9 +81,23 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--rollout-actions",
-        type=_rollout_actions,
+        type=_non_negative,
         default=0,
         help="rollout actions the valuing agent plays before valuing a position (default: 0)",
+    )
+    parser.add_argument(
+        "--rollout-limit",
+        type=_non_negative,
+        default=None,
+        help="actions every agent's rollout plays at most before every player gets the unfinished payoff "
+        "(default: no limit)",
+    )
+    parser.add_argument(
+        "--unfinished-payoff",
+        type=float,
+        default=DEFAULT_UNFINISHED_PAYOFF,
+        help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF}, a draw in "
+        "games paying 1, 0.5 and 0)",
     )
     parser.add_argument(
         "--workers",
@@ -114,6 +128,8 @@ def main(argv: list[str] | None = None) -> None:
         arguments.reference_iterations,
         arguments.rollouts == "guided",
         arguments.rollout_actions,
+        arguments.rollout_limit,
+        None if arguments.rollout_limit is None else arguments.unfinished_payoff,
     )
 
     directory = Path(arguments.log_directory) / domain.name
@@ -167,14 +183,14 @@ def _iterations(text: str) -> int:
     return iterations
 
 
-def _rollout_actions(text: str) -> int:
+def _non_negative(text: str) -> int:
     try:
-        actions = int(text)
+        number = int(text)
     except ValueError:
         raise argparse.ArgumentTypeError(f"expected a number, not {text!r}") from None
-    if actions < 0:
-        raise argparse.ArgumentTypeError(f"rollout actions can't be negative, not {actions}")
-    return actions
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"expected 0 or more, not {number}")
+    return number
 
 
 def _positions(text: str) -> int | None:

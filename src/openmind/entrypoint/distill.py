@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.constant.agent_constant import EXPLORATION
+from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
 from openmind.rbs.constant.generation_constant import (
@@ -66,6 +66,19 @@ def main(argv: list[str] | None = None) -> None:
     ]
     for flag, kind, default, meaning in options:
         parser.add_argument(flag, type=kind, default=default, help=f"{meaning} (default: {default})")
+    parser.add_argument(
+        "--rollout-limit",
+        type=_non_negative,
+        default=None,
+        help="actions a self-play rollout plays at most before every player gets the unfinished payoff (default: no "
+        "limit)",
+    )
+    parser.add_argument(
+        "--unfinished-payoff",
+        type=float,
+        default=DEFAULT_UNFINISHED_PAYOFF,
+        help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF})",
+    )
     parser.add_argument(
         "--explore",
         action="store_true",
@@ -137,7 +150,15 @@ def main(argv: list[str] | None = None) -> None:
             generation.false_discovery_rate,
             "on" if generation.coverage else "off",
         )
-        result = create_distiller(arguments.workers).distill(domain, AgentBuilder().with_exploration(EXPLORATION), settings)
+        agent_builder = AgentBuilder().with_exploration(EXPLORATION)
+        if arguments.rollout_limit is not None:
+            agent_builder.with_rollout_limit(arguments.rollout_limit, arguments.unfinished_payoff)
+            logger.info(
+                "Self-play rollouts stop after %d actions, every player getting %s",
+                arguments.rollout_limit,
+                arguments.unfinished_payoff,
+            )
+        result = create_distiller(arguments.workers).distill(domain, agent_builder, settings)
         repository = RuleBaseRepository(RuleBaseJsonMapper())
         path = repository.save(result.rule_base, Path(arguments.rules_directory), datetime.now())
         rule_text, hypothesis_text = RuleTextMapper(), HypothesisTextMapper()
@@ -164,6 +185,16 @@ def main(argv: list[str] | None = None) -> None:
         root.setLevel(level)
         root.removeHandler(handler)
         handler.close()
+
+
+def _non_negative(text: str) -> int:
+    try:
+        number = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, not {text!r}") from None
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"expected 0 or more, not {number}")
+    return number
 
 
 if __name__ == "__main__":

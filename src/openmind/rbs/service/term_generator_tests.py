@@ -1,3 +1,7 @@
+import logging
+
+import pytest
+
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.consequence_library_tests import position, strip_domain
@@ -5,6 +9,7 @@ from openmind.rbs.service.term_evaluator_tests import new_evaluator
 from openmind.rbs.service.term_generator import TermGenerator
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.world.model.state import State
 
 SETTINGS = ValueSettings(pair_pool=10, cuts=6, solo_limit=1, prices=(0.1, 0.01, 0.001), max_steps=2000, tolerance=1e-6)
 
@@ -52,3 +57,17 @@ def test_without_a_solo_limit_solo_distance_is_left_out() -> None:
     terms = new_generator().generate(strip_domain(), rows, ValueSettings(10, 6, 0, (0.01,), 100, 1e-6))
 
     assert not any(term.source.startswith("solo_distance") for term in terms)
+
+
+def test_a_variable_with_too_many_distinct_values_gets_no_term_per_value(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.rbs")
+    empty = dict(position({}, "X").variables)
+    rows = tuple(
+        PositionRow(State(tuple(sorted({**empty, "clock": clock}.items()))), "X", 0.5) for clock in range(40)
+    )
+
+    terms = {term.source for term in new_generator().generate(strip_domain(), rows, SETTINGS)}
+
+    assert not any(term.startswith("clock") for term in terms)
+    assert "cell[1, 1] == None" in terms
+    assert "Left out the values of 1 variables with more than 32 distinct values: clock" in caplog.messages

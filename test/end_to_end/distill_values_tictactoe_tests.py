@@ -61,6 +61,22 @@ def test_several_workers_distill_the_same_value_rules(tmp_path: Path) -> None:
     assert value_bases[0] == value_bases[1]
 
 
+def test_a_rollout_limit_stops_the_self_play_rollouts(tmp_path: Path) -> None:
+    main(
+        [
+            "tictactoe",
+            *SMALL,
+            *("--rollout-limit", "0", "--unfinished-payoff", "0.25", "--workers", "1"),
+            *("--log-directory", str(tmp_path / "log"), "--values-directory", str(tmp_path / "values")),
+        ]
+    )
+
+    (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    assert "INFO  openmind.entrypoint.distill_values Self-play rollouts stop after 0 actions, every player getting 0.25" in lines
+    assert any(line.startswith("INFO  openmind.mcts.service.tree_search ") and "mean payoff 0.25 for " in line for line in lines)
+
+
 def test_negative_prices_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["tictactoe", "--prices", "0.1,-1", "--log-directory", str(tmp_path)])

@@ -44,11 +44,13 @@ def search(
     seed: int | None = 1,
     guidance: Guidance | None = None,
     valuation: LeafValuation | None = None,
+    rollout_limit: int | None = None,
+    unfinished_payoff: float | None = None,
 ) -> SearchResult:
     tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
     problem, transitions, state = game
     players = Players(("me",), "turn", ("payoff",))
-    settings = SearchSettings(iterations, exploration, seed)
+    settings = SearchSettings(iterations, exploration, seed, rollout_limit, unfinished_payoff)
     return tree_search.search(problem, transitions, players, state, settings, guidance, valuation)
 
 
@@ -256,3 +258,31 @@ def test_rollout_actions_are_played_before_the_position_is_valued(
 
     assert valuer.stages == stages
     assert [(sample.action.name, sample.mean_payoff) for sample in result.samples] == [("step", payoff)]
+
+
+@pytest.mark.parametrize(("rollout_limit", "payoff"), [(0, 0.25), (1, 0.25), (5, 1.0)])
+def test_a_rollout_still_in_play_at_the_limit_gets_the_unfinished_payoff(rollout_limit: int, payoff: float) -> None:
+    result = search(countdown_game(), iterations=1, rollout_limit=rollout_limit, unfinished_payoff=0.25)
+
+    assert [(sample.action.name, sample.mean_payoff) for sample in result.samples] == [("step", payoff)]
+
+
+def test_a_valuer_due_at_the_limit_values_the_position_first() -> None:
+    valuer = Recording((0.75,))
+
+    result = search(
+        countdown_game(), iterations=1, valuation=LeafValuation(valuer, 1), rollout_limit=1, unfinished_payoff=0.25
+    )
+
+    assert valuer.stages == [2]
+    assert [(sample.action.name, sample.mean_payoff) for sample in result.samples] == [("step", 0.75)]
+
+
+@pytest.mark.parametrize(
+    ("rollout_limit", "unfinished_payoff", "message"), [(-1, 0.5, "negative"), (3, None, "unfinished payoff")]
+)
+def test_a_rollout_limit_is_at_least_0_and_comes_with_an_unfinished_payoff(
+    rollout_limit: int, unfinished_payoff: float | None, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        search(win_or_lose(), iterations=1, rollout_limit=rollout_limit, unfinished_payoff=unfinished_payoff)

@@ -8,6 +8,7 @@ from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
 from openmind.csp.model.solve_statistics import SolveStatistics
+from openmind.csp.model.state_domain import StateDomain
 from openmind.csp.model.variable import Variable
 from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.action import Action
@@ -101,6 +102,25 @@ def test_all_different_uses_the_values_it_reads_from_the_state() -> None:
         Action("fill", (("x", 1), ("y", 3))),
         Action("fill", (("x", 3), ("y", 1))),
     )
+
+
+def test_a_state_domain_gives_a_parameter_the_values_its_rule_reads_from_the_state() -> None:
+    go = ActionDefinition("go", (Variable("to", StateDomain(PythonRule("DOORS[room] + ['b']"))),), (PythonRule("to != 'c'"),))
+    problem = Problem((go,), PythonRule("DOORS = {'hall': ['b', 'a', 'c']}"))
+
+    # The values keep the rule's order, b given twice counts once, and constraints still filter them.
+    assert create_solver().solve(problem, State((("room", "hall"),))) == (
+        Action("go", (("to", "b"),)),
+        Action("go", (("to", "a"),)),
+    )
+
+
+def test_a_state_domain_is_read_only_once_the_constraints_without_parameters_hold() -> None:
+    go = ActionDefinition("go", (Variable("to", StateDomain(PythonRule("DOORS[room]"))),), (PythonRule("open == True"),))
+    problem = Problem((go,), PythonRule("DOORS = {}"))
+
+    # DOORS has no hall: reading the domain would raise KeyError.
+    assert create_solver().solve(problem, State((("open", False), ("room", "hall")))) == ()
 
 
 def test_the_limit_caps_the_number_of_solutions() -> None:

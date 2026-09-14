@@ -50,6 +50,11 @@ class TreeSearch:
         guidance: Guidance | None = None,
         valuation: LeafValuation | None = None,
     ) -> SearchResult:
+        if settings.rollout_limit is not None:
+            if settings.rollout_limit < 0:
+                raise ValueError(f"The rollout limit can't be negative, not {settings.rollout_limit}")
+            if settings.unfinished_payoff is None:
+                raise ValueError("A rollout limit needs an unfinished payoff")
         rng = random.Random(settings.seed)
         root = self._decision_node(problem, players, state, guidance, rng)
         if root.player is None:
@@ -57,7 +62,7 @@ class TreeSearch:
         player = players.names[root.player]
         logger.info("Searching %d iterations for %s", settings.iterations, player)
         for iteration in range(1, settings.iterations + 1):
-            self._iterate(iteration, root, problem, transitions, players, settings.exploration, guidance, valuation, rng)
+            self._iterate(iteration, root, problem, transitions, players, settings, guidance, valuation, rng)
         statistics = tuple(self._statistics(root, root.player, action) for action in root.actions)
         chosen = max(statistics, key=lambda item: item.visits).action
         for item in statistics:
@@ -78,7 +83,7 @@ class TreeSearch:
         problem: Problem,
         transitions: TransitionModel,
         players: Players,
-        exploration: float,
+        settings: SearchSettings,
         guidance: Guidance | None,
         valuation: LeafValuation | None,
         rng: random.Random,
@@ -93,7 +98,7 @@ class TreeSearch:
                 chance = ChanceNode(action, outcomes, {}, 0, [0.0] * len(players.names))
                 node.children[action] = chance
             else:
-                chance = node.children[self._select(node, node.player, exploration, guidance)]
+                chance = node.children[self._select(node, node.player, settings.exploration, guidance)]
             chances.append(chance)
             node = self._outcome(chance, problem, players, guidance, rng)
             decisions.append(node)
@@ -101,10 +106,10 @@ class TreeSearch:
                 break
 
         if node.player is None:
-            payoffs, rollout_length, valued = self._state_reader.payoffs(node.state, players), 0, False
+            payoffs, rollout_length, ending = self._state_reader.payoffs(node.state, players), 0, ""
         else:
-            payoffs, rollout_length, valued = self._rollout(
-                problem, transitions, players, node.state, guidance, valuation, rng
+            payoffs, rollout_length, ending = self._rollout(
+                problem, transitions, players, node.state, settings, guidance, valuation, rng
             )
 
         for decision in decisions:
@@ -120,7 +125,7 @@ class TreeSearch:
                 iteration,
                 " > ".join(self._action_text_mapper.to_text(chance.action) for chance in chances),
                 rollout_length,
-                ", then valued" if valued else "",
+                ending,
                 " ".join(f"{name}={payoff}" for name, payoff in zip(players.names, payoffs)),
             )
 
@@ -187,18 +192,23 @@ class TreeSearch:
         transitions: TransitionModel,
         players: Players,
         state: State,
+        settings: SearchSettings,
         guidance: Guidance | None,
         valuation: LeafValuation | None,
         rng: random.Random,
-    ) -> tuple[tuple[float, ...], int, bool]:
-        """Each player's payoff, the rollout's length, and whether a valuer gave the payoffs: after the valuation's
-        rollout actions, a position still in play gets the valuer's payoffs, unless the valuer knows nothing about it."""
+    ) -> tuple[tuple[float, ...], int, str]:
+        """Each player's payoff, the rollout's length, and how it ended, for the log. After the valuation's rollout
+        actions, a position still in play gets the valuer's payoffs, unless the valuer knows nothing about it; at the
+        rollout limit, every player gets the unfinished payoff."""
         length = 0
         while actions := self._solver.solve(problem, state):
             if valuation is not None and length == valuation.rollout_actions:
                 values = valuation.valuer.value(state)
                 if values is not None:
-                    return values, length, True
+                    return values, length, ", then valued"
+            if settings.rollout_limit is not None and length >= settings.rollout_limit:
+                unfinished = float(settings.unfinished_payoff)  # type: ignore[arg-type]
+                return (unfinished,) * len(players.names), length, ", then stopped at the rollout limit"
             ratings = self._ratings(guidance, state, actions) if guidance is not None and guidance.guided_rollouts else ()
             if guidance is not None and ratings:
                 best = max(ratings)
@@ -209,7 +219,7 @@ class TreeSearch:
             outcomes = self._predictor.predict(transitions, state, action).outcomes
             state = self._draw(outcomes, rng)
             length += 1
-        return self._state_reader.payoffs(state, players), length, False
+        return self._state_reader.payoffs(state, players), length, ""
 
     def _draw(self, outcomes: tuple[tuple[State, float], ...], rng: random.Random) -> State:
         (state,) = rng.choices(

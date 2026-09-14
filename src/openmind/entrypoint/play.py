@@ -4,7 +4,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 
-from openmind.agent.constant.agent_constant import DEFAULT_ITERATIONS
+from openmind.agent.constant.agent_constant import DEFAULT_ITERATIONS, DEFAULT_UNFINISHED_PAYOFF
 from openmind.agent.factory.agent_factory import create_agent
 from openmind.agent.factory.domain_factory import create_domain
 from openmind.agent.model.domain import Domain
@@ -34,6 +34,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--seed", type=int, default=None, help="random seed for the agent's search")
     parser.add_argument(
+        "--rollout-limit",
+        type=_non_negative,
+        default=None,
+        help="actions an agent's rollout plays at most before every player gets the unfinished payoff (default: no limit)",
+    )
+    parser.add_argument(
+        "--unfinished-payoff",
+        type=float,
+        default=DEFAULT_UNFINISHED_PAYOFF,
+        help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF}, a draw in "
+        "games paying 1, 0.5 and 0)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING"),
@@ -47,7 +60,12 @@ def main(argv: list[str] | None = None) -> None:
     unknown = [player for player in arguments.agent if player not in domain.players.names]
     if unknown:
         parser.error(f"unknown player {', '.join(unknown)}; {domain.name} players: {', '.join(domain.players.names)}")
-    agent = create_agent(arguments.iterations, arguments.seed) if arguments.agent else None
+    unfinished_payoff = None if arguments.rollout_limit is None else arguments.unfinished_payoff
+    agent = (
+        create_agent(arguments.iterations, arguments.seed, arguments.rollout_limit, unfinished_payoff)
+        if arguments.agent
+        else None
+    )
 
     directory = Path(arguments.log_directory) / domain.name
     directory.mkdir(parents=True, exist_ok=True)
@@ -95,6 +113,16 @@ def _play(domain: Domain, agent_players: frozenset[str], agent: Agent | None) ->
         print()
     print(state_text.to_text(state))
     logger.info("No legal action left: game over")
+
+
+def _non_negative(text: str) -> int:
+    try:
+        number = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, not {text!r}") from None
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"expected 0 or more, not {number}")
+    return number
 
 
 def _read_choice(count: int) -> int:

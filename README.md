@@ -108,6 +108,22 @@ held-out games best is kept. It prints the rules and every price's fit. The valu
 searches with them, `--rollout-actions N` playing that many rollout actions before valuing, and also measures the
 values alone.
 
+## Problem projects
+
+OpenMind ships without the libraries a problem needs. A problem is programmed in its own project: the project
+installs OpenMind, builds its domain with OpenMind's classes, its rules free to import any library, and registers the
+domain in its `pyproject.toml`:
+
+```toml
+[project.entry-points."openmind.domains"]
+chess = "openmind_chess.game.factory.chess_factory:create_chess_domain"
+```
+
+Once the project is installed next to OpenMind, OpenMind's commands run its domain: `openmind-play chess`,
+`openmind-evaluate chess --rollout-limit 100`. The registered function gets the whole domain name, such as `chess` or
+`chess/960`. A project's tests save their logs as OpenMind's do by loading the `openmind.testing.plugin.log_saving`
+plugin from their `conftest.py` (see `src/openmind/testing/README.md`).
+
 ## Tests
 
 Unit tests sit beside the code they test (`solver.py` → `solver_tests.py`); integration and end-to-end tests live in
@@ -117,7 +133,8 @@ Unit tests sit beside the code they test (`solver.py` → `solver_tests.py`); in
 .venv/bin/pytest
 ```
 
-Each test saves its logs, from DEBUG up, in `data/log/<test file>/<test name>.log`, for example
+Each test saves its logs, from DEBUG up, through the `openmind.testing.plugin.log_saving` pytest plugin that
+`conftest.py` loads, in `data/log/<test file>/<test name>.log`, for example
 `data/log/test/integration/tictactoe_transitions_tests/test_winning_move_sets_payoffs_and_ends_the_game.log`.
 
 `test/integration/sudoku_collections_solve_tests.py` solves every puzzle in `data/sudoku/`, one test per puzzle; it is

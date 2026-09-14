@@ -20,8 +20,10 @@ class ReportTextMapper:
             return "\n".join(lines)
         positions = report.agreement[0].positions
         reference = report.settings.reference_iterations
+        limit = report.settings.rollout_limit
         detail = (
             f"({'' if reference is None else f'reference: {reference}-iteration unguided searches; '}"
+            f"{'' if limit is None else f'rollout limit {limit}, unfinished payoff {report.settings.unfinished_payoff}; '}"
             f"every action optimal in {report.every_action_optimal})"
         )
         header = ("iterations", "optimal", "visits on optimal", "mean regret", "seconds per choice")

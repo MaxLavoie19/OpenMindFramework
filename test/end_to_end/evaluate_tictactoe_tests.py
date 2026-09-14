@@ -39,6 +39,8 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
         "reference_iterations": None,
         "guided_rollouts": True,
         "rollout_actions": 0,
+        "rollout_limit": None,
+        "unfinished_payoff": None,
     }
     assert [(item["opponent"], item["wins"] + item["draws"] + item["losses"]) for item in report["baselines"]] == [
         ("random", 2),
@@ -120,6 +122,24 @@ def test_evaluate_with_values_values_the_agent_positions_and_records_the_values_
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
     lines = log_file.read_text(encoding="utf-8").splitlines()
     assert f"INFO  openmind.entrypoint.evaluate Evaluating with values {values_file}" in lines
+
+
+def test_a_rollout_limit_applies_to_every_agent_and_is_recorded(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    main(
+        [
+            "tictactoe",
+            *("--games", "2", "--iterations", "10", "--positions", "3", "--budgets", "5", "--seed", "1"),
+            *("--rollout-limit", "2", "--unfinished-payoff", "0.25"),
+            *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
+        ]
+    )
+
+    (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
+    settings = json.loads(report_file.read_text(encoding="utf-8"))["settings"]
+    assert (settings["rollout_limit"], settings["unfinished_payoff"]) == (2, 0.25)
+    assert "\nAgreement with perfect play on 3 positions (rollout limit 2, unfinished payoff 0.25; every action optimal in " in (
+        capsys.readouterr().out
+    )
 
 
 def test_negative_rollout_actions_are_rejected(tmp_path: Path) -> None:

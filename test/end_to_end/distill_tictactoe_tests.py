@@ -53,6 +53,22 @@ def test_explore_widens_generation_and_keeps_covered_rules(capsys: pytest.Captur
     ) in log_file.read_text(encoding="utf-8").splitlines()
 
 
+def test_a_rollout_limit_stops_the_self_play_rollouts(tmp_path: Path) -> None:
+    main(
+        [
+            "tictactoe",
+            *("--games", "2", "--held-out-games", "1", "--iterations", "20", "--min-rule-visits", "5", "--seed", "1"),
+            *("--rollout-limit", "0", "--unfinished-payoff", "0.25", "--workers", "1"),
+            *("--log-directory", str(tmp_path / "log"), "--rules-directory", str(tmp_path / "rules")),
+        ]
+    )
+
+    (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    assert "INFO  openmind.entrypoint.distill Self-play rollouts stop after 0 actions, every player getting 0.25" in lines
+    assert any(line.startswith("INFO  openmind.mcts.service.tree_search ") and "mean payoff 0.25 for " in line for line in lines)
+
+
 def test_several_workers_distill_the_same_rules(tmp_path: Path) -> None:
     rule_bases = []
     for workers in ("1", "2"):

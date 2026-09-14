@@ -12,14 +12,15 @@ constants.
 |---|---|
 | `model/domain.py` | `Domain(name, initial_state, problem, transitions, players)`: a domain within the agent |
 | `builder/domain_builder.py` | `DomainBuilder`: collects a domain's parts; rejects missing parts |
-| `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`, a variant such as `"tictactoe/fourinarow"`, or `"sudoku"`); an unknown name or variant raises `ValueError` listing the known ones |
+| `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`, a variant such as `"tictactoe/fourinarow"`, `"sudoku"`, or a domain an installed project registers); an unknown name or variant raises `ValueError` listing the known ones |
+| `model/domain_recipe.py` | `DomainRecipe`: what an installed project registers, a function giving its domain from the whole domain name |
 | `service/agent.py` | `Agent`: searches a domain's state with MCTS, guided by a rater and valuing positions with a valuer when built with them; `search` gives the whole result, `choose` the action |
 | `model/policy.py` | `Policy`: anything with `choose(domain, state) -> Action`; `Agent` and `RandomPolicy` are policies |
 | `model/policy_factory.py` | `PolicyFactory`: gives the policy that plays a game from the game's seed; to run in worker processes, it must pickle |
 | `service/random_policy.py` | `RandomPolicy`: chooses uniformly among the legal actions; a baseline opponent |
-| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed, guidance (`with_guidance(rater)`), whether guided rollouts follow the ratings (`with_guided_rollouts(guided)`), the valuer valuing the positions rollouts reach (`with_valuation(valuer)`) and the rollout actions played before valuing (`with_rollout_actions(actions)`, 0 by default), and wires the services the agent searches with; rejects missing settings, fewer than 1 iteration and negative rollout actions |
-| `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None)`: an agent searching with the exploration weight √2 |
-| `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), and the guidance's prior weight (1.0), rollout temperature (0.2) and guided rollouts (true) |
+| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed, guidance (`with_guidance(rater)`), whether guided rollouts follow the ratings (`with_guided_rollouts(guided)`), the valuer valuing the positions rollouts reach (`with_valuation(valuer)`), the rollout actions played before valuing (`with_rollout_actions(actions)`, 0 by default) and the rollout limit (`with_rollout_limit(limit, unfinished_payoff)`), and wires the services the agent searches with; rejects missing settings, fewer than 1 iteration, negative rollout actions, and a negative rollout limit or one without an unfinished payoff |
+| `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None, rollout_limit=None, unfinished_payoff=None)`: an agent searching with the exploration weight √2 |
+| `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), the guidance's prior weight (1.0), rollout temperature (0.2) and guided rollouts (true), the default unfinished payoff (0.5), and the entry point group installed domains register under (`openmind.domains`) |
 | `model/tictactoe_variant.py` | `TicTacToeVariant(name, width, height, line, gravity)`: how a variant differs from standard tic-tac-toe |
 | `constant/tictactoe_constant.py` | Domain name and the variant separator, players, empty and unset values, payoff values, variable and action names, the four line directions, and the variants (`STANDARD`, `VARIANTS`) |
 | `factory/tictactoe_factory.py` | `create_tictactoe_domain(variant=STANDARD)`, assembled from `create_tictactoe_initial_state(variant)`, `create_tictactoe_problem(variant)`, `create_tictactoe_transitions(variant)` and `create_tictactoe_players()`, with `create_tictactoe_definitions(variant)` giving the script every rule of the variant sees; a variant without room for its line raises `ValueError` |
@@ -28,6 +29,21 @@ constants.
 | `model/sudoku_puzzle.py` | `SudokuPuzzle(collection, number, grid)`: a published puzzle, numbered from 1 in its collection, its grid 81 characters row by row with `.` for an empty cell |
 | `mapper/sudoku_collection_mapper.py` | `SudokuCollectionMapper`: reads a collection's text into puzzles, from one 81-character line per puzzle (Norvig) or a `Grid NN` line and 9 rows (Project Euler), with `.` or `0` for an empty cell; anything else raises `ValueError` |
 | `repository/sudoku_puzzle_repository.py` | `SudokuPuzzleRepository`: lists the `<collection>.txt` files of a directory and loads a collection's puzzles |
+
+## Domains from installed projects
+
+OpenMind ships without the libraries a problem needs. A problem is programmed in its own project, which installs
+OpenMind, builds its `Domain` with OpenMind's classes, its rules free to import any library, and registers a recipe in
+its `pyproject.toml`:
+
+```toml
+[project.entry-points."openmind.domains"]
+chess = "openmind_chess.game.factory.chess_factory:create_chess_domain"
+```
+
+`create_domain(name)` looks in its own domains first, then in the installed recipes for the part of the name before
+`/`, and calls that recipe with the whole name (`"chess"`, or a variant such as `"chess/960"`). Every command taking a
+domain name, `openmind-play` and `openmind-evaluate` among them, then runs the project's domain.
 
 ## Tic-tac-toe and its variants
 

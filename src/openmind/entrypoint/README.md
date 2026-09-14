@@ -29,6 +29,8 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | `--agent PLAYER` | none | a player the agent controls; repeat for several |
 | `--iterations N` | `1000` | MCTS iterations per agent move |
 | `--seed S` | unseeded | random seed for the agent's search |
+| `--rollout-limit N` | no limit | actions an agent's rollout plays at most before every player gets the unfinished payoff |
+| `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit, a draw in games paying 1, 0.5 and 0 |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the game log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/play` | where game logs are saved |
 
@@ -41,7 +43,8 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 5. When no action is legal, prints the final state, payoffs included.
 
 Domains are created by name through `agent/factory/domain_factory.py`: `tictactoe`, its variants
-`tictactoe/fourinarow` and `tictactoe/gomoku`, and `sudoku`. An `--agent` player the domain doesn't have is rejected.
+`tictactoe/fourinarow` and `tictactoe/gomoku`, `sudoku`, and any domain an installed project registers (see
+`agent/README.md`). An `--agent` player the domain doesn't have is rejected.
 
 Each session writes `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, from `--log-level` up (a variant's logs go
 in a folder per variant, such as `data/log/play/tictactoe/fourinarow/`), as
@@ -80,6 +83,8 @@ agent's rollouts.
 | `--rollouts MODE` | `guided` | with `--rules`: `guided` rollouts follow the rules' ratings; `unguided` rollouts pick uniformly and only the search tree's nodes are rated, which is much cheaper with rules reading lookahead such as `wins()` |
 | `--values PATH` | none | value base valuing the positions the evaluated agent's rollouts reach; its path is recorded in the report |
 | `--rollout-actions N` | `0` | with `--values`: rollout actions played before valuing a position; 0 values the search's new position itself |
+| `--rollout-limit N` | no limit | actions a rollout plays at most, for every agent the evaluation builds (evaluated, unguided, untrained), before every player gets the unfinished payoff; reference searches play to the end |
+| `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/evaluate` | where logs are saved |
 | `--report-directory DIR` | `data/evaluation` | where reports are saved |
@@ -110,7 +115,8 @@ Values alone: valued <n> of 100 positions, mean absolute error <error>; one step
 ```
 
 With `--reference-iterations N`, the heading names the reference: `(reference: N-iteration unguided searches; every
-action optimal in <n>)`.
+action optimal in <n>)`; with `--rollout-limit N`, it adds `rollout limit N, unfinished payoff X; ` before `every
+action optimal`.
 
 It saves the report as
 `<report directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
@@ -118,7 +124,9 @@ It saves the report as
 `openmind.entrypoint.evaluate`.
 
 With `--rules`, the log also has `INFO Evaluating with rules <path>`, and with `--values`,
-`INFO Evaluating with values <path>`. Every log starts with
+`INFO Evaluating with values <path>`. With `--rollout-limit`, the logs of `openmind-distill` and
+`openmind-distill-values` have `INFO Self-play rollouts stop after <n> actions, every player getting <payoff>`. Every
+log starts with
 `INFO Running games and searches in <n> worker processes`, and `openmind-distill`'s with
 `INFO Running self-play and rule generation in <n> worker processes`.
 
@@ -149,6 +157,8 @@ With `--rules`, the log also has `INFO Evaluating with rules <path>`, and with `
 | `--workers N` | half the logical CPUs | worker processes self-play games and rule condition checks run in; the rules are the same whatever the number |
 | `--explore` | off | generate many candidates for `openmind-select`: beam width 60, up to 3 conditions, min gain 0.02, false discovery rate 0.2 and no coverage, each unless given explicitly |
 | `--coverage`, `--no-coverage` | on, off with `--explore` | whether validated rules a simpler rule covers are left out |
+| `--rollout-limit N` | no limit | actions a self-play rollout plays at most before every player gets the unfinished payoff; domains whose random games run long, such as chess, need one |
+| `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/distill` | where logs are saved |
 | `--rules-directory DIR` | `data/rbs` | where rule bases are saved |
@@ -234,6 +244,8 @@ searching in <n> worker processes`, has the selector's decisions (see `training/
 | `--max-steps N` | `1000` | steps a fit takes at most |
 | `--tolerance X` | `1e-06` | weight change below which a fit has settled |
 | `--workers N` | half the logical CPUs | worker processes self-play games and term evaluations run in; the value rules are the same whatever the number |
+| `--rollout-limit N` | no limit | actions a self-play rollout plays at most before every player gets the unfinished payoff; domains whose random games run long, such as chess, need one |
+| `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log |
 | `--log-directory DIR` | `data/log/distill-values` | where logs are saved |
 | `--values-directory DIR` | `data/values` | where value bases are saved |

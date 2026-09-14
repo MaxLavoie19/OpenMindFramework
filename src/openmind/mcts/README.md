@@ -12,7 +12,7 @@ rules, can value the positions its rollouts reach instead of playing them to the
 
 | File | What it is |
 |---|---|
-| `model/search_settings.py` | `SearchSettings(iterations, exploration, seed)`: how long and how widely to search; `seed=None` is unseeded |
+| `model/search_settings.py` | `SearchSettings(iterations, exploration, seed, rollout_limit=None, unfinished_payoff=None)`: how long and how widely to search; `seed=None` is unseeded; a rollout limit stops rollouts after that many actions |
 | `model/action_statistics.py` | `ActionStatistics(action, visits, mean_payoff)`: a root action's visits and mean payoff for the player acting at the root (0.0 when never visited) |
 | `model/action_sample.py` | `ActionSample(state, player, action, visits, mean_payoff)`: an action expanded anywhere in the tree, with its visits and mean payoff for the player to act |
 | `model/search_result.py` | `SearchResult(player, statistics, chosen, samples)`: every root action's statistics, the most visited action, and a sample for every expanded action |
@@ -82,6 +82,13 @@ With a valuation:
 - A finished game keeps its own payoffs: the valuer only values positions in play. A valuer whose values stay inside the
   payoff range, as value rules' do, never rates a position above a real win.
 
+With a rollout limit:
+
+- A rollout still in play after `rollout_limit` actions stops, and every player gets `unfinished_payoff`; 0 stops at
+  the new decision node itself. A valuer due at the same length values the position first.
+- A negative limit, or a limit without an unfinished payoff, raises `ValueError`.
+- Domains whose random games run long, such as chess, need one unless a valuer values their positions.
+
 Also:
 
 - A search from a state with no legal action raises `ValueError`.
@@ -97,7 +104,8 @@ Logger `openmind.mcts.service.tree_search`:
 - `INFO <action>: <visits> visits, mean payoff <mean> for <player>`, once per root action
 - `INFO Most visited: <action>`
 - `DEBUG Iteration <n>: <actions from the root>, rollout of <n> actions, payoffs <player>=<payoff> ...`, with
-  `, then valued` after the rollout's length when a valuer gave the payoffs
+  `, then valued` or `, then stopped at the rollout limit` after the rollout's length when a valuer or the limit gave
+  the payoffs
 
 The usage example above logs these INFO lines, and this DEBUG line for iteration 17:
 

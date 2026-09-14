@@ -84,8 +84,15 @@ class Evaluator:
         workers, the builder, with its models, must pickle."""
         rng = random.Random(settings.seed)
         agent_builder.with_guided_rollouts(settings.guided_rollouts).with_rollout_actions(settings.rollout_actions)
+        agent_builder.with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
         agent_builder.with_iterations(settings.iterations).with_seed(settings.seed)
-        untrained = AgentBuilder().with_exploration(EXPLORATION).with_iterations(settings.iterations).with_seed(settings.seed)
+        untrained = (
+            AgentBuilder()
+            .with_exploration(EXPLORATION)
+            .with_iterations(settings.iterations)
+            .with_seed(settings.seed)
+            .with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
+        )
         opponents: tuple[tuple[str, PolicyFactory], ...] = (
             (RANDOM_OPPONENT, create_random_policy),
             (UNTRAINED_OPPONENT, partial(create_built_agent, untrained)),
@@ -118,7 +125,13 @@ class Evaluator:
                 )
                 agreement.append(guided_result)
                 if compared:
-                    unguided = AgentBuilder().with_exploration(EXPLORATION).with_iterations(iterations).with_seed(settings.seed)
+                    unguided = (
+                        AgentBuilder()
+                        .with_exploration(EXPLORATION)
+                        .with_iterations(iterations)
+                        .with_seed(settings.seed)
+                        .with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
+                    )
                     unguided_result, unguided_measures = self._agreement(
                         domain, unguided, iterations, sample, values, tolerance, "Unguided agreement"
                     )
