@@ -3,8 +3,9 @@
 ## Purpose
 
 Trains models from the agent's own play. It generates a rule base from self-play, validates it on held-out games
-and measures it; and it selects, from many candidate rules, the smallest set that plays no worse than all of them.
-The expansion-and-distillation loop over rounds comes next.
+and measures it; it selects, from many candidate rules, the smallest set that plays no worse than all of them; and it
+fits value rules, which value positions, on the positions of self-play games. The expansion-and-distillation loop over
+rounds comes next.
 
 ## Content
 
@@ -13,10 +14,17 @@ The expansion-and-distillation loop over rounds comes next.
 | `model/distillation_settings.py` | `DistillationSettings(games, held_out_games, iterations, seed, generation)`; `generation` is the rule generator's `GenerationSettings` |
 | `model/distillation_result.py` | `DistillationResult(rule_base, training_samples, held_out_samples, rating_error, mean_conditions, patterns, hypotheses, covered)`; `hypotheses` holds every hypothesis's test, `covered` the validated rules a simpler rule covers |
 | `constant/training_constant.py` | Default games (20), held-out games (5), iterations (200) and seed (1); the range of per-game seeds |
-| `service/self_play.py` | `SelfPlay`: an agent plays a domain against itself, games in the task runner's workers; returns the samples of every search |
+| `service/self_play.py` | `SelfPlay`: an agent plays a domain against itself, games in the task runner's workers; returns every game |
+| `model/played_game.py` | `PlayedGame(samples, states, search_values, payoffs)`: a self-play game's search samples, its positions with the search's mean payoff for the player to act in each, and its final payoffs |
 | `service/distiller.py` | `Distiller`: self-play, rule generation and validation, and the result's measures |
 | `builder/distiller_builder.py` | `DistillerBuilder`: sets how many worker processes self-play games and rule condition checks run in (`with_workers`, 1 by default) and wires self-play, the rule generator, and the rule compiler, runner and consequence library its rater checks conditions with |
-| `factory/training_factory.py` | `create_distiller(workers=1)` and `create_rule_selector(workers=1)` |
+| `factory/training_factory.py` | `create_distiller(workers=1)`, `create_rule_selector(workers=1)` and `create_value_distiller(workers=1)` |
+| `constant/training_constant.py` | Also the value distillation defaults: 100 games and 25 held-out games; the targets, `outcome` and `search` |
+| `mapper/position_row_mapper.py` | `PositionRowMapper`: self-play games to the position rows value rules are fitted on, at a target |
+| `model/value_distillation_settings.py` | `ValueDistillationSettings(games, held_out_games, iterations, seed, target, values)`; `values` is the value generator's `ValueSettings` |
+| `model/value_distillation_result.py` | `ValueDistillationResult(value_base, fits, chosen, candidates, training_rows, held_out_rows, held_out_error)` |
+| `service/value_distiller.py` | `ValueDistiller`: self-play, value rule generation, and the chosen rules' error on held-out rows |
+| `builder/value_distiller_builder.py` | `ValueDistillerBuilder`: sets how many worker processes self-play games and term evaluations run in (`with_workers`, 1 by default) and wires the value distiller |
 | `model/selection_settings.py` | `SelectionSettings(positions, reference_iterations, iterations, guided_rollouts, margin, confidence, resamples, seed, max_hours)` |
 | `model/non_inferiority.py` | `NonInferiority(positions, regret_difference, upper_bound, margin, holds)`: a paired comparison of regret against a margin |
 | `model/removal_test.py` | `RemovalTest(rule, pass_number, regret_difference, upper_bound, optimal_difference, removed, free, seconds)`: one try at removing a rule |
@@ -34,7 +42,7 @@ The expansion-and-distillation loop over rounds comes next.
 1. `SelfPlay` plays `games` training games, then `held_out_games` more. Every game draws two seeds from `seed` up
    front: its agent, built from the given builder with `iterations`, searches with one, and its outcomes are drawn with
    the other. Games don't depend on each other, so they run in the task runner's workers (see `parallel/README.md`)
-   with the same samples whatever the number of workers. The samples of every search are kept, in game order.
+   with the same games whatever the number of workers. The samples of every search are kept, in game order.
 2. `RuleGenerator` discovers hypotheses on the training samples and validates them on the held-out samples, with `seed`
    drawing the permutations (see `rbs/README.md`). Validation needs enough held-out states to reach the false discovery
    rate: with few held-out games, nothing is validated and every rule is an action's mean payoff.
@@ -78,6 +86,24 @@ rules.
 Searches run in the task runner's workers (see `parallel/README.md`). After every decision the selector hands the
 report so far to `on_progress`; `openmind-select` saves it, so a long selection can be read while it runs.
 
+## How value distillation works
+
+1. `SelfPlay` plays `games` training games, then `held_out_games` more, as in distillation. Every game keeps its
+   positions, in order, with the search's mean payoff for the player to act in each (the visit-weighted mean of the
+   root actions' mean payoffs), and its final payoffs.
+2. `PositionRowMapper` turns the games into rows at the `target`:
+   - `outcome`: every position, once for each player, valued at that player's final payoff. One game's result is a
+     noisy value for its early positions, but it is what the position led to in the agent's own play;
+   - `search`: every position, for the player to act, valued at the search's mean payoff there: smoother, but only as
+     good as the search, and leaning toward what its rollouts find.
+3. `ValueGenerator` fits value rules on the training rows and chooses a price on the held-out rows (see
+   `rbs/README.md`).
+4. `held_out_error`: the mean absolute difference between the chosen rules' value for each held-out row's player and the
+   row's target, over the rows the rules can value. The held-out rows also chose the price, so this error isn't
+   independent of that choice.
+
+How the value rules play shows in `openmind-evaluate --values` (see `evaluation/README.md`).
+
 ## Usage
 
 ```python
@@ -109,6 +135,22 @@ report.selected   # the selected RuleBase
 
 From the terminal: `openmind-select tictactoe --rules <candidates>.json`.
 
+```python
+from openmind.rbs.model.value_settings import ValueSettings
+from openmind.training.factory.training_factory import create_value_distiller
+from openmind.training.model.value_distillation_settings import ValueDistillationSettings
+
+values = ValueSettings(20, 6, 2, (0.1, 0.03, 0.01, 0.003, 0.001), 1000, 1e-6)   # see rbs/README.md
+result = create_value_distiller(workers=8).distill(
+    create_domain("tictactoe"),
+    AgentBuilder().with_exploration(EXPLORATION),
+    ValueDistillationSettings(games=100, held_out_games=25, iterations=200, seed=1, target="outcome", values=values),
+)
+result.value_base   # the ValueBase
+```
+
+From the terminal: `openmind-distill-values tictactoe`.
+
 ## Logs
 
 - `openmind.training.service.self_play`: `INFO Self-play game <n>: <samples> samples, payoffs <player>=<payoff> ...`
@@ -123,6 +165,8 @@ From the terminal: `openmind-select tictactoe --rules <candidates>.json`.
   - `INFO Pass <n> removed <m> rules: <kept> of <candidates> kept`
   - `INFO Out of time after <hours> hours`
   - `INFO Confirmation with seed <seed> on <positions> positions: regret <difference>, bound <bound> < margin <margin>` (or `>=`)
+- `openmind.training.service.value_distiller`: `INFO Distilled <n> value rules from <m> training rows valued at the
+  <target> target; mean absolute error <error> on <h> held-out rows`
 
 Every search also logs its summary (see `mcts/README.md`), and generation logs its patterns, hypotheses and rules (see
 `rbs/README.md`).
@@ -132,6 +176,7 @@ Every search also logs its summary (see `mcts/README.md`), and generation logs i
 - Tests: `builder/distiller_builder_tests.py`, `factory/training_factory_tests.py`, `service/distiller_tests.py`,
   `service/self_play_tests.py`, `service/non_inferiority_test_tests.py`, `service/rule_selector_tests.py`,
   `builder/rule_selector_builder_tests.py`, `mapper/selection_report_json_mapper_tests.py`,
-  `mapper/selection_report_text_mapper_tests.py`, `repository/selection_report_repository_tests.py`; integration:
-  `test/integration/tictactoe_distillation_tests.py`; end-to-end: `test/end_to_end/distill_tictactoe_tests.py`,
-  `test/end_to_end/select_tictactoe_tests.py`.
+  `mapper/selection_report_text_mapper_tests.py`, `repository/selection_report_repository_tests.py`,
+  `mapper/position_row_mapper_tests.py`, `service/value_distiller_tests.py`, `builder/value_distiller_builder_tests.py`;
+  integration: `test/integration/tictactoe_distillation_tests.py`; end-to-end: `test/end_to_end/distill_tictactoe_tests.py`,
+  `test/end_to_end/select_tictactoe_tests.py`, `test/end_to_end/distill_values_tictactoe_tests.py`.

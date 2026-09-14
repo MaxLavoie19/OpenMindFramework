@@ -20,9 +20,11 @@ from openmind.evaluation.mapper.report_text_mapper import ReportTextMapper
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.repository.report_repository import ReportRepository
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
-from openmind.rbs.factory.rbs_factory import create_rule_rater
+from openmind.rbs.factory.rbs_factory import create_rule_rater, create_rule_valuer
 from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
+from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
+from openmind.rbs.repository.value_base_repository import ValueBaseRepository
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,18 @@ def main(argv: list[str] | None = None) -> None:
         "(default: guided)",
     )
     parser.add_argument(
+        "--values",
+        type=Path,
+        default=None,
+        help="value rules valuing the positions the evaluated agent's rollouts reach (default: rollouts play to the end)",
+    )
+    parser.add_argument(
+        "--rollout-actions",
+        type=_rollout_actions,
+        default=0,
+        help="rollout actions the valuing agent plays before valuing a position (default: 0)",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=DEFAULT_WORKERS,
@@ -99,6 +113,7 @@ def main(argv: list[str] | None = None) -> None:
         arguments.seed,
         arguments.reference_iterations,
         arguments.rollouts == "guided",
+        arguments.rollout_actions,
     )
 
     directory = Path(arguments.log_directory) / domain.name
@@ -119,8 +134,18 @@ def main(argv: list[str] | None = None) -> None:
             agent_builder.with_guidance(rater)
             rules_file = str(arguments.rules)
             logger.info("Evaluating with rules %s", rules_file)
+        values_file = None
+        valuer = None
+        if arguments.values is not None:
+            value_base = ValueBaseRepository(ValueBaseJsonMapper()).load(arguments.values)
+            valuer = create_rule_valuer(value_base, domain)
+            agent_builder.with_valuation(valuer)
+            values_file = str(arguments.values)
+            logger.info("Evaluating with values %s", values_file)
         logger.info("Running games and searches in %d worker processes", arguments.workers)
-        report = create_evaluator(arguments.workers).evaluate(domain, agent_builder, settings, rules_file, rater)
+        report = create_evaluator(arguments.workers).evaluate(
+            domain, agent_builder, settings, rules_file, rater, values_file, valuer
+        )
         path = ReportRepository(ReportJsonMapper()).save(report, Path(arguments.report_directory))
         logger.info("Saved report %s", path)
         print(path.read_text(encoding="utf-8"), end="")
@@ -140,6 +165,16 @@ def _iterations(text: str) -> int:
     if iterations < 1:
         raise argparse.ArgumentTypeError(f"needs at least 1 iteration, not {iterations}")
     return iterations
+
+
+def _rollout_actions(text: str) -> int:
+    try:
+        actions = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, not {text!r}") from None
+    if actions < 0:
+        raise argparse.ArgumentTypeError(f"rollout actions can't be negative, not {actions}")
+    return actions
 
 
 def _positions(text: str) -> int | None:

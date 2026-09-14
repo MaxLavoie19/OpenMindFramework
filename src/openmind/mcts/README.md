@@ -5,7 +5,8 @@
 Monte-Carlo Tree Search: estimates how good each legal action is by simulating many games from a state, then picks
 the most visited action. It finds legal actions with the CSP, outcomes with the predictor, and who acts and what each
 player gets through the variables named in `Players`. It knows nothing about any particular domain. A model behind the
-`ActionRater` interface, such as the RBS, can guide it.
+`ActionRater` interface, such as the RBS, can guide it, and a model behind `PositionValuer`, such as the RBS's value
+rules, can value the positions its rollouts reach instead of playing them to the end.
 
 ## Content
 
@@ -17,6 +18,8 @@ player gets through the variables named in `Players`. It knows nothing about any
 | `model/search_result.py` | `SearchResult(player, statistics, chosen, samples)`: every root action's statistics, the most visited action, and a sample for every expanded action |
 | `model/action_rater.py` | `ActionRater`: the interface of a model rating actions, `rate(state, actions)` giving each action's expected payoff for the player to act, or `None` |
 | `model/guidance.py` | `Guidance(rater, prior_weight, rollout_temperature, guided_rollouts=True)`: how a rater steers the search, and whether rollouts follow its ratings |
+| `model/position_valuer.py` | `PositionValuer`: the interface of a model valuing positions, `value(state)` giving each player's expected payoff in the order of the players' names, or `None` |
+| `model/leaf_valuation.py` | `LeafValuation(valuer, rollout_actions=0)`: how a valuer ends iterations, valuing the position a rollout reaches after that many actions |
 | `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action, with the rater's ratings when guided; mutable |
 | `model/chance_node.py` | `ChanceNode`: an action in the tree with its possible outcomes; mutable |
 | `service/tree_search.py` | `TreeSearch`: runs the search, guided or not |
@@ -43,9 +46,9 @@ result.chosen   # Action(name='place', parameters=(('col', 2), ('row', 2)))
 # result.statistics holds every root action's visits and mean payoff; result.samples every expanded action's
 ```
 
-To guide the search, pass `Guidance(rater, prior_weight, rollout_temperature, guided_rollouts=True)` as the last
-argument.
-`agent/builder/agent_builder.py` does this wiring for the agent.
+To guide the search, pass `Guidance(rater, prior_weight, rollout_temperature, guided_rollouts=True)` after the settings;
+to value positions, pass `LeafValuation(valuer, rollout_actions=0)` after that. `agent/builder/agent_builder.py` does
+this wiring for the agent.
 
 ## How a search works
 
@@ -54,7 +57,8 @@ Each iteration:
 1. **Selection:** from the root, a decision node with untried legal actions tries one. Otherwise it follows the child
    with the highest UCT score: the acting player's mean payoff plus exploration × √(ln parent visits / child visits).
 2. **Chance:** a chance node draws an outcome by its probability; each distinct outcome has its own decision node.
-3. **Rollout:** from the first new decision node, legal actions are played until none is legal.
+3. **Rollout:** from the first new decision node, legal actions are played until none is legal, or, with a valuation,
+   until the valuer values the position.
 4. **Backpropagation:** the final state's payoffs are added to every chance node on the path, and every node on the
    path counts a visit.
 
@@ -70,6 +74,14 @@ Without guidance, untried actions are tried in random order and rollouts pick ac
   With `guided_rollouts` false, rollouts pick uniformly and the rater only rates the tree's decision nodes: rating
   every rollout step is where a costly rater, such as rules reading `wins()`, spends most of a search.
 
+With a valuation:
+
+- After `rollout_actions` rollout actions, 0 valuing the new decision node itself, a position with a legal action gets
+  the valuer's payoffs, which are backpropagated like a finished game's. When the valuer gives `None`, the rollout plays
+  on to the end.
+- A finished game keeps its own payoffs: the valuer only values positions in play. A valuer whose values stay inside the
+  payoff range, as value rules' do, never rates a position above a real win.
+
 Also:
 
 - A search from a state with no legal action raises `ValueError`.
@@ -84,7 +96,8 @@ Logger `openmind.mcts.service.tree_search`:
 - `INFO Searching <iterations> iterations for <player>`
 - `INFO <action>: <visits> visits, mean payoff <mean> for <player>`, once per root action
 - `INFO Most visited: <action>`
-- `DEBUG Iteration <n>: <actions from the root>, rollout of <n> actions, payoffs <player>=<payoff> ...`
+- `DEBUG Iteration <n>: <actions from the root>, rollout of <n> actions, payoffs <player>=<payoff> ...`, with
+  `, then valued` after the rollout's length when a valuer gave the payoffs
 
 The usage example above logs these INFO lines, and this DEBUG line for iteration 17:
 

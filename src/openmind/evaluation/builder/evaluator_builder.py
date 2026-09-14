@@ -6,6 +6,7 @@ from openmind.evaluation.service.evaluator import Evaluator
 from openmind.evaluation.service.exact_search import ExactSearch
 from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.evaluation.service.reference_search import ReferenceSearch
+from openmind.evaluation.service.value_measurer import ValueMeasurer
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
@@ -30,11 +31,13 @@ class EvaluatorBuilder:
         state_reader = StateReader()
         task_runner = TaskRunner(self._workers)
         state_text_mapper, action_text_mapper = StateTextMapper(), ActionTextMapper()
+        choice_measurer = ChoiceMeasurer(state_text_mapper, action_text_mapper)
         return Evaluator(
             MatchRunner(solver, predictor, state_reader, task_runner),
             ExactSearch(solver, predictor, state_reader),
             ReferenceSearch(solver, predictor),
-            ChoiceMeasurer(state_text_mapper, action_text_mapper),
+            choice_measurer,
+            ValueMeasurer(solver, predictor, state_reader, choice_measurer),
             task_runner,
             state_text_mapper,
             action_text_mapper,

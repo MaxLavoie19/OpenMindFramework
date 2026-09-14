@@ -6,8 +6,8 @@ from openmind.evaluation.model.evaluation_report import EvaluationReport
 
 class ReportTextMapper:
     """Maps an evaluation report to readable text: the results against each baseline, then agreement with perfect play
-    as a table, guided and unguided side by side when both were measured, then the rules alone and the paired tests of
-    guided against unguided."""
+    as a table, guided and unguided side by side when both were measured, then the rules alone, the values alone and the
+    paired tests of guided against unguided."""
 
     def to_text(self, report: EvaluationReport) -> str:
         lines = [
@@ -26,10 +26,7 @@ class ReportTextMapper:
         )
         header = ("iterations", "optimal", "visits on optimal", "mean regret", "seconds per choice")
         if report.unguided_agreement:
-            rollouts = "" if report.settings.guided_rollouts else " with unguided rollouts"
-            lines.append(
-                f"Guided by {report.rules_file}{rollouts} against unguided, on the same {positions} positions {detail}:"
-            )
+            lines.append(f"{self._agent(report)} against unguided, on the same {positions} positions {detail}:")
             rows = [
                 (str(guided.iterations), *(f"{first} / {second}" for first, second in zip(self._cells(guided), self._cells(unguided), strict=True)))
                 for guided, unguided in zip(report.agreement, report.unguided_agreement, strict=True)
@@ -44,6 +41,14 @@ class ReportTextMapper:
                 f"Rules alone: ratings separate actions in {rater.distinguishing} of {rater.positions} positions; "
                 f"a top-rated action is optimal in {rater.optimal:.1f} of {rater.positions}; "
                 f"mean regret {rater.mean_regret:.3f}"
+            )
+        if report.valuer is not None:
+            valuer = report.valuer
+            error = "none" if valuer.mean_absolute_error is None else f"{valuer.mean_absolute_error:.3f}"
+            lines.append(
+                f"Values alone: valued {valuer.valued} of {valuer.positions} positions, mean absolute error {error}; "
+                f"one step ahead, a top-valued action is optimal in {valuer.optimal:.1f} of {valuer.positions}; "
+                f"mean regret {valuer.mean_regret:.3f}"
             )
         if report.guidance_tests:
             lines.append("Guided against unguided, paired by position (guided minus unguided; Wilcoxon and McNemar p-values):")
@@ -65,6 +70,19 @@ class ReportTextMapper:
                 )
             )
         return "\n".join(lines)
+
+    def _agent(self, report: EvaluationReport) -> str:
+        """What guided and valued the agent: Guided by <rules>, Valued by <values>, or both joined by "and"."""
+        parts: list[str] = []
+        if report.rules_file is not None:
+            rollouts = "" if report.settings.guided_rollouts else " with unguided rollouts"
+            parts.append(f"guided by {report.rules_file}{rollouts}")
+        if report.values_file is not None:
+            actions = report.settings.rollout_actions
+            before = f" after {actions} rollout actions" if actions else ""
+            parts.append(f"valued by {report.values_file}{before}")
+        text = " and ".join(parts) if parts else "evaluated"
+        return text[0].upper() + text[1:]
 
     def _table(self, header: tuple[str, ...], rows: Sequence[tuple[str, ...]]) -> list[str]:
         widths = [max(len(row[column]) for row in (header, *rows)) for column in range(len(header))]

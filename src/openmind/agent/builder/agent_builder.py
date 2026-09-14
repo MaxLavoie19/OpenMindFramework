@@ -5,6 +5,8 @@ from openmind.agent.service.agent import Agent
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.mcts.model.action_rater import ActionRater
 from openmind.mcts.model.guidance import Guidance
+from openmind.mcts.model.leaf_valuation import LeafValuation
+from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
@@ -13,7 +15,8 @@ from openmind.world.service.state_reader import StateReader
 
 
 class AgentBuilder:
-    """Sets how an agent searches, and what guides it, and wires the services it searches with."""
+    """Sets how an agent searches, what guides it and what values its positions, and wires the services it searches
+    with."""
 
     def __init__(self) -> None:
         self._iterations: int | None = None
@@ -21,6 +24,8 @@ class AgentBuilder:
         self._seed: int | None = None
         self._rater: ActionRater | None = None
         self._guided_rollouts = GUIDED_ROLLOUTS
+        self._valuer: PositionValuer | None = None
+        self._rollout_actions = 0
 
     def with_iterations(self, iterations: int) -> Self:
         self._iterations = iterations
@@ -43,16 +48,29 @@ class AgentBuilder:
         self._guided_rollouts = guided
         return self
 
+    def with_valuation(self, valuer: PositionValuer | None) -> Self:
+        """The model valuing the positions the agent's rollouts reach, instead of playing them out; None plays them out."""
+        self._valuer = valuer
+        return self
+
+    def with_rollout_actions(self, actions: int) -> Self:
+        """How many rollout actions a valuing agent plays before valuing the position, 0 by default."""
+        self._rollout_actions = actions
+        return self
+
     def build(self) -> Agent:
         iterations, exploration = self._iterations, self._exploration
         if iterations is None or exploration is None:
             raise ValueError("Agent needs iterations and exploration")
         if iterations < 1:
             raise ValueError(f"Agent needs at least 1 iteration, not {iterations}")
+        if self._rollout_actions < 0:
+            raise ValueError(f"Rollout actions can't be negative, not {self._rollout_actions}")
         tree_search = TreeSearch(SolverBuilder().build(), PredictorBuilder().build(), StateReader(), ActionTextMapper())
         guidance = (
             Guidance(self._rater, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE, self._guided_rollouts)
             if self._rater is not None
             else None
         )
-        return Agent(tree_search, SearchSettings(iterations, exploration, self._seed), guidance)
+        valuation = LeafValuation(self._valuer, self._rollout_actions) if self._valuer is not None else None
+        return Agent(tree_search, SearchSettings(iterations, exploration, self._seed), guidance, valuation)

@@ -10,6 +10,7 @@ from openmind.mcts.model.action_statistics import ActionStatistics
 from openmind.mcts.model.chance_node import ChanceNode
 from openmind.mcts.model.decision_node import DecisionNode
 from openmind.mcts.model.guidance import Guidance
+from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.search_result import SearchResult
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.predictor.model.transition_model import TransitionModel
@@ -24,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class TreeSearch:
-    """Monte-Carlo Tree Search: UCT selection, chance nodes for outcomes, rollouts, and optional guidance by a rater."""
+    """Monte-Carlo Tree Search: UCT selection, chance nodes for outcomes, rollouts, optional guidance by a rater, and
+    optional valuation of the positions rollouts reach."""
 
     def __init__(
         self,
@@ -46,6 +48,7 @@ class TreeSearch:
         state: State,
         settings: SearchSettings,
         guidance: Guidance | None = None,
+        valuation: LeafValuation | None = None,
     ) -> SearchResult:
         rng = random.Random(settings.seed)
         root = self._decision_node(problem, players, state, guidance, rng)
@@ -54,7 +57,7 @@ class TreeSearch:
         player = players.names[root.player]
         logger.info("Searching %d iterations for %s", settings.iterations, player)
         for iteration in range(1, settings.iterations + 1):
-            self._iterate(iteration, root, problem, transitions, players, settings.exploration, guidance, rng)
+            self._iterate(iteration, root, problem, transitions, players, settings.exploration, guidance, valuation, rng)
         statistics = tuple(self._statistics(root, root.player, action) for action in root.actions)
         chosen = max(statistics, key=lambda item: item.visits).action
         for item in statistics:
@@ -77,6 +80,7 @@ class TreeSearch:
         players: Players,
         exploration: float,
         guidance: Guidance | None,
+        valuation: LeafValuation | None,
         rng: random.Random,
     ) -> None:
         node = root
@@ -96,10 +100,12 @@ class TreeSearch:
             if node.visits == 0:
                 break
 
-        state, rollout_length = node.state, 0
-        if node.player is not None:
-            state, rollout_length = self._rollout(problem, transitions, state, guidance, rng)
-        payoffs = self._state_reader.payoffs(state, players)
+        if node.player is None:
+            payoffs, rollout_length, valued = self._state_reader.payoffs(node.state, players), 0, False
+        else:
+            payoffs, rollout_length, valued = self._rollout(
+                problem, transitions, players, node.state, guidance, valuation, rng
+            )
 
         for decision in decisions:
             decision.visits += 1
@@ -110,10 +116,11 @@ class TreeSearch:
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "Iteration %d: %s, rollout of %d actions, payoffs %s",
+                "Iteration %d: %s, rollout of %d actions%s, payoffs %s",
                 iteration,
                 " > ".join(self._action_text_mapper.to_text(chance.action) for chance in chances),
                 rollout_length,
+                ", then valued" if valued else "",
                 " ".join(f"{name}={payoff}" for name, payoff in zip(players.names, payoffs)),
             )
 
@@ -178,12 +185,20 @@ class TreeSearch:
         self,
         problem: Problem,
         transitions: TransitionModel,
+        players: Players,
         state: State,
         guidance: Guidance | None,
+        valuation: LeafValuation | None,
         rng: random.Random,
-    ) -> tuple[State, int]:
+    ) -> tuple[tuple[float, ...], int, bool]:
+        """Each player's payoff, the rollout's length, and whether a valuer gave the payoffs: after the valuation's
+        rollout actions, a position still in play gets the valuer's payoffs, unless the valuer knows nothing about it."""
         length = 0
         while actions := self._solver.solve(problem, state):
+            if valuation is not None and length == valuation.rollout_actions:
+                values = valuation.valuer.value(state)
+                if values is not None:
+                    return values, length, True
             ratings = self._ratings(guidance, state, actions) if guidance is not None and guidance.guided_rollouts else ()
             if guidance is not None and ratings:
                 best = max(ratings)
@@ -194,7 +209,7 @@ class TreeSearch:
             outcomes = self._predictor.predict(transitions, state, action).outcomes
             state = self._draw(outcomes, rng)
             length += 1
-        return state, length
+        return self._state_reader.payoffs(state, players), length, False
 
     def _draw(self, outcomes: tuple[tuple[State, float], ...], rng: random.Random) -> State:
         (state,) = rng.choices(

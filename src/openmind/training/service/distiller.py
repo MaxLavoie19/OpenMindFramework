@@ -42,8 +42,14 @@ class Distiller:
         """Sets the builder's iterations; the builder needs its exploration set."""
         rng = random.Random(settings.seed)
         agent_builder.with_iterations(settings.iterations)
-        training = self._self_play.play(domain, agent_builder, settings.games, rng)
-        held_out = self._self_play.play(domain, agent_builder, settings.held_out_games, rng)
+        training = tuple(
+            sample for game in self._self_play.play(domain, agent_builder, settings.games, rng) for sample in game.samples
+        )
+        held_out = tuple(
+            sample
+            for game in self._self_play.play(domain, agent_builder, settings.held_out_games, rng)
+            for sample in game.samples
+        )
         generation = self._rule_generator.generate(domain, training, held_out, settings.generation, settings.seed)
         rule_base = generation.rule_base
         rating_error = self._rating_error(domain, rule_base, held_out, settings.generation.min_visits)

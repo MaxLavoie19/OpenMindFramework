@@ -21,11 +21,14 @@ from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.model.guidance_test import GuidanceTest
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.model.rater_agreement import RaterAgreement
+from openmind.evaluation.model.value_measure import ValueMeasure
 from openmind.evaluation.service.choice_measurer import ChoiceMeasurer
 from openmind.evaluation.service.exact_search import ExactSearch
 from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.evaluation.service.reference_search import ReferenceSearch
+from openmind.evaluation.service.value_measurer import ValueMeasurer
 from openmind.mcts.model.action_rater import ActionRater
+from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.state_text_mapper import StateTextMapper
@@ -39,10 +42,10 @@ type Measures = tuple[np.ndarray, np.ndarray, np.ndarray]
 class Evaluator:
     """Measures how well an agent plays a domain: results against baselines and agreement with perfect play, from exact
     search or, with reference_iterations, from long unguided searches on positions of random games. When a rater guides
-    the agent, agreement is also measured, on the same positions, for an unguided agent and for the rater alone, and the
-    guided and unguided agents are compared position by position with paired tests. Baseline games, reference searches
-    and the positions searched at each budget run in the task runner's workers; every search is seeded, so the
-    results don't depend on the number of workers."""
+    the agent or a valuer values its positions, agreement is also measured, on the same positions, for an unguided agent
+    and for each model alone, and the agent is compared with the unguided one position by position with paired tests.
+    Baseline games, reference searches, the positions searched at each budget and the valuer's measures run in the task
+    runner's workers; every search is seeded, so the results don't depend on the number of workers."""
 
     def __init__(
         self,
@@ -50,6 +53,7 @@ class Evaluator:
         exact_search: ExactSearch,
         reference_search: ReferenceSearch,
         choice_measurer: ChoiceMeasurer,
+        value_measurer: ValueMeasurer,
         task_runner: TaskRunner,
         state_text_mapper: StateTextMapper,
         action_text_mapper: ActionTextMapper,
@@ -58,6 +62,7 @@ class Evaluator:
         self._exact_search = exact_search
         self._reference_search = reference_search
         self._choice_measurer = choice_measurer
+        self._value_measurer = value_measurer
         self._task_runner = task_runner
         self._state_text_mapper = state_text_mapper
         self._action_text_mapper = action_text_mapper
@@ -69,13 +74,16 @@ class Evaluator:
         settings: EvaluationSettings,
         rules_file: str | None = None,
         rater: ActionRater | None = None,
+        values_file: str | None = None,
+        valuer: PositionValuer | None = None,
     ) -> EvaluationReport:
-        """Sets the builder's iterations, seed and rollout guidance for every agent it builds. rules_file names what
-        guides the agent, and rater is that same model, to compare the agent with an unguided one and to measure the
-        rater alone. A reference search samples positions, so it needs a number of positions rather than all of them.
-        To run in several workers, the builder, with its rater, must pickle."""
+        """Sets the builder's iterations, seed, rollout guidance and rollout actions for every agent it builds. rules_file
+        names what guides the agent and rater is that same model; values_file names what values the agent's positions and
+        valuer is that same model. Either model compares the agent with an unguided one, and each is measured alone. A
+        reference search samples positions, so it needs a number of positions rather than all of them. To run in several
+        workers, the builder, with its models, must pickle."""
         rng = random.Random(settings.seed)
-        agent_builder.with_guided_rollouts(settings.guided_rollouts)
+        agent_builder.with_guided_rollouts(settings.guided_rollouts).with_rollout_actions(settings.rollout_actions)
         agent_builder.with_iterations(settings.iterations).with_seed(settings.seed)
         untrained = AgentBuilder().with_exploration(EXPLORATION).with_iterations(settings.iterations).with_seed(settings.seed)
         opponents: tuple[tuple[str, PolicyFactory], ...] = (
@@ -91,6 +99,8 @@ class Evaluator:
         unguided_agreement: list[Agreement] = []
         guidance_tests: list[GuidanceTest] = []
         rater_agreement: RaterAgreement | None = None
+        value_measure: ValueMeasure | None = None
+        compared = rater is not None or valuer is not None
         if settings.positions == 0:
             logger.info("Agreement with perfect play skipped: no positions")
         else:
@@ -107,7 +117,7 @@ class Evaluator:
                     domain, agent_builder, iterations, sample, values, tolerance, "Agreement"
                 )
                 agreement.append(guided_result)
-                if rater is not None:
+                if compared:
                     unguided = AgentBuilder().with_exploration(EXPLORATION).with_iterations(iterations).with_seed(settings.seed)
                     unguided_result, unguided_measures = self._agreement(
                         domain, unguided, iterations, sample, values, tolerance, "Unguided agreement"
@@ -116,6 +126,8 @@ class Evaluator:
                     guidance_tests.append(self._guidance_test(iterations, guided_measures, unguided_measures))
             if rater is not None:
                 rater_agreement = self._rater_agreement(rater, sample, values, tolerance)
+            if valuer is not None:
+                value_measure = self._value_measure(domain, valuer, sample, values, tolerance)
         created_at = datetime.now().replace(microsecond=0)
         return EvaluationReport(
             domain.name,
@@ -128,6 +140,8 @@ class Evaluator:
             tuple(unguided_agreement),
             rater_agreement,
             tuple(guidance_tests),
+            values_file,
+            value_measure,
         )
 
     def _reference(
@@ -316,3 +330,39 @@ class Evaluator:
             rater_agreement.mean_regret,
         )
         return rater_agreement
+
+    def _value_measure(
+        self,
+        domain: Domain,
+        valuer: PositionValuer,
+        sample: list[State],
+        values: list[ActionValues],
+        tolerance: float,
+    ) -> ValueMeasure:
+        """The positions are split between the workers, each slice measured with the same valuer."""
+        slices = self._task_runner.split(list(zip(sample, values, strict=True)))
+        count = len(slices)
+        results = self._task_runner.map(
+            self._value_measurer.measure, [domain] * count, [valuer] * count, slices, [tolerance] * count
+        )
+        measures = [measure for result in results for measure in result]
+        errors = [error for error, _, _ in measures if error is not None]
+        positions = len(measures)
+        value_measure = ValueMeasure(
+            positions,
+            len(errors),
+            math.fsum(errors) / len(errors) if errors else None,
+            math.fsum(optimal for _, optimal, _ in measures),
+            math.fsum(regret for _, _, regret in measures) / positions if positions else 0.0,
+        )
+        logger.info(
+            "Values alone: valued %d of %d positions, mean absolute error %s against the best action's value; one step "
+            "ahead, a top-valued action is optimal in %s of %d; mean regret %s",
+            value_measure.valued,
+            value_measure.positions,
+            value_measure.mean_absolute_error,
+            value_measure.optimal,
+            value_measure.positions,
+            value_measure.mean_regret,
+        )
+        return value_measure

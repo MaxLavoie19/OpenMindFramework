@@ -26,7 +26,8 @@ class ConsequenceLibrary:
     """What generated rules read besides a state's variables, for any domain, worked out with the domain's own solver and
     predictor:
 
-    - `me` and `other`: the player to act and the next player in the domain's order;
+    - `me` and `other`: the player to act, or the player a position is valued for, and the next player in the domain's
+      order;
     - `win_chance(action)`: the probability that the action ends the game in a win for the player taking it;
     - `wins(player, action=None)`: the summed win chances of the actions `player` could take if it were their turn, now
       or, expected over its outcomes, after `action`;
@@ -61,12 +62,13 @@ class ConsequenceLibrary:
         self._domains = {}
         self._cache = {}
 
-    def names(self, domain: Domain, state: State) -> dict[str, object]:
-        """The names for a state, the same mapping every time the state comes back."""
-        key = ("names", self._pin(domain), state)
+    def names(self, domain: Domain, state: State, player: str | None = None) -> dict[str, object]:
+        """The names for a state, `me` being the player to act or, when given, that player; the same mapping every time
+        the state and player come back."""
+        key = ("names", self._pin(domain), state, player)
         names = self._cache.get(key)
         if names is None:
-            me = dict(state.variables).get(domain.players.to_act)
+            me = dict(state.variables).get(domain.players.to_act) if player is None else player
             players = domain.players.names
             other = players[(players.index(me) + 1) % len(players)] if me in players else None
             names = {

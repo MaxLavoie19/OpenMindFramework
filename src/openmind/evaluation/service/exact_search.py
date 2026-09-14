@@ -42,6 +42,10 @@ class ExactSearch:
         best = max(value for _, value in values)
         return tuple(action for action, value in values if math.isclose(value, best))
 
+    def value(self, domain: Domain, state: State) -> tuple[float, ...]:
+        """Each player's expected payoff from the state under perfect play, in the order of the players' names."""
+        return self._value(domain, state)
+
     def positions(self, domain: Domain) -> tuple[State, ...]:
         """Every state reachable from the initial state that has a legal action."""
         seen: set[State] = set()

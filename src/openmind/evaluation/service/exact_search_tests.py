@@ -84,6 +84,14 @@ def test_action_values_give_each_legal_action_its_value_for_the_player_to_act() 
     )
 
 
+def test_value_gives_every_player_payoff_under_perfect_play() -> None:
+    domain = trust()
+    finished = State((("payoff(A)", 1.0), ("payoff(B)", 0.0), ("turn", "B")))
+
+    assert new_exact_search().value(domain, domain.initial_state) == (0.5, 0.5)
+    assert new_exact_search().value(domain, finished) == (1.0, 0.0)
+
+
 def test_the_winning_action_is_optimal() -> None:
     domain = one_move(Transition("lose", (Branch(1.0, pay(0.0)),)), Transition("win", (Branch(1.0, pay(1.0)),)))
 

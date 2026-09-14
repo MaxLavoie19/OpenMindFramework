@@ -9,12 +9,13 @@ class ReportJsonMapper:
 
     def to_json(self, report: EvaluationReport) -> str:
         settings = report.settings
-        rater = report.rater
+        rater, valuer = report.rater, report.valuer
         return json.dumps(
             {
                 "domain": report.domain,
                 "created_at": report.created_at.isoformat(timespec="seconds"),
                 "rules_file": report.rules_file,
+                "values_file": report.values_file,
                 "settings": {
                     "games": settings.games,
                     "iterations": settings.iterations,
@@ -23,6 +24,7 @@ class ReportJsonMapper:
                     "seed": settings.seed,
                     "reference_iterations": settings.reference_iterations,
                     "guided_rollouts": settings.guided_rollouts,
+                    "rollout_actions": settings.rollout_actions,
                 },
                 "baselines": [
                     {
@@ -44,6 +46,15 @@ class ReportJsonMapper:
                     "distinguishing": rater.distinguishing,
                     "optimal": rater.optimal,
                     "mean_regret": rater.mean_regret,
+                },
+                "valuer": None
+                if valuer is None
+                else {
+                    "positions": valuer.positions,
+                    "valued": valuer.valued,
+                    "mean_absolute_error": valuer.mean_absolute_error,
+                    "optimal": valuer.optimal,
+                    "mean_regret": valuer.mean_regret,
                 },
                 "guidance_tests": [
                     {

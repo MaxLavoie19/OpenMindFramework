@@ -156,6 +156,16 @@ def test_near_reads_the_variable_at_an_offset_from_the_one_the_action_sets() -> 
     ]
 
 
+def test_names_can_bind_me_to_the_player_a_position_is_valued_for() -> None:
+    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "X")
+
+    valued_for_o = library.names(domain, state, "O")
+
+    assert (valued_for_o["me"], valued_for_o["other"]) == ("O", "X")
+    assert (library.names(domain, state)["me"], library.names(domain, state, "X")["me"]) == ("X", "X")
+    assert library.names(domain, state, "O") is valued_for_o
+
+
 def test_rules_read_the_consequences_through_the_names() -> None:
     library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "X")
     rule = RuleCompiler().compile_value(

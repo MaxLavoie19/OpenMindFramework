@@ -8,6 +8,7 @@ from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.model.guidance_test import GuidanceTest
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.model.rater_agreement import RaterAgreement
+from openmind.evaluation.model.value_measure import ValueMeasure
 
 BASELINES = [
     "Against random: 2 games, 2 wins, 0 draws, 0 losses",
@@ -107,6 +108,35 @@ def test_unguided_rollouts_are_named_in_the_heading() -> None:
     assert text.splitlines()[2] == (
         "Guided by rules.json with unguided rollouts against unguided, on the same 100 positions "
         "(every action optimal in 12):"
+    )
+
+
+def test_values_name_the_agent_with_their_rollout_actions_and_are_measured_alone() -> None:
+    guided_and_valued = replace(
+        report(
+            (Agreement(10, 100, 89, 0.6123, 0.02, 0.003792),),
+            (Agreement(10, 100, 86, 0.55, 0.031, 0.003277),),
+            RaterAgreement(100, 38, 52.5, 0.12),
+            "rules.json",
+        ),
+        settings=EvaluationSettings(games=2, iterations=10, positions=100, budgets=(10,), seed=1, rollout_actions=3),
+        values_file="values.json",
+        valuer=ValueMeasure(100, 98, 0.25, 61.5, 0.08),
+    )
+    valued = replace(guided_and_valued, rules_file=None, rater=None, settings=report().settings)
+
+    guided_and_valued_lines = ReportTextMapper().to_text(guided_and_valued).splitlines()
+
+    assert guided_and_valued_lines[2] == (
+        "Guided by rules.json and valued by values.json after 3 rollout actions against unguided, on the same 100 "
+        "positions (every action optimal in 12):"
+    )
+    assert guided_and_valued_lines[-1] == (
+        "Values alone: valued 98 of 100 positions, mean absolute error 0.250; one step ahead, a top-valued action is "
+        "optimal in 61.5 of 100; mean regret 0.080"
+    )
+    assert ReportTextMapper().to_text(valued).splitlines()[2] == (
+        "Valued by values.json against unguided, on the same 100 positions (every action optimal in 12):"
     )
 
 

@@ -7,6 +7,7 @@ from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
 from openmind.mcts.model.guidance import Guidance
+from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.search_result import SearchResult
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
@@ -42,12 +43,13 @@ def search(
     exploration: float = math.sqrt(2),
     seed: int | None = 1,
     guidance: Guidance | None = None,
+    valuation: LeafValuation | None = None,
 ) -> SearchResult:
     tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
     problem, transitions, state = game
     players = Players(("me",), "turn", ("payoff",))
     settings = SearchSettings(iterations, exploration, seed)
-    return tree_search.search(problem, transitions, players, state, settings, guidance)
+    return tree_search.search(problem, transitions, players, state, settings, guidance, valuation)
 
 
 def pay(payoff: float) -> PythonRule:
@@ -76,6 +78,24 @@ def two_step_game() -> Game:
             Transition("go", (Branch(1.0, PythonRule("stage = 1")),)),
             Transition("lose", (Branch(1.0, pay(0.0)),)),
             Transition("win", (Branch(1.0, pay(1.0)),)),
+        )
+    )
+    return problem, transitions, State((("payoff", None), ("stage", 0), ("turn", "me")))
+
+
+def countdown_game() -> Game:
+    """step moves from stage 0 to stage 3, one stage at a time; at stage 3, finish pays 1.0."""
+    unset = PythonRule("payoff is None")
+    problem = Problem(
+        (
+            ActionDefinition("step", (), (unset, PythonRule("stage < 3"))),
+            ActionDefinition("finish", (), (unset, PythonRule("stage == 3"))),
+        )
+    )
+    transitions = TransitionModel(
+        (
+            Transition("step", (Branch(1.0, PythonRule("stage = stage + 1")),)),
+            Transition("finish", (Branch(1.0, pay(1.0)),)),
         )
     )
     return problem, transitions, State((("payoff", None), ("stage", 0), ("turn", "me")))
@@ -183,3 +203,56 @@ def test_without_guided_rollouts_only_the_tree_nodes_are_rated() -> None:
 
     # The root and the node go leads to are rated either way; the guided rollout also rates its one step.
     assert (guided.calls, unguided.calls) == (3, 2)
+
+
+class Recording:
+    """A valuer giving every position the same payoffs, or None, and recording the stage of each position it values."""
+
+    def __init__(self, payoffs: tuple[float, ...] | None) -> None:
+        self._payoffs = payoffs
+        self.stages: list[object] = []
+
+    def value(self, state: State) -> tuple[float, ...] | None:
+        self.stages.append(dict(state.variables).get("stage"))
+        return self._payoffs
+
+
+def test_a_valued_position_takes_the_valuer_payoffs_instead_of_a_rollout() -> None:
+    valuer = Recording((0.25,))
+
+    result = search(two_step_game(), iterations=1, valuation=LeafValuation(valuer))
+
+    assert [(sample.action.name, sample.mean_payoff) for sample in result.samples] == [("go", 0.25)]
+    assert valuer.stages == [1]
+
+
+def test_a_finished_game_keeps_its_payoffs() -> None:
+    valuer = Recording((0.25,))
+
+    result = search(win_or_lose(), iterations=2, valuation=LeafValuation(valuer))
+
+    assert {sample.action.name: sample.mean_payoff for sample in result.samples} == {"lose": 0.0, "win": 1.0}
+    assert valuer.stages == []
+
+
+def test_a_valuer_knowing_nothing_leaves_the_rollout_to_play_out() -> None:
+    valuer = Recording(None)
+
+    result = search(
+        two_step_game(), iterations=1, guidance=Guidance(Favour("win"), 1.0, 0.01), valuation=LeafValuation(valuer)
+    )
+
+    assert [(sample.action.name, sample.mean_payoff) for sample in result.samples] == [("go", 1.0)]
+    assert valuer.stages == [1]
+
+
+@pytest.mark.parametrize(("rollout_actions", "stages", "payoff"), [(0, [1], 0.25), (1, [2], 0.25), (5, [], 1.0)])
+def test_rollout_actions_are_played_before_the_position_is_valued(
+    rollout_actions: int, stages: list[int], payoff: float
+) -> None:
+    valuer = Recording((0.25,))
+
+    result = search(countdown_game(), iterations=1, valuation=LeafValuation(valuer, rollout_actions))
+
+    assert valuer.stages == stages
+    assert [(sample.action.name, sample.mean_payoff) for sample in result.samples] == [("step", payoff)]

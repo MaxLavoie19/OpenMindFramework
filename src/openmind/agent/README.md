@@ -13,11 +13,11 @@ constants.
 | `model/domain.py` | `Domain(name, initial_state, problem, transitions, players)`: a domain within the agent |
 | `builder/domain_builder.py` | `DomainBuilder`: collects a domain's parts; rejects missing parts |
 | `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`, a variant such as `"tictactoe/fourinarow"`, or `"sudoku"`); an unknown name or variant raises `ValueError` listing the known ones |
-| `service/agent.py` | `Agent`: searches a domain's state with MCTS, guided by a rater when built with one; `search` gives the whole result, `choose` the action |
+| `service/agent.py` | `Agent`: searches a domain's state with MCTS, guided by a rater and valuing positions with a valuer when built with them; `search` gives the whole result, `choose` the action |
 | `model/policy.py` | `Policy`: anything with `choose(domain, state) -> Action`; `Agent` and `RandomPolicy` are policies |
 | `model/policy_factory.py` | `PolicyFactory`: gives the policy that plays a game from the game's seed; to run in worker processes, it must pickle |
 | `service/random_policy.py` | `RandomPolicy`: chooses uniformly among the legal actions; a baseline opponent |
-| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed, guidance (`with_guidance(rater)`) and whether guided rollouts follow the ratings (`with_guided_rollouts(guided)`), and wires the services the agent searches with; rejects missing settings and fewer than 1 iteration |
+| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed, guidance (`with_guidance(rater)`), whether guided rollouts follow the ratings (`with_guided_rollouts(guided)`), the valuer valuing the positions rollouts reach (`with_valuation(valuer)`) and the rollout actions played before valuing (`with_rollout_actions(actions)`, 0 by default), and wires the services the agent searches with; rejects missing settings, fewer than 1 iteration and negative rollout actions |
 | `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None)`: an agent searching with the exploration weight √2 |
 | `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), and the guidance's prior weight (1.0), rollout temperature (0.2) and guided rollouts (true) |
 | `model/tictactoe_variant.py` | `TicTacToeVariant(name, width, height, line, gravity)`: how a variant differs from standard tic-tac-toe |

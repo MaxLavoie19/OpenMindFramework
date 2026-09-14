@@ -92,6 +92,22 @@ every position play no worse, by a margin on mean regret with a bootstrap bound,
 confirms the selection with another seed. The selected rules are saved in `data/rbs/tictactoe/`, the report, updated
 after every decision, in `data/selection/tictactoe/`, and the log in `data/log/select/tictactoe/`.
 
+## Distill values
+
+```bash
+.venv/bin/openmind-distill-values tictactoe
+.venv/bin/openmind-evaluate tictactoe --values data/values/tictactoe/<values>.json
+```
+
+Fits value rules: weighted Python terms giving each player's expected payoff in a position, so that a search can value
+the positions it reaches instead of playing them to the end, which random play does badly in deep games. Terms are
+generated from the domain's rules and the positions of self-play games, and fitted to the payoffs those games ended with
+at a sweep of prices on every weight, so the terms that don't pay for themselves drop out; the price whose rules predict
+held-out games best is kept. It prints the rules and every price's fit. The value base is saved in
+`data/values/tictactoe/` and the log in `data/log/distill-values/tictactoe/`. `openmind-evaluate --values PATH`
+searches with them, `--rollout-actions N` playing that many rollout actions before valuing, and also measures the
+values alone.
+
 ## Tests
 
 Unit tests sit beside the code they test (`solver.py` → `solver_tests.py`); integration and end-to-end tests live in

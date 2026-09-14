@@ -6,9 +6,14 @@ import pytest
 
 from openmind.entrypoint.evaluate import main
 from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
+from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.model.rule import Rule
 from openmind.rbs.model.rule_base import RuleBase
+from openmind.rbs.model.value_base import ValueBase
+from openmind.rbs.model.value_rule import ValueRule
 from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
+from openmind.rbs.repository.value_base_repository import ValueBaseRepository
+from openmind.rule.model.python_rule import PythonRule
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -33,6 +38,7 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
         "seed": 1,
         "reference_iterations": None,
         "guided_rollouts": True,
+        "rollout_actions": 0,
     }
     assert [(item["opponent"], item["wins"] + item["draws"] + item["losses"]) for item in report["baselines"]] == [
         ("random", 2),
@@ -82,6 +88,43 @@ def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(
     lines = log_file.read_text(encoding="utf-8").splitlines()
     assert f"INFO  openmind.entrypoint.evaluate Evaluating with rules {rules_file}" in lines
     assert any(line.startswith("INFO  openmind.evaluation.service.evaluator Rater alone: ") for line in lines)
+
+
+def test_evaluate_with_values_values_the_agent_positions_and_records_the_values_file(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    values_file = ValueBaseRepository(ValueBaseJsonMapper()).save(
+        ValueBase("tictactoe", 0.0, 0.0, 1.0, (ValueRule(PythonRule("wins(me)"), 1.0),)),
+        tmp_path / "values",
+        datetime(2026, 9, 14, 1, 0, 0),
+    )
+
+    main(
+        [
+            "tictactoe",
+            *("--games", "2", "--iterations", "10", "--positions", "3", "--budgets", "5", "--seed", "1"),
+            *("--values", str(values_file), "--rollout-actions", "1"),
+            *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
+        ]
+    )
+
+    (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    assert (report["rules_file"], report["values_file"], report["rater"]) == (None, str(values_file), None)
+    assert report["settings"]["rollout_actions"] == 1
+    assert report["valuer"]["positions"] == 3
+    assert [(item["iterations"], item["positions"]) for item in report["unguided_agreement"]] == [(5, 3)]
+    output = capsys.readouterr().out
+    assert f"\nValued by {values_file} after 1 rollout actions against unguided, on the same 3 positions " in output
+    assert "\nValues alone: valued " in output
+    (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    assert f"INFO  openmind.entrypoint.evaluate Evaluating with values {values_file}" in lines
+
+
+def test_negative_rollout_actions_are_rejected(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["tictactoe", "--rollout-actions", "-1", "--log-directory", str(tmp_path)])
 
 
 def test_unguided_rollouts_are_recorded_and_named(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:

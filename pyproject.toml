@@ -19,6 +19,7 @@ openmind-evaluate = "openmind.entrypoint.evaluate:main"
 openmind-distill = "openmind.entrypoint.distill:main"
 openmind-solve = "openmind.entrypoint.solve:main"
 openmind-select = "openmind.entrypoint.select:main"
+openmind-distill-values = "openmind.entrypoint.distill_values:main"
 
 [dependency-groups]
 dev = ["pytest>=9.1"]

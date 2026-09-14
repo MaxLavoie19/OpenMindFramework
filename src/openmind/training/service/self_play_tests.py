@@ -18,19 +18,23 @@ def new_self_play(workers: int = 1) -> SelfPlay:
     return SelfPlay(create_solver(), create_predictor(), StateReader(), TaskRunner(workers))
 
 
-def test_play_collects_the_samples_of_every_search(caplog: pytest.LogCaptureFixture) -> None:
+def test_play_keeps_every_game_with_its_searches_positions_and_payoffs(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO)
+    domain = create_tictactoe_domain()
 
-    samples = new_self_play().play(
-        create_tictactoe_domain(), AgentBuilder().with_iterations(10).with_exploration(1.4), 2, random.Random(1)
-    )
+    games = new_self_play().play(domain, AgentBuilder().with_iterations(10).with_exploration(1.4), 2, random.Random(1))
 
     game_lines = [
         record.getMessage() for record in caplog.records if record.name == "openmind.training.service.self_play"
     ]
     assert [line.split(":")[0] for line in game_lines] == ["Self-play game 1", "Self-play game 2"]
-    assert sum(int(line.split(": ")[1].split(" ")[0]) for line in game_lines) == len(samples)
-    assert {sample.action.name for sample in samples} == {"place"}
+    assert [int(line.split(": ")[1].split(" ")[0]) for line in game_lines] == [len(game.samples) for game in games]
+    assert {sample.action.name for game in games for sample in game.samples} == {"place"}
+    for game in games:
+        assert game.states[0] == domain.initial_state
+        assert 5 <= len(game.states) == len(game.search_values) <= 9
+        assert all(0.0 <= value <= 1.0 for value in game.search_values)
+        assert sum(game.payoffs) == 1.0
 
 
 def test_workers_play_the_same_games() -> None:

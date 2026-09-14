@@ -6,20 +6,22 @@ Measures how well an agent plays a domain, so training can be judged: results ag
 often the agent's choices agree with perfect play at several iteration budgets, and how long each choice takes. The
 training loop, not built yet, will run it after every round to draw learning curves.
 
-This measures the agent. It is unrelated to the RBS's planned position evaluation, which will turn a board position
-into a value.
+This measures the agent. The RBS's value rules, which turn a position into a value, are a model the agent can search
+with; when it does, they are measured here too.
 
 ## Content
 
 | File | What it is |
 |---|---|
-| `model/evaluation_settings.py` | `EvaluationSettings(games, iterations, positions, budgets, seed, reference_iterations=None, guided_rollouts=True)`; `positions` 0 skips agreement, `None` takes every position; `reference_iterations` replaces exact search with long unguided searches; `guided_rollouts` false makes the guided agent rate only its tree's nodes |
+| `model/evaluation_settings.py` | `EvaluationSettings(games, iterations, positions, budgets, seed, reference_iterations=None, guided_rollouts=True, rollout_actions=0)`; `positions` 0 skips agreement, `None` takes every position; `reference_iterations` replaces exact search with long unguided searches; `guided_rollouts` false makes the guided agent rate only its tree's nodes; `rollout_actions` is how many rollout actions a valuing agent plays before valuing |
 | `model/match_results.py` | `MatchResults(opponent, games, wins, draws, losses)`: a series against one opponent, from the evaluated agent's side |
 | `model/agreement.py` | `Agreement(iterations, positions, optimal, optimal_visit_share, mean_regret, seconds_per_choice)`: how an agent searching with a number of iterations did on the sampled positions |
 | `model/rater_agreement.py` | `RaterAgreement(positions, distinguishing, optimal, mean_regret)`: how a rater alone did on the sampled positions |
 | `model/guidance_test.py` | `GuidanceTest(iterations, positions, low_value_share_difference, low_value_share_p, regret_difference, regret_p, optimal_only_guided, optimal_only_unguided, optimal_choice_p)`: the guided agent against the unguided one at a budget, paired by position |
-| `model/evaluation_report.py` | `EvaluationReport(domain, created_at, rules_file, settings, baselines, every_action_optimal, agreement, unguided_agreement, rater=None, guidance_tests=())`; `rules_file` names the rule base guiding the agent, `None` when unguided, in which case `unguided_agreement` and `guidance_tests` are empty and `rater` is `None` |
-| `service/exact_search.py` | `ExactSearch`: every legal action's value and the optimal actions in a state, by searching every reachable state; the positions with a legal action |
+| `model/evaluation_report.py` | `EvaluationReport(domain, created_at, rules_file, settings, baselines, every_action_optimal, agreement, unguided_agreement, rater=None, guidance_tests=(), values_file=None, valuer=None)`; `rules_file` names the rule base guiding the agent and `values_file` the value base valuing its positions, each `None` when not used; with neither, `unguided_agreement` and `guidance_tests` are empty and `rater` and `valuer` are `None` |
+| `model/value_measure.py` | `ValueMeasure(positions, valued, mean_absolute_error, optimal, mean_regret)`: how a valuer alone did on the sampled positions |
+| `service/value_measurer.py` | `ValueMeasurer`: a valuer's error on each position and its choice one step ahead |
+| `service/exact_search.py` | `ExactSearch`: every legal action's value, the optimal actions and each player's value in a state, by searching every reachable state; the positions with a legal action |
 | `service/reference_search.py` | `ReferenceSearch`: distinct positions from uniformly random games, and every legal action's value from a long unguided search, for domains exact search can't reach |
 | `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers |
 | `service/choice_measurer.py` | `ChoiceMeasurer`: searches positions with an agent built once and measures each choice against the action values; the optimal actions within a tolerance |
@@ -36,7 +38,7 @@ into a value.
 
 ## How it measures
 
-1. **Results against baselines:** the agent, built with `iterations`, `seed` and `guided_rollouts`, plays `games` games against
+1. **Results against baselines:** the agent, built with `iterations`, `seed`, `guided_rollouts` and `rollout_actions`, plays `games` games against
    `RandomPolicy`, then `games` games against untrained MCTS with the same iterations, switching seats every game. A
    higher payoff than the opponent is a win, an equal one a draw, a lower one a loss. Every game draws a policy seed
    and an outcome seed up front; the random policy chooses with its game's policy seed, and both agents search with
@@ -51,11 +53,18 @@ into a value.
      the positions: where the search spent its effort;
    - **mean regret:** the best value minus the chosen action's value, averaged over the positions: 0 for an optimal
      choice, up to 1 for throwing away a win.
-3. **Guided against unguided:** when a rater guides the agent (`rater`, with `rules_file` naming it), an unguided agent
-   with the same iterations and seed is measured on the same positions at every budget. The rater is also measured
-   alone: the positions where its ratings separate the actions at all, and, picking uniformly among its top-rated
-   actions, the expected number of optimal picks and the expected mean regret. As in the search, an action rated
-   `None` gets the mean of the other ratings, and when every rating is `None` every action is top-rated.
+3. **Guided against unguided:** when a rater guides the agent (`rater`, with `rules_file` naming it) or a valuer values
+   its positions (`valuer`, with `values_file` naming it), an unguided agent with the same iterations and seed is
+   measured on the same positions at every budget. The rater is also measured alone: the positions where its ratings
+   separate the actions at all, and, picking uniformly among its top-rated actions, the expected number of optimal
+   picks and the expected mean regret. As in the search, an action rated `None` gets the mean of the other ratings, and
+   when every rating is `None` every action is top-rated. The valuer is measured alone too, by `ValueMeasurer`:
+   - **value error:** the positions it values, and the mean absolute difference there between its value for the player
+     to act and the best action's value;
+   - **one step ahead:** every action is worth its outcomes' values for the player to act, weighted by their
+     probabilities, a finished game's payoffs or the valuer's value of a position in play; picking uniformly among the
+     top-valued actions, the expected number of optimal picks and the expected mean regret. An action with an outcome
+     the valuer knows nothing about gets the mean of the other actions' values.
 4. **Does the guidance cut low-value exploration?** At every budget, the guided and the unguided agents are compared
    position by position, as an intervention test: the same positions, the same budget, the same seed, only the
    guidance differs. Every difference is guided minus unguided.
@@ -87,8 +96,9 @@ With `positions` = 0, the evaluator skips agreement and calls neither search: th
 **Workers.** Baseline games, reference searches, and the positions searched at each budget (split into slices, each
 searched by an agent built once) run in the task runner's worker processes (see `parallel/README.md`). Every search
 is seeded and every game draws its seeds up front, so a report is the same whatever the number of workers, apart from
-its seconds per choice. To run in several workers, the agent builder, and the rater guiding it, must pickle; a
-`RuleRater` does. The rater alone is measured in this process.
+its seconds per choice. To run in several workers, the agent builder, with the rater guiding it and the valuer valuing
+its positions, must pickle; a `RuleRater` and a `RuleValuer` do. The rater alone is measured in this process, the valuer
+alone in the workers, the positions split into slices.
 
 ## Usage
 
@@ -108,10 +118,14 @@ report = create_evaluator(workers=8).evaluate(
 
 To evaluate an agent guided by rules, create `rater = create_rule_rater(rule_base, domain)`, give the builder
 `with_guidance(rater)`, and pass the rule base's path as `rules_file` and the same `rater` to `evaluate`; the report
-then also holds the unguided agreement, the rater alone and the paired tests. For a domain exact search can't reach,
-add `reference_iterations=2000` to the settings. `ReportTextMapper().to_text(report)` gives the summary
+then also holds the unguided agreement, the rater alone and the paired tests. To evaluate an agent valuing positions
+with value rules, create `valuer = create_rule_valuer(value_base, domain)`, give the builder `with_valuation(valuer)`,
+and pass the value base's path as `values_file` and the same `valuer` to `evaluate`, with `rollout_actions` in the
+settings; the report then holds the values alone instead of, or besides, the rules alone. For a domain exact search
+can't reach, add `reference_iterations=2000` to the settings. `ReportTextMapper().to_text(report)` gives the summary
 `openmind-evaluate` prints. From the terminal:
-`openmind-evaluate tictactoe [--rules PATH] [--positions all] [--reference-iterations N]` (see `entrypoint/README.md`).
+`openmind-evaluate tictactoe [--rules PATH] [--values PATH] [--positions all] [--reference-iterations N]` (see
+`entrypoint/README.md`).
 
 ## Logs
 
@@ -122,6 +136,7 @@ add `reference_iterations=2000` to the settings. `ReportTextMapper().to_text(rep
   - `INFO Unguided agreement with perfect play at <iterations> iterations: ...`, the same measures for the unguided agent, with a rater
   - `INFO Guided against unguided at <iterations> iterations on <positions> positions: low-value visit share <difference> (p <p>), regret <difference> (p <p>), optimal choice only guided <n>, only unguided <m> (p <p>)`, with a rater
   - `INFO Rater alone: ratings separate actions in <n> of <positions> positions; a top-rated action is optimal in <expected> of <positions>; mean regret <regret>`, with a rater
+  - `INFO Values alone: valued <n> of <positions> positions, mean absolute error <error> against the best action's value; one step ahead, a top-valued action is optimal in <expected> of <positions>; mean regret <regret>`, with a valuer
   - `INFO Reference values from <iterations>-iteration unguided searches on <positions> positions`, with `reference_iterations`
   - `INFO Agreement with perfect play skipped: no positions`, when `positions` is 0
   - `DEBUG <Agreement or Unguided agreement> at <iterations> iterations: chose <action>, regret <regret>; optimal: <actions>; <share> of visits on optimal actions; state: <name = value, ...>`
@@ -141,6 +156,7 @@ Every agent search, reference searches included, also logs its summary at INFO (
   `mapper/report_json_mapper_tests.py`, `mapper/report_text_mapper_tests.py`, `repository/report_repository_tests.py`,
   `service/evaluator_tests.py`,
   `service/exact_search_tests.py`, `service/match_runner_tests.py`, `service/reference_search_tests.py`,
-  `service/choice_measurer_tests.py`, `factory/baseline_policy_factory_tests.py`; integration:
+  `service/choice_measurer_tests.py`, `service/value_measurer_tests.py`, `factory/baseline_policy_factory_tests.py`;
+  integration:
   `test/integration/tictactoe_exact_search_tests.py`; end-to-end: `test/end_to_end/evaluate_tictactoe_tests.py`,
   `test/end_to_end/evaluate_fourinarow_tests.py`.

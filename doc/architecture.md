@@ -36,12 +36,12 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
 | `rule` | Python rules: compiling them, running them against states, and a state as the names a rule reads | iteration 9 |
 | `csp` | Constraint satisfaction: action definitions, domains, constraints, and a solver with propagation and backtracking | iterations 1, 7 and 9 |
 | `agent` | The agent and its domains: tic-tac-toe with its variants, and sudoku | iterations 4, 7 and 8 |
-| `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-solve` | iterations 3–7 |
+| `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-select`, `openmind-distill-values`, `openmind-solve` | iterations 3–7, 10 and 11 |
 | `predictor` | Transitions, outcome probability distributions | iterations 2 and 9 |
-| `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater` | iterations 4–6 |
-| `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play or a reference search, paired tests of guidance | iterations 5, 8 and 10 |
-| `rbs` | Rules generated from search for any domain, as hypotheses validated on held-out games, that rate actions and explain their ratings; position evaluation planned | iterations 6, 9 and 10 |
-| `training` | Self-play, distillation of models from search, and selection of the rules that play no worse than all of them | iterations 6 and 10 |
+| `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater` and valuing positions with a model behind `PositionValuer` | iterations 4–6 and 11 |
+| `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play or a reference search, paired tests of guidance, rules and values alone | iterations 5, 8, 10 and 11 |
+| `rbs` | Rules generated from search for any domain, as hypotheses validated on held-out games, that rate actions and explain their ratings; value rules, weighted terms fitted sparsely, that value positions | iterations 6, 9, 10 and 11 |
+| `training` | Self-play, distillation of models from search, selection of the rules that play no worse than all of them, and distillation of value rules | iterations 6, 10 and 11 |
 | `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded | iteration 10 |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |
 
@@ -63,8 +63,8 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
   behind when pickled, so any service can travel to a worker; work in workers draws its seeds up front, so results
   don't depend on the number of workers.
 - `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Evaluation reports go in
-  `data/evaluation/<domain>/`, selection reports in `data/selection/<domain>/`, rule bases in `data/rbs/<domain>/` and
-  published sudoku collections in `data/sudoku/`,
+  `data/evaluation/<domain>/`, selection reports in `data/selection/<domain>/`, rule bases in `data/rbs/<domain>/`, value
+  bases in `data/values/<domain>/` and published sudoku collections in `data/sudoku/`,
   all ignored by git. Tests save their logs
   in `data/log/<test file>/<test name>.log`, which git ignores; a test marked `@pytest.mark.log_level("INFO")` saves
   only INFO and above.

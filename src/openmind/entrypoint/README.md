@@ -13,6 +13,7 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | `distill.py` | `openmind-distill`: generate a rule base from self-play, validate it on held-out games, and save it |
 | `solve.py` | `openmind-solve`: solve a domain's constraint problem with the CSP alone and print the solutions |
 | `select.py` | `openmind-select`: select the smallest set of a rule base's rules that plays no worse than all of them |
+| `distill_values.py` | `openmind-distill-values`: fit value rules on the positions of self-play games, choose a fit on held-out games, and save the value base |
 
 ## `openmind-play`
 
@@ -63,6 +64,7 @@ agent's rollouts.
 .venv/bin/openmind-evaluate tictactoe/fourinarow --positions 0 --games 20   # baselines only
 .venv/bin/openmind-evaluate tictactoe --rules data/rbs/tictactoe/<rule base>.json --positions all   # guided against unguided
 .venv/bin/openmind-evaluate tictactoe/fourinarow --rules <rule base>.json --positions 50 --reference-iterations 2000   # too large for exact search
+.venv/bin/openmind-evaluate tictactoe --values data/values/tictactoe/<value base>.json --positions all   # valuing positions against unguided
 ```
 
 | Option | Default | Meaning |
@@ -76,6 +78,8 @@ agent's rollouts.
 | `--rules PATH` | none | rule base guiding the evaluated agent; its path is recorded in the report |
 | `--workers N` | half the logical CPUs | worker processes baseline games, reference searches and the positions searched at each budget run in; the report is the same whatever the number, apart from seconds per choice, and every worker holds its own caches, so memory grows with it |
 | `--rollouts MODE` | `guided` | with `--rules`: `guided` rollouts follow the rules' ratings; `unguided` rollouts pick uniformly and only the search tree's nodes are rated, which is much cheaper with rules reading lookahead such as `wins()` |
+| `--values PATH` | none | value base valuing the positions the evaluated agent's rollouts reach; its path is recorded in the report |
+| `--rollout-actions N` | `0` | with `--values`: rollout actions played before valuing a position; 0 values the search's new position itself |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/evaluate` | where logs are saved |
 | `--report-directory DIR` | `data/evaluation` | where reports are saved |
@@ -96,7 +100,15 @@ iterations  low-value visits  p  regret  p  optimal only guided / unguided  p
         10            -0.052  ...
 ```
 
-With `--rollouts unguided`, the heading reads `Guided by <rule base> with unguided rollouts against unguided`.
+With `--rollouts unguided`, the heading reads `Guided by <rule base> with unguided rollouts against unguided`. With
+`--values`, the heading reads `Valued by <value base> against unguided`, or `Guided by <rule base> and valued by <value
+base>` with both, adding `after N rollout actions` with `--rollout-actions N`, and the values alone follow the rules
+alone:
+
+```
+Values alone: valued <n> of 100 positions, mean absolute error <error>; one step ahead, a top-valued action is optimal in <expected> of 100; mean regret <regret>
+```
+
 With `--reference-iterations N`, the heading names the reference: `(reference: N-iteration unguided searches; every
 action optimal in <n>)`.
 
@@ -105,7 +117,8 @@ It saves the report as
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, ending with `INFO Saved report <path>` from logger
 `openmind.entrypoint.evaluate`.
 
-With `--rules`, the log also has `INFO Evaluating with rules <path>`. Every log starts with
+With `--rules`, the log also has `INFO Evaluating with rules <path>`, and with `--values`,
+`INFO Evaluating with values <path>`. Every log starts with
 `INFO Running games and searches in <n> worker processes`, and `openmind-distill`'s with
 `INFO Running self-play and rule generation in <n> worker processes`.
 
@@ -200,6 +213,49 @@ The log, `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, starts with `INFO
 searching in <n> worker processes`, has the selector's decisions (see `training/README.md`), and ends with
 `INFO Saved selected rules <path>` and `INFO Saved selection report <path>` from logger `openmind.entrypoint.select`.
 
+## `openmind-distill-values`
+
+```bash
+.venv/bin/openmind-distill-values tictactoe
+.venv/bin/openmind-distill-values tictactoe/fourinarow --games 200 --held-out-games 50 --target search
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--games N` | `100` | self-play games to fit value rules on |
+| `--held-out-games N` | `25` | self-play games to choose a fit and measure it on |
+| `--iterations N` | `200` | MCTS iterations per self-play move |
+| `--seed S` | `1` | random seed |
+| `--target TARGET` | `outcome` | what a position is valued at: `outcome`, the game's final payoff for each player, or `search`, the search's mean payoff for the player to act |
+| `--pair-pool N` | `20` | single terms, the most correlated with the payoffs, multiplied in pairs |
+| `--cuts N` | `6` | thresholds a quantity is cut at, at most |
+| `--solo-limit N` | `2` | own actions `solo_distance()` looks ahead; `0` leaves it out |
+| `--prices LIST` | `0.1,0.03,0.01,0.003,0.001` | comma-separated L1 prices swept |
+| `--max-steps N` | `1000` | steps a fit takes at most |
+| `--tolerance X` | `1e-06` | weight change below which a fit has settled |
+| `--workers N` | half the logical CPUs | worker processes self-play games and term evaluations run in; the value rules are the same whatever the number |
+| `--log-level LEVEL` | `INFO` | lowest level saved in the log |
+| `--log-directory DIR` | `data/log/distill-values` | where logs are saved |
+| `--values-directory DIR` | `data/values` | where value bases are saved |
+
+Runs the value distillation described in `training/README.md` and `rbs/README.md`, and prints:
+
+```
+bias <bias>
+<value rule as text>, one line each, such as +0.42 × wins(me)
+Value rules: <n> of <m> candidate terms, chosen at price <price>; payoffs from <low> to <high>
+price  terms kept  steps  settled  training loss  held-out loss
+  0.1          <k>    <s>      yes       <loss>          <loss>
+Rows: <training> for training, <held out> held out, valued at the <target> target; mean absolute error on held-out rows: <error>
+Saved values <path>
+```
+
+It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
+`<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`: it starts with `INFO Running self-play and term evaluations in
+<n> worker processes` and `INFO Valuing positions at the <target> target; pair pool <n>, up to <c> cuts, solo limit <s>,
+prices <prices>`, has the generator's fits (see `rbs/README.md`), and ends with `INFO Saved values <path>` from logger
+`openmind.entrypoint.distill_values`.
+
 ## `openmind-solve`
 
 ```bash
@@ -244,4 +300,4 @@ solutions are printed, the predictor's effects, then its summary line at `INFO`.
 - End-to-end tests: `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/play_fourinarow_tests.py`,
   `test/end_to_end/evaluate_tictactoe_tests.py`, `test/end_to_end/evaluate_fourinarow_tests.py`,
   `test/end_to_end/distill_tictactoe_tests.py`, `test/end_to_end/select_tictactoe_tests.py`,
-  `test/end_to_end/solve_sudoku_tests.py`.
+  `test/end_to_end/distill_values_tictactoe_tests.py`, `test/end_to_end/solve_sudoku_tests.py`.

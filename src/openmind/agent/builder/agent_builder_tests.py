@@ -63,6 +63,35 @@ def test_build_without_guided_rollouts_rates_only_the_tree_nodes() -> None:
     assert guided.calls > 2
 
 
+class ValuesEverything:
+    """A valuer giving every position a draw, counting how often it is asked."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def value(self, state: State) -> tuple[float, ...] | None:
+        self.calls += 1
+        return (0.5, 0.5)
+
+
+@pytest.mark.log_level("INFO")
+def test_build_with_valuation_values_positions_instead_of_playing_them_out() -> None:
+    domain = create_tictactoe_domain()
+    valuer = ValuesEverything()
+
+    AgentBuilder().with_iterations(3).with_exploration(1.4).with_seed(1).with_valuation(valuer).build().choose(
+        domain, domain.initial_state
+    )
+
+    # Each iteration reaches one new position still in play, and values it.
+    assert valuer.calls == 3
+
+
+def test_build_rejects_negative_rollout_actions() -> None:
+    with pytest.raises(ValueError, match="-1"):
+        AgentBuilder().with_iterations(1).with_exploration(1.4).with_rollout_actions(-1).build()
+
+
 def test_build_rejects_missing_settings() -> None:
     with pytest.raises(ValueError, match="iterations"):
         AgentBuilder().with_exploration(1.4).build()
