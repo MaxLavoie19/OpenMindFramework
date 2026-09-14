@@ -19,6 +19,10 @@ from openmind.rbs.constant.generation_constant import (
     DEFAULT_PATTERNS,
     DEFAULT_PERMUTATIONS,
     DEFAULT_SOLO_LIMIT,
+    EXPLORE_BEAM_WIDTH,
+    EXPLORE_FALSE_DISCOVERY_RATE,
+    EXPLORE_MAX_CONDITIONS,
+    EXPLORE_MIN_GAIN,
 )
 from openmind.rbs.mapper.hypothesis_text_mapper import HypothesisTextMapper
 from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
@@ -63,6 +67,19 @@ def main(argv: list[str] | None = None) -> None:
     for flag, kind, default, meaning in options:
         parser.add_argument(flag, type=kind, default=default, help=f"{meaning} (default: {default})")
     parser.add_argument(
+        "--explore",
+        action="store_true",
+        help=f"generate many candidate rules for openmind-select: beam width {EXPLORE_BEAM_WIDTH}, up to "
+        f"{EXPLORE_MAX_CONDITIONS} conditions, min gain {EXPLORE_MIN_GAIN}, false discovery rate "
+        f"{EXPLORE_FALSE_DISCOVERY_RATE} and no coverage, unless those options are given",
+    )
+    parser.add_argument(
+        "--coverage",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="leave out validated rules a simpler rule covers (default: yes, no with --explore)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING"),
@@ -74,7 +91,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--rules-directory", default="data/rbs", help="where rule bases are saved (default: data/rbs)"
     )
+    if parser.parse_known_args(argv)[0].explore:
+        parser.set_defaults(
+            beam_width=EXPLORE_BEAM_WIDTH,
+            max_conditions=EXPLORE_MAX_CONDITIONS,
+            min_gain=EXPLORE_MIN_GAIN,
+            false_discovery_rate=EXPLORE_FALSE_DISCOVERY_RATE,
+        )
     arguments = parser.parse_args(argv)
+    coverage = not arguments.explore if arguments.coverage is None else arguments.coverage
     domain = create_domain(arguments.domain)
     generation = GenerationSettings(
         arguments.min_visits,
@@ -88,6 +113,7 @@ def main(argv: list[str] | None = None) -> None:
         arguments.patterns,
         arguments.false_discovery_rate,
         arguments.permutations,
+        coverage,
     )
     settings = DistillationSettings(
         arguments.games, arguments.held_out_games, arguments.iterations, arguments.seed, generation
@@ -103,6 +129,14 @@ def main(argv: list[str] | None = None) -> None:
     root.setLevel(arguments.log_level)
     try:
         logger.info("Running self-play and rule generation in %d worker processes", arguments.workers)
+        logger.info(
+            "Generating with beam width %d, up to %d conditions, min gain %s, false discovery rate %s, coverage %s",
+            generation.beam_width,
+            generation.max_conditions,
+            generation.min_gain,
+            generation.false_discovery_rate,
+            "on" if generation.coverage else "off",
+        )
         result = create_distiller(arguments.workers).distill(domain, AgentBuilder().with_exploration(EXPLORATION), settings)
         repository = RuleBaseRepository(RuleBaseJsonMapper())
         path = repository.save(result.rule_base, Path(arguments.rules_directory), datetime.now())

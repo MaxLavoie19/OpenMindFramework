@@ -10,6 +10,12 @@ DEFAULT_PATTERNS = 200
 DEFAULT_FALSE_DISCOVERY_RATE = 0.05
 DEFAULT_PERMUTATIONS = 10_000
 
+#: Wider settings for exploration, whose many candidate rules openmind-select narrows down by play.
+EXPLORE_BEAM_WIDTH = 60
+EXPLORE_MAX_CONDITIONS = 3
+EXPLORE_MIN_GAIN = 0.02
+EXPLORE_FALSE_DISCOVERY_RATE = 0.2
+
 #: States where a hypothesis's matching and other actions both occur, at least, for it to be discovered.
 MIN_STATES = 5
 #: A rule whose payoff bound is within this share of the payoff range from the best or worst payoff is a priority rule.

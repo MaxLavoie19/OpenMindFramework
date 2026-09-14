@@ -107,7 +107,10 @@ class RuleGenerator:
                     if hypothesis.action == base.action
                 ),
             )
-            kept, left_out = self._coverage_filter.keep(domain, rows_by_action[base.action], candidates, settings.min_gain)
+            if settings.coverage:
+                kept, left_out = self._coverage_filter.keep(domain, rows_by_action[base.action], candidates, settings.min_gain)
+            else:
+                kept, left_out = candidates, ()
             logger.info(
                 "%s: kept %d of %d validated rules; %d covered by a simpler rule within min_gain",
                 base.action,

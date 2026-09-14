@@ -12,6 +12,7 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | `evaluate.py` | `openmind-evaluate`: measure how well the agent plays a domain and save the report |
 | `distill.py` | `openmind-distill`: generate a rule base from self-play, validate it on held-out games, and save it |
 | `solve.py` | `openmind-solve`: solve a domain's constraint problem with the CSP alone and print the solutions |
+| `select.py` | `openmind-select`: select the smallest set of a rule base's rules that plays no worse than all of them |
 
 ## `openmind-play`
 
@@ -133,6 +134,8 @@ With `--rules`, the log also has `INFO Evaluating with rules <path>`. Every log 
 | `--false-discovery-rate X` | `0.05` | false discovery rate hypotheses are kept at |
 | `--permutations N` | `10000` | permutations of each validation test |
 | `--workers N` | half the logical CPUs | worker processes self-play games and rule condition checks run in; the rules are the same whatever the number |
+| `--explore` | off | generate many candidates for `openmind-select`: beam width 60, up to 3 conditions, min gain 0.02, false discovery rate 0.2 and no coverage, each unless given explicitly |
+| `--coverage`, `--no-coverage` | on, off with `--explore` | whether validated rules a simpler rule covers are left out |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/distill` | where logs are saved |
 | `--rules-directory DIR` | `data/rbs` | where rule bases are saved |
@@ -152,6 +155,50 @@ Every hypothesis, rejected ones included, is in the log at `--log-level DEBUG`. 
 `<rules directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, ending with `INFO Saved rules <path>` from logger
 `openmind.entrypoint.distill`.
+
+## `openmind-select`
+
+```bash
+.venv/bin/openmind-distill tictactoe --explore --held-out-games 20          # many candidate rules
+.venv/bin/openmind-select tictactoe --rules data/rbs/tictactoe/<candidates>.json
+.venv/bin/openmind-select tictactoe/fourinarow --rules <candidates>.json --positions 500 --reference-iterations 2000 --iterations 50 --rollouts unguided --max-hours 4
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--rules PATH` | required | candidate rule base |
+| `--positions N` | `all` | positions rule sets are compared on; `all` needs exact search |
+| `--reference-iterations N` | exact search | values from unguided searches of N iterations on positions of random games, for domains exact search can't reach; needs a number of `--positions` |
+| `--iterations N` | `10` | MCTS iterations of the guided searches compared |
+| `--rollouts MODE` | `guided` | whether the guided searches' rollouts follow the ratings |
+| `--margin X` | `0.005` | largest rise in mean regret a removed rule may cause |
+| `--confidence X` | `0.95` | confidence of the one-sided bound on that rise |
+| `--resamples N` | `10000` | bootstrap resamples per comparison |
+| `--seed S` | `1` | random seed; the confirmation uses S + 1 |
+| `--max-hours H` | no limit | stop trying removals after H hours, then confirm what is selected |
+| `--workers N` | half the logical CPUs | worker processes the searches run in |
+| `--log-level LEVEL` | `INFO` | lowest level saved in the log |
+| `--log-directory DIR` | `data/log/select` | where logs are saved |
+| `--rules-directory DIR` | `data/rbs` | where the selected rule base is saved |
+| `--report-directory DIR` | `data/selection` | where reports are saved |
+
+Runs the selection described in `training/README.md`. The report is written to
+`<report directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` after every decision, so a long selection can be followed.
+At the end it saves the selected rules as `<rules directory>/<domain>/<same time>.json` and prints:
+
+```
+Selected <n> of <m> candidate rules in <p> passes, complete: <r> removed, <f> of them without a search
+At 10 iterations on 4520 positions: all rules <o> optimal choices, mean regret <x>; selected rules <o> optimal choices, mean regret <x>
+Confirmation with seed 2 on 4520 positions: regret <d>, upper bound <b>, below the margin 0.005
+Selected rules:
+  <rule as text>, one line each
+Saved selected rules <path>
+Saved selection report <path>
+```
+
+The log, `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, starts with `INFO Selecting from <m> rules in <path>,
+searching in <n> worker processes`, has the selector's decisions (see `training/README.md`), and ends with
+`INFO Saved selected rules <path>` and `INFO Saved selection report <path>` from logger `openmind.entrypoint.select`.
 
 ## `openmind-solve`
 
@@ -196,4 +243,5 @@ solutions are printed, the predictor's effects, then its summary line at `INFO`.
 
 - End-to-end tests: `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/play_fourinarow_tests.py`,
   `test/end_to_end/evaluate_tictactoe_tests.py`, `test/end_to_end/evaluate_fourinarow_tests.py`,
-  `test/end_to_end/distill_tictactoe_tests.py`, `test/end_to_end/solve_sudoku_tests.py`.
+  `test/end_to_end/distill_tictactoe_tests.py`, `test/end_to_end/select_tictactoe_tests.py`,
+  `test/end_to_end/solve_sudoku_tests.py`.

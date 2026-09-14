@@ -28,3 +28,14 @@ def test_generation_keeps_the_hypotheses_that_hold_on_the_validation_games(caplo
     assert any(message.startswith("place: kept ") for message in caplog.messages)
     assert result.patterns
     assert any(message.startswith("Validated ") for message in caplog.messages)
+
+
+def test_without_coverage_every_validated_hypothesis_becomes_a_rule() -> None:
+    settings = replace(SETTINGS, permutations=5000, false_discovery_rate=0.2, coverage=False)
+
+    result = create_rule_generator().generate(strip_domain(), samples(), samples(), settings, seed=1)
+
+    assert result.covered == ()
+    assert [rule.conditions for rule in result.rule_base.rules[1:]] == [
+        test.conditions for test in result.hypotheses if test.validated
+    ]

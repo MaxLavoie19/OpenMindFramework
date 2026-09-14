@@ -35,6 +35,24 @@ def test_distill_prints_and_saves_rules(capsys: pytest.CaptureFixture[str], tmp_
     assert log_file.read_text(encoding="utf-8").splitlines()[-1] == f"INFO  openmind.entrypoint.distill Saved rules {rules_file}"
 
 
+def test_explore_widens_generation_and_keeps_covered_rules(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    main(
+        [
+            "tictactoe",
+            *("--games", "2", "--held-out-games", "1", "--iterations", "20", "--min-rule-visits", "5", "--seed", "1"),
+            *("--workers", "1", "--explore"),
+            *("--log-directory", str(tmp_path / "log"), "--rules-directory", str(tmp_path / "rules")),
+        ]
+    )
+
+    assert "; 0 covered by a simpler rule\n" in capsys.readouterr().out
+    (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
+    assert (
+        "INFO  openmind.entrypoint.distill Generating with beam width 60, up to 3 conditions, min gain 0.02, "
+        "false discovery rate 0.2, coverage off"
+    ) in log_file.read_text(encoding="utf-8").splitlines()
+
+
 def test_several_workers_distill_the_same_rules(tmp_path: Path) -> None:
     rule_bases = []
     for workers in ("1", "2"):

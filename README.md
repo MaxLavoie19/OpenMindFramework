@@ -79,6 +79,19 @@ baselines alone with `--positions 0`.
 Both `openmind-distill` and `openmind-evaluate` run games and searches in worker processes: `--workers N` sets how many
 (half the logical CPUs by default), and the results are the same whatever the number.
 
+## Select
+
+```bash
+.venv/bin/openmind-distill tictactoe --explore --held-out-games 20
+.venv/bin/openmind-select tictactoe --rules data/rbs/tictactoe/<candidates>.json
+```
+
+Generation validates rules one by one; selection keeps the rules that matter for play together. `--explore` generates
+many candidate rules, and `openmind-select` removes them one at a time, keeping a removal only when guided searches on
+every position play no worse, by a margin on mean regret with a bootstrap bound, than with all the candidates, then
+confirms the selection with another seed. The selected rules are saved in `data/rbs/tictactoe/`, the report, updated
+after every decision, in `data/selection/tictactoe/`, and the log in `data/log/select/tictactoe/`.
+
 ## Tests
 
 Unit tests sit beside the code they test (`solver.py` → `solver_tests.py`); integration and end-to-end tests live in

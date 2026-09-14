@@ -19,7 +19,7 @@ hypotheses that hold become rules.
 |---|---|
 | `model/rule.py` | `Rule(action, conditions, expected_value, visits, priority=False)`: for an action with that name, when every condition (a Python rule) holds, none meaning any state, its expected payoff for the player to act over that many search visits; a priority rule rates before the others |
 | `model/rule_base.py` | `RuleBase(domain, rules)` |
-| `model/generation_settings.py` | `GenerationSettings(min_visits, max_conditions, min_rule_visits, min_gain, confidence, beam_width, max_offset, solo_limit, patterns, false_discovery_rate, permutations)` |
+| `model/generation_settings.py` | `GenerationSettings(min_visits, max_conditions, min_rule_visits, min_gain, confidence, beam_width, max_offset, solo_limit, patterns, false_discovery_rate, permutations, coverage=True)` |
 | `model/action_row.py` | `ActionRow(state, action, visits, mean_payoff, advantage)`: an action's merged samples in a state |
 | `model/row_arrays.py` | `RowArrays(states, visits, advantages, payoffs)`: action rows as numpy arrays, states numbered |
 | `model/goal_pattern.py` | `GoalPattern(action, conditions, moves)`: what a winning move needs, seen in that many winning moves |
@@ -27,7 +27,7 @@ hypotheses that hold become rules.
 | `model/hypothesis_test.py` | `HypothesisTest(action, conditions, direction, discovery_effect, discovery_states, validation_effect, validation_states, p_value, q_value, validated)` |
 | `model/generation_result.py` | `GenerationResult(rule_base, patterns, hypotheses, covered)`: the rule base, the goal patterns, every hypothesis's test and the validated rules a simpler rule covers |
 | `model/coverage.py` | `Coverage(rule, covering)`: a validated rule left out of the rule base, and the simpler kept rule matching every row it matches, whose rows' mean advantage is within `min_gain` of its rows' |
-| `constant/generation_constant.py` | Default generation settings; `MIN_STATES` (5), `PRIORITY_MARGIN` (0.05), `QUANTITY_CUTS` (6), `ANCHOR_PROBES` (50), `PERMUTATION_BATCH` (1,000) |
+| `constant/generation_constant.py` | Default generation settings; the exploration presets (`EXPLORE_BEAM_WIDTH` 60, `EXPLORE_MAX_CONDITIONS` 3, `EXPLORE_MIN_GAIN` 0.02, `EXPLORE_FALSE_DISCOVERY_RATE` 0.2); `MIN_STATES` (5), `PRIORITY_MARGIN` (0.05), `QUANTITY_CUTS` (6), `ANCHOR_PROBES` (50), `PERMUTATION_BATCH` (1,000) |
 | `constant/consequence_constant.py` | The names generated rules read (`me`, `other`, `action`, `win_chance`, `wins`, `solo_distance`, `near`, `OUTSIDE`) and the consequence cache size (200,000) |
 | `service/consequence_library.py` | `ConsequenceLibrary`: what generated rules read besides state variables, worked out with the domain's own solver and predictor |
 | `service/goal_pattern_miner.py` | `GoalPatternMiner`: the variables winning moves need |
@@ -124,7 +124,8 @@ and, separately, of validation games.
    few permutations, nothing can be validated.
 6. **Rule base.** For each action name, in the order first seen: a rule without conditions, its visit-weighted mean
    payoff, then one rule per validated hypothesis, with its conditions, expected value, visits and priority.
-7. **Coverage.** A validated rule is left out, as *covered*, when a kept rule already covers it: one with no more
+7. **Coverage**, unless `coverage` is off, as with `openmind-distill --explore`, whose candidates `openmind-select`
+   narrows down by play instead. A validated rule is left out, as *covered*, when a kept rule already covers it: one with no more
    conditions, a priority rule whenever it is one, matching every discovery row it matches, whose rows' visit-weighted
    mean advantage is within `min_gain` of its own rows'. Advantage compares moves within their own positions, so how
    good those positions are cancels out. Rules are checked fewest conditions first, then most rows matched, so
