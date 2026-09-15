@@ -10,6 +10,7 @@ from openmind.agent.factory.domain_factory import create_domain
 from openmind.agent.model.domain import Domain
 from openmind.agent.service.agent import Agent
 from openmind.csp.factory.csp_factory import create_solver
+from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
@@ -90,16 +91,17 @@ def _play(domain: Domain, agent_players: frozenset[str], agent: Agent | None) ->
     action_text = ActionTextMapper()
     solver = create_solver()
     predictor = create_predictor()
-    state_text, state_reader = GridTextMapper(VariableNameMapper()), StateReader()
+    state_text, state_reader, state_observer = GridTextMapper(VariableNameMapper()), StateReader(), create_state_observer()
 
     logger.info("Playing %s", domain.name)
     state = domain.initial_state
     while actions := solver.solve(domain.problem, state):
-        print(state_text.to_text(state))
-        print()
         player = state_reader.value(state, domain.players.to_act)
+        seen = state if domain.observation is None else state_observer.observe(domain.observation, state, str(player))
+        print(state_text.to_text(seen))
+        print()
         if agent is not None and player in agent_players:
-            action = agent.choose(domain, state)
+            action = agent.choose(domain, seen)
             print(f"{player} chose {action_text.to_text(action)}")
         else:
             for number, candidate in enumerate(actions, start=1):

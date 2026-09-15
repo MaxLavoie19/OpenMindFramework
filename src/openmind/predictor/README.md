@@ -43,7 +43,9 @@ create_predictor().predict(model, State((("score", 0),)), Action("shoot", ()))
 - Each branch's effects script runs on its own copy of the state, with the action's parameters by name and the model's
   definitions (see `rule/README.md` for what a script sees). What it leaves in the state's variables is the outcome;
   statements run in order, so each sees what the ones before it changed.
-- A state never gains or loses variables: an index the state doesn't have raises `KeyError`.
+- A state can gain variables, never lose them: an effect on an index the state doesn't have, under a base it has, adds
+  the variable after the state's own (see `rule/README.md`). A game whose history has no known length, such as the
+  prisoner's dilemma without a known last round, grows its state this way.
 - Each branch gives its own entry, even when two branches produce the same state.
 - Predicting an action that has no transition raises `KeyError`.
 - Branches are discrete; continuous distributions come with the first domain that needs them.

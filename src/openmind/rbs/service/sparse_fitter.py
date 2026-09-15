@@ -19,14 +19,17 @@ class SparseFitter:
         max_steps: int,
         tolerance: float,
         start: SparseFit | None = None,
+        costs: np.ndarray | None = None,
     ) -> SparseFit:
         """Starts from start's weights and bias when given, from 0 otherwise; settles once no weight or the bias moves by
-        more than tolerance × the largest of 1 and the largest weight."""
+        more than tolerance × the largest of 1 and the largest weight. Costs, one per column, multiply the price of that
+        column's weight; every weight costs 1 without them."""
         rows, width = columns.shape
         if rows == 0:
             raise ValueError("A fit needs at least one row")
         design = np.hstack([columns, np.ones((rows, 1))])
         step = 4.0 * rows / float(np.linalg.norm(design, 2)) ** 2
+        shrink = step * price * (np.ones(width) if costs is None else np.asarray(costs, dtype=float))
         parameters = np.zeros(width + 1) if start is None else np.array([*start.weights, start.bias], dtype=float)
         previous = parameters.copy()
         settled, steps = False, 0
@@ -34,7 +37,7 @@ class SparseFitter:
             momentum = parameters + (steps - 1) / (steps + 2) * (parameters - previous)
             candidate = momentum - step * (design.T @ (expit(design @ momentum) - targets)) / rows
             weights = candidate[:width]
-            candidate[:width] = np.sign(weights) * np.maximum(np.abs(weights) - step * price, 0.0)
+            candidate[:width] = np.sign(weights) * np.maximum(np.abs(weights) - shrink, 0.0)
             previous, parameters = parameters, candidate
             if np.max(np.abs(parameters - previous)) <= tolerance * max(1.0, float(np.max(np.abs(parameters[:width]), initial=0.0))):
                 settled = True

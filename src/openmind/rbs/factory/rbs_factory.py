@@ -1,14 +1,19 @@
 from openmind.agent.model.domain import Domain
+from openmind.inference.mapper.expression_sentence_mapper import ExpressionSentenceMapper
+from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.rbs.builder.rule_generator_builder import RuleGeneratorBuilder
 from openmind.rbs.builder.rule_rater_builder import RuleRaterBuilder
 from openmind.rbs.builder.rule_valuer_builder import RuleValuerBuilder
 from openmind.rbs.builder.value_generator_builder import ValueGeneratorBuilder
 from openmind.rbs.model.rule_base import RuleBase
 from openmind.rbs.model.value_base import ValueBase
+from openmind.rbs.repository.explanation_cache_repository import ExplanationCacheRepository
+from openmind.rbs.service.rule_explainer import RuleExplainer
 from openmind.rbs.service.rule_generator import RuleGenerator
 from openmind.rbs.service.rule_rater import RuleRater
 from openmind.rbs.service.rule_valuer import RuleValuer
 from openmind.rbs.service.value_generator import ValueGenerator
+from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 
 def create_rule_generator(workers: int = 1) -> RuleGenerator:
@@ -26,6 +31,13 @@ def create_value_generator(workers: int = 1) -> ValueGenerator:
     """A value generator with its term generator, term evaluator and sparse fitter, evaluating terms in that many worker
     processes."""
     return ValueGeneratorBuilder().with_workers(workers).build()
+
+
+def create_rule_explainer() -> RuleExplainer:
+    """A rule explainer reading rules literally, asking a language model when given one, and caching its sentences."""
+    return RuleExplainer(
+        ExpressionSentenceMapper(), ExpressionGenerator(VariableNameMapper()), ExplanationCacheRepository()
+    )
 
 
 def create_rule_valuer(value_base: ValueBase, domain: Domain) -> RuleValuer:

@@ -11,6 +11,11 @@ def create_built_agent(agent_builder: AgentBuilder, seed: int) -> Policy:
     return agent_builder.build()
 
 
+def create_seeded_agent(agent_builder: AgentBuilder, seed: int) -> Policy:
+    """The agent the builder builds, searching with the game's own seed, so that no two games are searched alike."""
+    return agent_builder.with_seed(seed).build()
+
+
 def create_random_policy(seed: int) -> Policy:
     """A policy choosing uniformly among the legal actions, its choices drawn from the game's seed."""
     return RandomPolicy(SolverBuilder().build(), random.Random(seed))

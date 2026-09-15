@@ -11,7 +11,7 @@ pytestmark = pytest.mark.log_level("INFO")
 
 SMALL = (
     *("--games", "3", "--held-out-games", "2", "--iterations", "20", "--seed", "1"),
-    *("--pair-pool", "5", "--solo-limit", "1", "--prices", "0.1,0.01", "--max-steps", "200"),
+    *("--seconds", "300", "--memory", "1", "--candidates", "1000", "--prices", "0.1,0.01", "--max-steps", "200"),
 )
 
 

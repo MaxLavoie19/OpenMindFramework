@@ -10,15 +10,16 @@ constants.
 
 | File | What it is |
 |---|---|
-| `model/domain.py` | `Domain(name, initial_state, problem, transitions, players)`: a domain within the agent |
-| `builder/domain_builder.py` | `DomainBuilder`: collects a domain's parts; rejects missing parts |
+| `model/domain.py` | `Domain(name, initial_state, problem, transitions, players, observation=None)`: a domain within the agent; `observation` says what each player sees of a state (see `observation/README.md`), `None` when every player sees everything |
+| `builder/domain_builder.py` | `DomainBuilder`: collects a domain's parts, `with_observation` optional; rejects missing parts |
 | `factory/domain_factory.py` | `create_domain(name)`: creates a domain from its name (`"tictactoe"`, a variant such as `"tictactoe/fourinarow"`, `"sudoku"`, or a domain an installed project registers); an unknown name or variant raises `ValueError` listing the known ones |
 | `model/domain_recipe.py` | `DomainRecipe`: what an installed project registers, a function giving its domain from the whole domain name |
-| `service/agent.py` | `Agent`: searches a domain's state with MCTS, guided by a rater and valuing positions with a valuer when built with them; `search` gives the whole result, `choose` the action |
+| `service/agent.py` | `Agent`: searches a domain's state with MCTS, guided by a rater and valuing positions with a valuer when built with them, and falling back on deduction when built with a budget; `search` gives the whole result, `choose` the action |
+| `service/deduction_fallback.py` | `DeductionFallback.result(domain, state, valuation)`: in a domain every player sees whole, when the agent has no valuer, or its valuer can't value every legal action's outcomes or values them all the same for the player to act, deduces the position (see `inference/README.md`); a proven best action comes back as a search result holding that action alone, with 1 visit and its proven payoff, and no samples; otherwise `None`, and the agent searches |
 | `model/policy.py` | `Policy`: anything with `choose(domain, state) -> Action`; `Agent` and `RandomPolicy` are policies |
 | `model/policy_factory.py` | `PolicyFactory`: gives the policy that plays a game from the game's seed; to run in worker processes, it must pickle |
 | `service/random_policy.py` | `RandomPolicy`: chooses uniformly among the legal actions; a baseline opponent |
-| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed, guidance (`with_guidance(rater)`), whether guided rollouts follow the ratings (`with_guided_rollouts(guided)`), the valuer valuing the positions rollouts reach (`with_valuation(valuer)`), the rollout actions played before valuing (`with_rollout_actions(actions)`, 0 by default) and the rollout limit (`with_rollout_limit(limit, unfinished_payoff)`), and wires the services the agent searches with; rejects missing settings, fewer than 1 iteration, negative rollout actions, and a negative rollout limit or one without an unfinished payoff |
+| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed, guidance (`with_guidance(rater)`), whether guided rollouts follow the ratings (`with_guided_rollouts(guided)`), the valuer valuing the positions rollouts reach (`with_valuation(valuer)`), the rollout actions played before valuing (`with_rollout_actions(actions)`, 0 by default), the rollout limit (`with_rollout_limit(limit, unfinished_payoff)`) and the deduction the agent falls back on when its rules have no clue (`with_deduction(budget)`, none by default), and wires the services the agent searches with; rejects missing settings, fewer than 1 iteration, negative rollout actions, a negative rollout limit or one without an unfinished payoff, and a deduction budget without plies or seconds |
 | `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None, rollout_limit=None, unfinished_payoff=None)`: an agent searching with the exploration weight √2 |
 | `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), the guidance's prior weight (1.0), rollout temperature (0.2) and guided rollouts (true), the default unfinished payoff (0.5), and the entry point group installed domains register under (`openmind.domains`) |
 | `model/tictactoe_variant.py` | `TicTacToeVariant(name, width, height, line, gravity)`: how a variant differs from standard tic-tac-toe |
@@ -29,6 +30,9 @@ constants.
 | `model/sudoku_puzzle.py` | `SudokuPuzzle(collection, number, grid)`: a published puzzle, numbered from 1 in its collection, its grid 81 characters row by row with `.` for an empty cell |
 | `mapper/sudoku_collection_mapper.py` | `SudokuCollectionMapper`: reads a collection's text into puzzles, from one 81-character line per puzzle (Norvig) or a `Grid NN` line and 9 rows (Project Euler), with `.` or `0` for an empty cell; anything else raises `ValueError` |
 | `repository/sudoku_puzzle_repository.py` | `SudokuPuzzleRepository`: lists the `<collection>.txt` files of a directory and loads a collection's puzzles |
+| `model/prisoners_dilemma_variant.py` | `PrisonersDilemmaVariant(name, rounds, ending_chance)`: how many rounds are played (`None` when no last round is known) and the chance the game ends after each round |
+| `constant/prisoners_dilemma_constant.py` | Domain name and the variant separator, players, the two choices, Axelrod's points (`REWARD`, `PUNISHMENT`, `TEMPTATION`, `SUCKER`, `POINTS`), variable, action and parameter names, and the variants (`STANDARD`, `VARIANTS`) |
+| `factory/prisoners_dilemma_factory.py` | `create_prisoners_dilemma_domain(variant=STANDARD)`, assembled from `create_prisoners_dilemma_initial_state()`, `create_prisoners_dilemma_problem()`, `create_prisoners_dilemma_transitions(variant)` and `create_prisoners_dilemma_players()`, with `create_prisoners_dilemma_definitions(variant)` giving the script its rules see; a variant with fewer than 1 round, an ending chance outside 0 to 1, or neither a last round nor an ending chance raises `ValueError` |
 
 ## Domains from installed projects
 
@@ -160,6 +164,94 @@ cells, the parameters of its empty cells and the clues read from the state:
 `fill` has one branch with probability 1, a script writing every parameter into its cell (`cell[1, 3] = cell_1_3`, one
 line per empty cell), then `payoff = 1.0`, the share of cells filled.
 
+## Repeated prisoner's dilemma
+
+The first non-zero-sum game: each player's payoff is their own total, so both can gain, or both lose. The two players
+choose at the same time, which OpenMind plays as A choosing, then B, with each player's choice hidden from the other
+by the domain's observation.
+
+| Variant | Domain name | Rounds | Ending chance after each round |
+|---|---|---|---|
+| `standard` | `prisonersdilemma` | 10 | 0 |
+| `uncertain` | `prisonersdilemma/uncertain` | no known last round | 0.1 |
+
+With a known last round, perfect play defects in every round, whatever the ending chance. Without one, the game can't
+be searched exactly, since its states never stop.
+
+### Players
+
+`Players(("A", "B"), "turn", ("payoff(A)", "payoff(B)"))`.
+
+### State variables
+
+| Variable | Values | Initial |
+|---|---|---|
+| `chosen(A)`, `chosen(B)` | this round's choice, `"cooperate"` or `"defect"`; `None` until made, and again once the round is played | `None` |
+| `played(round,player)` | the choice played in a round; `None` for the round being chosen; the variables of a round are added when it starts | `played(1,A)` and `played(1,B)`, `None` |
+| `round` | the round being chosen, from 1 | 1 |
+| `score(A)`, `score(B)` | points so far | 0 |
+| `turn` | `"A"` or `"B"` | `"A"` |
+| `payoff(A)`, `payoff(B)` | the player's score when the game ends; `None` until then | `None` |
+
+### Constraints (CSP)
+
+Every rule sees `create_prisoners_dilemma_definitions(variant)`: `PLAYERS`, `POINTS[choice of A, choice of B]`, the
+points of both players for a round, `ROUNDS`, `None` without a known last round, and `other(player)`. The action
+`choose(choice)`, with choice `"cooperate"` or `"defect"`, is legal when these rules hold:
+
+```python
+payoff['A'] is None
+payoff['B'] is None
+chosen[turn] is None
+```
+
+### Transitions (predictor)
+
+| A | B | Points of A | Points of B |
+|---|---|---|---|
+| cooperate | cooperate | 3 | 3 |
+| cooperate | defect | 0 | 5 |
+| defect | cooperate | 5 | 0 |
+| defect | defect | 1 | 1 |
+
+`choose` has one branch without an ending chance, `ENDING = False`, or two: the game goes on with 1 − the chance and
+ends with the chance, `ENDING = True`. Each branch runs this script after setting `ENDING`:
+
+```python
+chosen[turn] = choice
+if all(chosen[player] is not None for player in PLAYERS):
+    points = POINTS[chosen[PLAYERS[0]], chosen[PLAYERS[1]]]
+    for player, gained in zip(PLAYERS, points):
+        played[round, player] = chosen[player]
+        score[player] = score[player] + gained
+        chosen[player] = None
+    if round == ROUNDS or ENDING:
+        for player in PLAYERS:
+            payoff[player] = score[player]
+    else:
+        round = round + 1
+        for player in PLAYERS:
+            played[round, player] = None
+turn = other(turn)
+```
+
+The next round's `played` variables are new variables the state gains (see `rule/README.md`). A choice that doesn't
+finish a round gives the same state on both branches.
+
+### Observation
+
+`create_prisoners_dilemma_observation(variant)` hides the other player's choice, with the variant's definitions:
+
+```python
+(chosen_name(other(player)),)                                   # hidden
+[({chosen_name(other(player)): choice}, 1 / len(CHOICES)) for choice in CHOICES] \
+    if player == turn == PLAYERS[1] else [({chosen_name(other(player)): None}, 1.0)]   # completions
+```
+
+On B's turn, B sees `chosen(A) = '<hidden>'`, which could be either choice at even chances; A, choosing first, has
+nothing to guess, since B hasn't chosen. The played rounds, scores and payoffs stay visible to both. An agent searches
+from its view (see `mcts/README.md`); exact search refuses the domain.
+
 ## Usage
 
 ```python
@@ -189,12 +281,15 @@ distribution = create_predictor().predict(domain.transitions, domain.initial_sta
 ## Notes
 
 - Tests: `builder/agent_builder_tests.py`, `builder/domain_builder_tests.py`, `factory/agent_factory_tests.py`,
-  `factory/domain_factory_tests.py`, `factory/sudoku_factory_tests.py`, `factory/tictactoe_factory_tests.py`,
+  `factory/domain_factory_tests.py`, `factory/prisoners_dilemma_factory_tests.py`, `factory/sudoku_factory_tests.py`,
+  `factory/tictactoe_factory_tests.py`,
   `mapper/sudoku_collection_mapper_tests.py`, `repository/sudoku_puzzle_repository_tests.py`,
   `service/agent_tests.py`, `service/random_policy_tests.py`; integration:
   `test/integration/tictactoe_actions_tests.py`, `test/integration/tictactoe_search_tests.py`,
   `test/integration/tictactoe_transitions_tests.py`, `test/integration/tictactoe_variants_games_tests.py`,
   `test/integration/tictactoe_fourinarow_transitions_tests.py`, `test/integration/tictactoe_fourinarow_search_tests.py`,
-  `test/integration/sudoku_solve_tests.py`, `test/integration/sudoku_collections_solve_tests.py`; end-to-end:
+  `test/integration/sudoku_solve_tests.py`, `test/integration/sudoku_collections_solve_tests.py`,
+  `test/integration/prisoners_dilemma_transitions_tests.py`, `test/integration/prisoners_dilemma_search_tests.py`;
+  end-to-end:
   `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/play_fourinarow_tests.py`,
   `test/end_to_end/solve_sudoku_tests.py`.

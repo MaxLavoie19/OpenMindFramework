@@ -35,13 +35,15 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
 | `world` | `Value`, `State`, `Action`, and their readable text | iterations 1 and 8 |
 | `rule` | Python rules: compiling them, running them against states, and a state as the names a rule reads | iteration 9 |
 | `csp` | Constraint satisfaction: action definitions, domains fixed or computed from the state, constraints, and a solver with propagation and backtracking | iterations 1, 7, 9 and 12 |
-| `agent` | The agent and its domains: tic-tac-toe with its variants, sudoku, and the domains installed projects register | iterations 4, 7, 8 and 12 |
+| `agent` | The agent and its domains: tic-tac-toe with its variants, sudoku, the repeated prisoner's dilemma with its variants, and the domains installed projects register | iterations 4, 7, 8 and 12 |
 | `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-select`, `openmind-distill-values`, `openmind-solve` | iterations 3–7, 10 and 11 |
 | `predictor` | Transitions, outcome probability distributions | iterations 2 and 9 |
+| `observation` | What each player sees of a state, and the states that could be true given what they see | hidden information |
 | `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater`, valuing positions with a model behind `PositionValuer`, and stopping rollouts at a limit | iterations 4–6, 11 and 12 |
 | `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play or a reference search, paired tests of guidance, rules and values alone | iterations 5, 8, 10 and 11 |
 | `rbs` | Rules generated from search for any domain, as hypotheses validated on held-out games, that rate actions and explain their ratings; value rules, weighted terms fitted sparsely, that value positions | iterations 6, 9, 10 and 11 |
-| `training` | Self-play, distillation of models from search, selection of the rules that play no worse than all of them, and distillation of value rules | iterations 6, 10 and 11 |
+| `inference` | The inference engine: views of positions that look ahead with a domain's own actions, a search growing expressions of them (patterns of any size, thresholds, combinations, look-aheads) within a time and memory budget, and deduction on one position with induction of candidate expressions from what it proved | iteration 14 |
+| `training` | Self-play, distillation of models from search, selection of the rules that play no worse than all of them, distillation of value rules, and a loop training value rules round after round | iterations 6, 10, 11 and 13 |
 | `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded | iteration 10 |
 | `testing` | Test support shared with problem projects: a pytest plugin saving each test's logs | iteration 12 |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |
@@ -69,7 +71,8 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
   don't depend on the number of workers.
 - `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Evaluation reports go in
   `data/evaluation/<domain>/`, selection reports in `data/selection/<domain>/`, rule bases in `data/rbs/<domain>/`, value
-  bases in `data/values/<domain>/` and published sudoku collections in `data/sudoku/`,
+  bases in `data/values/<domain>/`, training reports in `data/training/<domain>/` and published sudoku collections in
+  `data/sudoku/`,
   all ignored by git. Tests save their logs, through the `openmind.testing.plugin.log_saving` plugin,
   in `data/log/<test file>/<test name>.log`, which git ignores; a test marked `@pytest.mark.log_level("INFO")` saves
   only INFO and above.

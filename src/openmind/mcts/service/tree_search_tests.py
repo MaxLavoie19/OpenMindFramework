@@ -5,12 +5,15 @@ import pytest
 
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
+from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
+from openmind.csp.model.variable import Variable
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.search_result import SearchResult
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
+from openmind.observation.model.observation import Observation
 from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
@@ -46,12 +49,13 @@ def search(
     valuation: LeafValuation | None = None,
     rollout_limit: int | None = None,
     unfinished_payoff: float | None = None,
+    observation: Observation | None = None,
 ) -> SearchResult:
     tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
     problem, transitions, state = game
     players = Players(("me",), "turn", ("payoff",))
     settings = SearchSettings(iterations, exploration, seed, rollout_limit, unfinished_payoff)
-    return tree_search.search(problem, transitions, players, state, settings, guidance, valuation)
+    return tree_search.search(problem, transitions, players, state, settings, guidance, valuation, observation)
 
 
 def pay(payoff: float) -> PythonRule:
@@ -276,6 +280,43 @@ def test_a_valuer_due_at_the_limit_values_the_position_first() -> None:
 
     assert valuer.stages == [2]
     assert [(sample.action.name, sample.mean_payoff) for sample in result.samples] == [("step", 0.75)]
+
+
+def guessing_game(secret: str) -> Game:
+    """me guesses a coin's side: the right side pays 1.0, the wrong one 0.0."""
+    problem = Problem(
+        (ActionDefinition("guess", (Variable("side", DiscreteDomain(("heads", "tails"))),), (PythonRule("payoff is None"),)),)
+    )
+    guess = Transition("guess", (Branch(1.0, PythonRule("payoff = 1.0 if side == coin else 0.0")),))
+    return problem, TransitionModel((guess,)), State((("coin", secret), ("payoff", None), ("turn", "me")))
+
+
+def hidden_coin(heads: float) -> Observation:
+    """me can't see the coin, which is heads with the given chance."""
+    return Observation(
+        PythonRule("('coin',)"), PythonRule(f"[({{'coin': 'heads'}}, {heads!r}), ({{'coin': 'tails'}}, {1.0 - heads!r})]")
+    )
+
+
+def test_with_an_observation_the_search_is_the_same_whatever_the_hidden_value() -> None:
+    heads = search(guessing_game("heads"), iterations=60, observation=hidden_coin(0.5))
+
+    assert heads == search(guessing_game("tails"), iterations=60, observation=hidden_coin(0.5))
+    assert dict(heads.samples[0].state.variables)["coin"] == "<hidden>"
+
+
+def test_with_an_observation_the_search_weighs_the_states_that_could_be_true() -> None:
+    result = search(guessing_game("tails"), iterations=200, observation=hidden_coin(0.9))
+
+    assert result.chosen == Action("guess", (("side", "heads"),))
+
+
+def test_with_an_observation_the_search_logs_how_many_states_could_be_true(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+
+    search(guessing_game("tails"), iterations=2, observation=hidden_coin(0.9))
+
+    assert "me sees 2 states that could be true" in caplog.messages
 
 
 @pytest.mark.parametrize(

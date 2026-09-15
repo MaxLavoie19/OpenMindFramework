@@ -33,12 +33,22 @@ def test_to_state_reads_the_changed_values_back() -> None:
     )
 
 
-def test_to_state_rejects_an_index_the_state_does_not_have() -> None:
+def test_an_index_added_under_a_base_the_state_has_is_a_new_variable_after_its_own() -> None:
     mapper = new_mapper()
     namespace = mapper.to_namespace(STATE)
     namespace["payoff"]["Z"] = 1.0  # type: ignore[index]
+    namespace["cell"][2, 1] = "O"  # type: ignore[index]
 
-    with pytest.raises(KeyError, match=r"payoff\(Z\)"):
+    assert mapper.to_state(STATE, namespace) == State((*STATE.variables, ("cell(2,1)", "O"), ("payoff(Z)", 1.0)))
+
+
+@pytest.mark.parametrize("index", ["1", "a,b", True, 1.5])
+def test_an_added_index_that_a_variable_name_can_t_read_back_raises(index: object) -> None:
+    mapper = new_mapper()
+    namespace = mapper.to_namespace(STATE)
+    namespace["payoff"][index] = 1.0  # type: ignore[index]
+
+    with pytest.raises(ValueError, match="can't be written in a variable name"):
         mapper.to_state(STATE, namespace)
 
 

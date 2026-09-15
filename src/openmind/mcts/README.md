@@ -22,7 +22,7 @@ rules, can value the positions its rollouts reach instead of playing them to the
 | `model/leaf_valuation.py` | `LeafValuation(valuer, rollout_actions=0)`: how a valuer ends iterations, valuing the position a rollout reaches after that many actions |
 | `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action, with the rater's ratings when guided; mutable |
 | `model/chance_node.py` | `ChanceNode`: an action in the tree with its possible outcomes; mutable |
-| `service/tree_search.py` | `TreeSearch`: runs the search, guided or not |
+| `service/tree_search.py` | `TreeSearch`: runs the search, guided or not, from what the searching player sees when given an observation |
 
 ## Usage
 
@@ -89,6 +89,20 @@ With a rollout limit:
 - A negative limit, or a limit without an unfinished payoff, raises `ValueError`.
 - Domains whose random games run long, such as chess, need one unless a valuer values their positions.
 
+With an observation (`search(..., observation)`, as `Agent` passes a domain's), the search is single-observer
+information set MCTS (Cowling, Powley and Whitehouse, 2012):
+
+- The searching player, the one to act, sees the state through the observation; the root holds what they see, and
+  its legal actions come from that.
+- Each iteration draws one of the states that could be true, by the observation's completions and their
+  probabilities, and plays on it: legal actions and outcomes come from the drawn state.
+- A node is what the searching player sees of the states reaching it, so the statistics of every drawn state add up
+  in the same tree. Legal actions can differ between draws: untried ones are still tried first, and selection chooses
+  among the tried actions legal in the drawn state.
+- The true state never reaches the search: the same state as the player sees it gives the same search, whatever the
+  hidden values.
+- A known weakness: inside the tree, the other players act on the drawn state as if they could see it.
+
 Also:
 
 - A search from a state with no legal action raises `ValueError`.
@@ -101,6 +115,7 @@ Also:
 Logger `openmind.mcts.service.tree_search`:
 
 - `INFO Searching <iterations> iterations for <player>`
+- `INFO <player> sees <n> states that could be true`, with an observation
 - `INFO <action>: <visits> visits, mean payoff <mean> for <player>`, once per root action
 - `INFO Most visited: <action>`
 - `DEBUG Iteration <n>: <actions from the root>, rollout of <n> actions, payoffs <player>=<payoff> ...`, with

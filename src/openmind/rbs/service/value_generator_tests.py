@@ -7,10 +7,14 @@ import pytest
 
 from openmind.rbs.factory.rbs_factory import create_rule_valuer, create_value_generator
 from openmind.rbs.model.position_row import PositionRow
+from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.consequence_library_tests import position, strip_domain
-from openmind.rbs.service.term_generator_tests import SETTINGS
 
 pytestmark = pytest.mark.log_level("INFO")
+
+SETTINGS = ValueSettings(
+    prices=(0.1, 0.01, 0.001), max_steps=2000, tolerance=1e-6, seconds=300.0, memory_bytes=1024**3, candidates=3000
+)
 
 
 def strip_rows() -> tuple[PositionRow, ...]:
@@ -54,7 +58,7 @@ def test_generation_fits_value_rules_closer_to_the_payoffs_than_their_mean(caplo
     mean = math.fsum(row.target for row in rows) / len(rows)
     assert mean_absolute_error(values, rows) < mean_absolute_error([mean] * len(rows), rows)
     assert any(message.startswith("Chose price ") for message in caplog.messages)
-    assert any(" candidate terms: " in message for message in caplog.messages)
+    assert any(" candidate terms after " in message for message in caplog.messages)
 
 
 def test_without_held_out_rows_the_lowest_training_loss_is_chosen() -> None:

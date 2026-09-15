@@ -1,7 +1,10 @@
 import pytest
 
 from openmind.agent.builder.agent_builder import AgentBuilder
+from openmind.agent.factory.prisoners_dilemma_factory import create_prisoners_dilemma_domain
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
+from openmind.inference.model.deduction_budget import DeductionBudget
+from openmind.mcts.model.action_statistics import ActionStatistics
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -95,6 +98,63 @@ def test_build_with_a_rollout_limit_gives_rollouts_still_in_play_the_unfinished_
 
     # Each iteration tries a new first move, and its rollout stops at once.
     assert {(item.visits, item.mean_payoff) for item in agent.search(domain, domain.initial_state).statistics} == {(1, 0.25)}
+
+
+def x_can_win() -> State:
+    """X to act, with X on (1,1) and (1,2) and O on (2,1) and (2,2)."""
+    builder = StateBuilder()
+    marks = {"cell(1,1)": "X", "cell(1,2)": "X", "cell(2,1)": "O", "cell(2,2)": "O"}
+    for name, value in (dict(create_tictactoe_domain().initial_state.variables) | marks).items():
+        builder.with_variable(name, value)
+    return builder.build()
+
+
+class KnowsNothing:
+    """A valuer that can't value any position."""
+
+    def value(self, state: State) -> tuple[float, ...] | None:
+        return None
+
+
+class ValuesTheCorner:
+    """A valuer valuing a position 1.0 for X once X holds (3,3), 0.0 otherwise."""
+
+    def value(self, state: State) -> tuple[float, ...] | None:
+        return (1.0, 0.0) if dict(state.variables)["cell(3,3)"] == "X" else (0.0, 1.0)
+
+
+@pytest.mark.log_level("INFO")
+@pytest.mark.parametrize("valuer", [None, KnowsNothing()])
+def test_build_with_deduction_plays_a_proven_move_without_searching_when_the_rules_have_no_clue(valuer: object) -> None:
+    builder = AgentBuilder().with_iterations(50).with_exploration(1.4).with_seed(1).with_deduction(DeductionBudget(1, 30.0))
+
+    result = builder.with_valuation(valuer).build().search(create_tictactoe_domain(), x_can_win())  # type: ignore[arg-type]
+
+    win = Action("place", (("col", 3), ("row", 1)))
+    assert (result.player, result.statistics, result.chosen, result.samples) == ("X", (ActionStatistics(win, 1, 1.0),), win, ())
+
+
+@pytest.mark.log_level("INFO")
+def test_build_with_deduction_searches_when_the_rules_tell_the_moves_apart() -> None:
+    builder = AgentBuilder().with_iterations(50).with_exploration(1.4).with_seed(1).with_deduction(DeductionBudget(1, 30.0))
+
+    result = builder.with_valuation(ValuesTheCorner()).build().search(create_tictactoe_domain(), x_can_win())
+
+    assert result.samples
+
+
+@pytest.mark.log_level("INFO")
+def test_build_with_deduction_searches_a_domain_with_hidden_information() -> None:
+    domain = create_prisoners_dilemma_domain()
+    agent = AgentBuilder().with_iterations(20).with_exploration(1.4).with_seed(1).with_deduction(DeductionBudget(2, 30.0)).build()
+
+    assert agent.search(domain, domain.initial_state).samples
+
+
+@pytest.mark.parametrize("budget", [DeductionBudget(0, 30.0), DeductionBudget(1, 0.0)])
+def test_build_rejects_a_deduction_without_plies_or_seconds(budget: DeductionBudget) -> None:
+    with pytest.raises(ValueError, match="at least 1 ply"):
+        AgentBuilder().with_iterations(1).with_exploration(1.4).with_deduction(budget).build()
 
 
 @pytest.mark.parametrize(("limit", "payoff", "message"), [(-1, 0.5, "negative"), (5, None, "unfinished payoff")])

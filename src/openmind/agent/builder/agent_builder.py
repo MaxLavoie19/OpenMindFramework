@@ -2,7 +2,10 @@ from typing import Self
 
 from openmind.agent.constant.agent_constant import GUIDED_ROLLOUTS, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
 from openmind.agent.service.agent import Agent
+from openmind.agent.service.deduction_fallback import DeductionFallback
 from openmind.csp.builder.solver_builder import SolverBuilder
+from openmind.inference.model.deduction_budget import DeductionBudget
+from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.mcts.model.action_rater import ActionRater
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
@@ -28,6 +31,7 @@ class AgentBuilder:
         self._rollout_actions = 0
         self._rollout_limit: int | None = None
         self._unfinished_payoff: float | None = None
+        self._deduction: DeductionBudget | None = None
 
     def with_iterations(self, iterations: int) -> Self:
         self._iterations = iterations
@@ -67,6 +71,11 @@ class AgentBuilder:
         self._unfinished_payoff = unfinished_payoff
         return self
 
+    def with_deduction(self, budget: DeductionBudget | None) -> Self:
+        """The budget of the deduction the agent falls back on when its value rules have no clue; None never deduces."""
+        self._deduction = budget
+        return self
+
     def build(self) -> Agent:
         iterations, exploration = self._iterations, self._exploration
         if iterations is None or exploration is None:
@@ -79,7 +88,23 @@ class AgentBuilder:
             raise ValueError(f"The rollout limit can't be negative, not {self._rollout_limit}")
         if self._rollout_limit is not None and self._unfinished_payoff is None:
             raise ValueError("A rollout limit needs an unfinished payoff")
-        tree_search = TreeSearch(SolverBuilder().build(), PredictorBuilder().build(), StateReader(), ActionTextMapper())
+        deduction = self._deduction
+        if deduction is not None and (deduction.plies < 1 or deduction.seconds <= 0.0):
+            raise ValueError(f"A deduction needs at least 1 ply and more than 0 seconds, not {deduction}")
+        solver, predictor, state_reader, action_text_mapper = (
+            SolverBuilder().build(),
+            PredictorBuilder().build(),
+            StateReader(),
+            ActionTextMapper(),
+        )
+        tree_search = TreeSearch(solver, predictor, state_reader, action_text_mapper)
+        fallback = (
+            None
+            if deduction is None
+            else DeductionFallback(
+                PositionDeducer(solver, predictor, state_reader, action_text_mapper), solver, predictor, state_reader, deduction
+            )
+        )
         guidance = (
             Guidance(self._rater, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE, self._guided_rollouts)
             if self._rater is not None
@@ -87,4 +112,4 @@ class AgentBuilder:
         )
         valuation = LeafValuation(self._valuer, self._rollout_actions) if self._valuer is not None else None
         settings = SearchSettings(iterations, exploration, self._seed, self._rollout_limit, self._unfinished_payoff)
-        return Agent(tree_search, settings, guidance, valuation)
+        return Agent(tree_search, settings, guidance, valuation, fallback)

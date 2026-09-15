@@ -5,6 +5,8 @@ from openmind.agent.model.domain import Domain
 from openmind.agent.model.policy_factory import PolicyFactory
 from openmind.csp.service.solver import Solver
 from openmind.evaluation.model.match_results import MatchResults
+from openmind.observation.factory.state_observer_factory import create_state_observer
+from openmind.observation.service.state_observer import StateObserver
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.predictor.service.predictor import Predictor
 from openmind.world.service.state_reader import StateReader
@@ -15,13 +17,22 @@ logger = logging.getLogger(__name__)
 class MatchRunner:
     """Plays series of games between two policies in a two-player domain. Every game draws two seeds up front: one its
     policies are created from, one for its outcomes. Games don't depend on each other, so they run in the task
-    runner's workers and give the same results whatever the number of workers."""
+    runner's workers and give the same results whatever the number of workers. In a domain with an observation, a policy
+    is given only what its player sees."""
 
-    def __init__(self, solver: Solver, predictor: Predictor, state_reader: StateReader, task_runner: TaskRunner) -> None:
+    def __init__(
+        self,
+        solver: Solver,
+        predictor: Predictor,
+        state_reader: StateReader,
+        task_runner: TaskRunner,
+        state_observer: StateObserver | None = None,
+    ) -> None:
         self._solver = solver
         self._predictor = predictor
         self._state_reader = state_reader
         self._task_runner = task_runner
+        self._state_observer = create_state_observer() if state_observer is None else state_observer
 
     def series(
         self,
@@ -75,7 +86,12 @@ class MatchRunner:
         rng = random.Random(outcome_seed)
         state = domain.initial_state
         while self._solver.solve(domain.problem, state):
-            policy = policies[self._state_reader.player_to_act(state, domain.players)]
-            outcomes = self._predictor.predict(domain.transitions, state, policy.choose(domain, state)).outcomes
+            player = self._state_reader.player_to_act(state, domain.players)
+            seen = (
+                state
+                if domain.observation is None
+                else self._state_observer.observe(domain.observation, state, domain.players.names[player])
+            )
+            outcomes = self._predictor.predict(domain.transitions, state, policies[player].choose(domain, seen)).outcomes
             (state,) = rng.choices([outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes])
         return self._state_reader.payoffs(state, domain.players)

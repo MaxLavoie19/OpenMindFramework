@@ -1,9 +1,11 @@
 from openmind.training.builder.distiller_builder import DistillerBuilder
 from openmind.training.builder.rule_selector_builder import RuleSelectorBuilder
 from openmind.training.builder.value_distiller_builder import ValueDistillerBuilder
+from openmind.training.builder.value_training_loop_builder import ValueTrainingLoopBuilder
 from openmind.training.service.distiller import Distiller
 from openmind.training.service.rule_selector import RuleSelector
 from openmind.training.service.value_distiller import ValueDistiller
+from openmind.training.service.value_training_loop import ValueTrainingLoop
 
 
 def create_distiller(workers: int = 1) -> Distiller:
@@ -21,3 +23,9 @@ def create_value_distiller(workers: int = 1) -> ValueDistiller:
     """A value distiller with its self-play and value generator, running games and term evaluations in that many worker
     processes, and the valuer services it measures value rules with."""
     return ValueDistillerBuilder().with_workers(workers).build()
+
+
+def create_value_training_loop(workers: int = 1) -> ValueTrainingLoop:
+    """A value training loop with its value distiller and match runner, running self-play, term evaluations and games in
+    that many worker processes."""
+    return ValueTrainingLoopBuilder().with_workers(workers).build()

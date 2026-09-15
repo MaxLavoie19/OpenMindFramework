@@ -13,6 +13,17 @@ OUTCOME_TARGET = "outcome"
 SEARCH_TARGET = "search"
 VALUE_TARGETS = (OUTCOME_TARGET, SEARCH_TARGET)
 
+#: A value training loop's defaults: rounds, self-play games per round, MCTS iterations, rollout actions played before a
+#: position is valued with the previous round's rules, and games against each opponent after every round.
+DEFAULT_TRAINING_ROUNDS = 3
+DEFAULT_TRAINING_GAMES = 200
+DEFAULT_TRAINING_HELD_OUT_GAMES = 50
+DEFAULT_TRAINING_ITERATIONS = 100
+DEFAULT_TRAINING_ROLLOUT_ACTIONS = 10
+DEFAULT_EVALUATION_GAMES = 20
+#: How a training loop names the value rules round 1's self-play starts from, as an opponent.
+START_RULES = "start rules"
+
 #: Selection compares guided searches at this budget by default, where guidance mattered most on tic-tac-toe.
 DEFAULT_SELECTION_ITERATIONS = 10
 #: The largest rise in mean regret a removed rule may cause, by default.

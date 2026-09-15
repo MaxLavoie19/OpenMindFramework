@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 class ExactSearch:
-    """Perfect play by searching every reachable state; each state's value is computed once per domain."""
+    """Perfect play by searching every reachable state; each state's value is computed once per domain. A domain with
+    an observation raises ValueError: perfect play with hidden information needs mixed strategies, which this search
+    doesn't compute."""
 
     def __init__(self, solver: Solver, predictor: Predictor, state_reader: StateReader) -> None:
         self._solver = solver
@@ -30,6 +32,7 @@ class ExactSearch:
 
     def action_values(self, domain: Domain, state: State) -> tuple[tuple[Action, float], ...]:
         """Each legal action with its expected payoff for the player to act under perfect play, in the solver's order."""
+        self._check(domain)
         actions = self._solver.solve(domain.problem, state)
         if not actions:
             raise ValueError("No legal action in this state")
@@ -44,10 +47,12 @@ class ExactSearch:
 
     def value(self, domain: Domain, state: State) -> tuple[float, ...]:
         """Each player's expected payoff from the state under perfect play, in the order of the players' names."""
+        self._check(domain)
         return self._value(domain, state)
 
     def positions(self, domain: Domain) -> tuple[State, ...]:
         """Every state reachable from the initial state that has a legal action."""
+        self._check(domain)
         seen: set[State] = set()
         positions: list[State] = []
         pending = [domain.initial_state]
@@ -64,6 +69,13 @@ class ExactSearch:
                 pending.extend(outcome for outcome, _ in outcomes)
         logger.info("%s has %d positions with a legal action", domain.name, len(positions))
         return tuple(positions)
+
+    def _check(self, domain: Domain) -> None:
+        if domain.observation is not None:
+            raise ValueError(
+                f"Exact search can't play {domain.name}: it has hidden information, and perfect play with hidden "
+                "information needs mixed strategies"
+            )
 
     def _value(self, domain: Domain, state: State) -> tuple[float, ...]:
         key = (domain.name, state)

@@ -21,13 +21,13 @@ with; when it does, they are measured here too.
 | `model/evaluation_report.py` | `EvaluationReport(domain, created_at, rules_file, settings, baselines, every_action_optimal, agreement, unguided_agreement, rater=None, guidance_tests=(), values_file=None, valuer=None)`; `rules_file` names the rule base guiding the agent and `values_file` the value base valuing its positions, each `None` when not used; with neither, `unguided_agreement` and `guidance_tests` are empty and `rater` and `valuer` are `None` |
 | `model/value_measure.py` | `ValueMeasure(positions, valued, mean_absolute_error, optimal, mean_regret)`: how a valuer alone did on the sampled positions |
 | `service/value_measurer.py` | `ValueMeasurer`: a valuer's error on each position and its choice one step ahead |
-| `service/exact_search.py` | `ExactSearch`: every legal action's value, the optimal actions and each player's value in a state, by searching every reachable state; the positions with a legal action |
+| `service/exact_search.py` | `ExactSearch`: every legal action's value, the optimal actions and each player's value in a state, by searching every reachable state; the positions with a legal action; a domain with an observation raises `ValueError`, since perfect play with hidden information needs mixed strategies |
 | `service/reference_search.py` | `ReferenceSearch`: distinct positions from uniformly random games, and every legal action's value from a long unguided search, for domains exact search can't reach |
-| `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers |
+| `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers; in a domain with an observation, a policy is given only what its player sees |
 | `service/choice_measurer.py` | `ChoiceMeasurer`: searches positions with an agent built once and measures each choice against the action values; the optimal actions within a tolerance |
 | `model/choice_measure.py` | `ChoiceMeasure(optimal, optimal_visit_share, regret, seconds)`: one position's choice |
 | `model/action_values.py` | `ActionValues`: every legal action of a position with its value |
-| `factory/baseline_policy_factory.py` | `create_built_agent(agent_builder, seed)` and `create_random_policy(seed)`: the baseline games' policy factories |
+| `factory/baseline_policy_factory.py` | `create_built_agent(agent_builder, seed)`, which keeps the builder's seed in every game, `create_seeded_agent(agent_builder, seed)`, which searches with the game's own seed, and `create_random_policy(seed)`: policy factories for series of games |
 | `service/evaluator.py` | `Evaluator`: runs the baseline series and the agreement measures, guided and unguided, for the rater alone and the paired tests when given a rater, and returns a report |
 | `builder/evaluator_builder.py` | `EvaluatorBuilder`: sets how many worker processes games and searches run in (`with_workers`, 1 by default) and wires the services an evaluator measures with |
 | `factory/evaluator_factory.py` | `create_evaluator(workers=1)` |

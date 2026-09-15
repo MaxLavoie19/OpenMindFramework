@@ -14,6 +14,7 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | `solve.py` | `openmind-solve`: solve a domain's constraint problem with the CSP alone and print the solutions |
 | `select.py` | `openmind-select`: select the smallest set of a rule base's rules that plays no worse than all of them |
 | `distill_values.py` | `openmind-distill-values`: fit value rules on the positions of self-play games, choose a fit on held-out games, and save the value base |
+| `train_values.py` | `openmind-train-values`: train value rules round after round, each round's self-play valuing positions with the previous round's rules, and save every round |
 
 ## `openmind-play`
 
@@ -34,8 +35,10 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | `--log-level LEVEL` | `INFO` | lowest level saved in the game log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/play` | where game logs are saved |
 
-1. Prints the state: the cells as a grid under their column numbers, with `.` for an empty cell, then one
-   `name = value` line per other variable (`GridTextMapper`, see `world/README.md`).
+1. Prints the state as the player to act sees it: the cells as a grid under their column numbers, with `.` for an
+   empty cell, then one `name = value` line per other variable (`GridTextMapper`, see `world/README.md`). In a domain
+   with an observation, such as the prisoner's dilemma, a variable hidden from that player shows `<hidden>`, and the
+   agent searches from the same view.
 2. On a human's turn, lists the legal actions by number and reads the number of the action to perform. Anything else
    asks again; end of input (Ctrl+D) ends the session.
 3. On an agent's turn, the agent searches and the CLI prints `<player> chose <action>`.
@@ -43,7 +46,8 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 5. When no action is legal, prints the final state, payoffs included.
 
 Domains are created by name through `agent/factory/domain_factory.py`: `tictactoe`, its variants
-`tictactoe/fourinarow` and `tictactoe/gomoku`, `sudoku`, and any domain an installed project registers (see
+`tictactoe/fourinarow` and `tictactoe/gomoku`, `sudoku`, `prisonersdilemma` and its variant
+`prisonersdilemma/uncertain`, and any domain an installed project registers (see
 `agent/README.md`). An `--agent` player the domain doesn't have is rejected.
 
 Each session writes `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, from `--log-level` up (a variant's logs go
@@ -237,15 +241,19 @@ searching in <n> worker processes`, has the selector's decisions (see `training/
 | `--iterations N` | `200` | MCTS iterations per self-play move |
 | `--seed S` | `1` | random seed |
 | `--target TARGET` | `outcome` | what a position is valued at: `outcome`, the game's final payoff for each player, or `search`, the search's mean payoff for the player to act |
-| `--pair-pool N` | `20` | single terms, the most correlated with the payoffs, multiplied in pairs |
-| `--cuts N` | `6` | thresholds a quantity is cut at, at most |
-| `--solo-limit N` | `2` | own actions `solo_distance()` looks ahead; `0` leaves it out |
+| `--seconds X` | `3600.0` | seconds the inference engine's expression search runs (see `inference/README.md`) |
+| `--memory X` | half the machine's memory | GB the expression search's process holds at most, measured; its workers each hold an even share |
+| `--candidates N` | no limit | candidates the expression search tries at most; a search limited by candidates, unlike one limited by time, gives the same rules on any machine |
 | `--prices LIST` | `0.1,0.03,0.01,0.003,0.001` | comma-separated L1 prices swept |
 | `--max-steps N` | `1000` | steps a fit takes at most |
 | `--tolerance X` | `1e-06` | weight change below which a fit has settled |
 | `--workers N` | half the logical CPUs | worker processes self-play games and term evaluations run in; the value rules are the same whatever the number |
 | `--rollout-limit N` | no limit | actions a self-play rollout plays at most before every player gets the unfinished payoff; domains whose random games run long, such as chess, need one |
 | `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit |
+| `--deduction-plies N` | `0` | actions ahead a deduction of one position looks at most: self-play agents deduce the positions their rules have no clue about, and pondering deduces the positions missed most; `0` never deduces |
+| `--deduction-seconds X` | `10.0` | seconds a deduction of one position runs at most |
+| `--highest-payoff X` | `1.0` | the highest payoff a player can get: a move proven to reach it needs no comparison with moves not proven yet |
+| `--ponder-positions N` | `0` | training positions the rules missed most, deduced before fitting, their proofs becoming targets and seeds; needs `--deduction-plies` |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log |
 | `--log-directory DIR` | `data/log/distill-values` | where logs are saved |
 | `--values-directory DIR` | `data/values` | where value bases are saved |
@@ -259,14 +267,68 @@ Value rules: <n> of <m> candidate terms, chosen at price <price>; payoffs from <
 price  terms kept  steps  settled  training loss  held-out loss
   0.1          <k>    <s>      yes       <loss>          <loss>
 Rows: <training> for training, <held out> held out, valued at the <target> target; mean absolute error on held-out rows: <error>
+Pondered <n> positions: <p> proven; <s> seeds, <k> kept by the search, <r> in the value rules   (with --ponder-positions)
 Saved values <path>
 ```
 
+`--ponder-positions` without `--deduction-plies`, or `--deduction-seconds` of 0 or less with it, is rejected.
+
 It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`: it starts with `INFO Running self-play and term evaluations in
-<n> worker processes` and `INFO Valuing positions at the <target> target; pair pool <n>, up to <c> cuts, solo limit <s>,
-prices <prices>`, has the generator's fits (see `rbs/README.md`), and ends with `INFO Saved values <path>` from logger
+<n> worker processes` and `INFO Valuing positions at the <target> target; prices <prices>; searching expressions for <seconds> seconds within
+<bytes> bytes, trying any number of|at most <n> candidates`, has the search's generations (see `inference/README.md`) and the generator's fits (see
+`rbs/README.md`), and ends with `INFO Saved values <path>` from logger
 `openmind.entrypoint.distill_values`.
+
+## `openmind-train-values`
+
+```bash
+.venv/bin/openmind-train-values tictactoe --rounds 2
+.venv/bin/openmind-train-values chess --rounds 3 --start data/values/chess/<value base>.json --rollout-limit 100 --seconds 3600
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--rounds N` | `3` | rounds of self-play and fitting |
+| `--start PATH` | none | value rules round 1's self-play values positions with; without, round 1 plays plain MCTS |
+| `--games N` | `200` | self-play games per round to fit value rules on |
+| `--held-out-games N` | `50` | self-play games per round to choose a fit and measure it on |
+| `--iterations N` | `100` | MCTS iterations per move, in self-play and in each round's games |
+| `--seed S` | `1` | random seed; round k uses S + k |
+| `--target TARGET` | `search` | what a position is valued at: `search` or `outcome` |
+| `--rollout-actions N` | `10` | rollout actions played before a position is valued with value rules |
+| `--rollout-limit N` | no limit | actions a rollout plays at most, for every agent, before every player gets the unfinished payoff |
+| `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit |
+| `--evaluation-games N` | `20` | games against each opponent after every round; `0` plays none |
+| `--seconds X`, `--memory X`, `--candidates N`, `--prices LIST`, `--max-steps N`, `--tolerance X` | as `openmind-distill-values` | how each round's value rules are searched and fitted; the search budget is per round |
+| `--deduction-plies N`, `--deduction-seconds X`, `--highest-payoff X`, `--ponder-positions N` | as `openmind-distill-values` | the deduction every agent but untrained MCTS falls back on when its rules have no clue, in self-play and in each round's games, and the positions each round ponders against the previous round's rules; the report's table then has a `pondered: proven / seeds / kept / in rules` column |
+| `--explainer-url URL` | none | an Ollama server that explains each round's rules in sentences, such as `http://127.0.0.1:11434`; given with `--explainer-model` |
+| `--explainer-model NAME` | none | the Ollama model explaining the rules, such as `qwen3:8b` |
+| `--explanations-directory DIR` | `data/explanations` | where the model's sentences are cached, one file per domain and model |
+| `--workers N` | half the logical CPUs | worker processes self-play, term evaluations and games run in |
+| `--log-level LEVEL` | `INFO` | lowest level saved in the log |
+| `--log-directory DIR` | `data/log/train-values` | where logs are saved |
+| `--values-directory DIR` | `data/values` | where each round's value base is saved |
+| `--report-directory DIR` | `data/training` | where training reports are saved |
+
+Runs the loop described in `training/README.md`. Start rules for another domain are rejected. As each round ends, it
+saves the round's value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>/round-<k>.json` and the report as
+`<report directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json`, both named after the training's start, so a training can be
+stopped between rounds. At the end it prints:
+
+```
+Trained <domain> value rules for <k> of <n> rounds, complete; round 1 started from <start file or no value rules>
+round  rules  held-out loss  with no rule  held-out error  against random  against untrained MCTS  against the previous  seconds
+    1     39       0.690987      0.691963          0.0110      12 / 8 / 0              0 / 20 / 0  start rules: 5 / 10 / 5     3600
+Saved round 1 values <path>
+Saved training report <path>
+```
+
+`held-out loss` is the chosen fit's, `with no rule` the held-out loss of a fit that kept no rule (`none` when every fit
+kept one), and the games read wins / draws / losses from the round's agent's side. The log,
+`<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, starts with `INFO Training in <n> worker processes`, has the
+loop's rounds (see `training/README.md`), `INFO Saved round <k> values <path>` and `INFO Saved training report <path>`
+after every round, from logger `openmind.entrypoint.train_values`.
 
 ## `openmind-solve`
 
@@ -312,4 +374,5 @@ solutions are printed, the predictor's effects, then its summary line at `INFO`.
 - End-to-end tests: `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/play_fourinarow_tests.py`,
   `test/end_to_end/evaluate_tictactoe_tests.py`, `test/end_to_end/evaluate_fourinarow_tests.py`,
   `test/end_to_end/distill_tictactoe_tests.py`, `test/end_to_end/select_tictactoe_tests.py`,
-  `test/end_to_end/distill_values_tictactoe_tests.py`, `test/end_to_end/solve_sudoku_tests.py`.
+  `test/end_to_end/distill_values_tictactoe_tests.py`, `test/end_to_end/train_values_tictactoe_tests.py`,
+  `test/end_to_end/solve_sudoku_tests.py`.

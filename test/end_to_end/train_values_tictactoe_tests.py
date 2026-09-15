@@ -1,0 +1,56 @@
+import json
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+from openmind.entrypoint.train_values import main
+from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
+from openmind.rbs.model.value_base import ValueBase
+from openmind.rbs.repository.value_base_repository import ValueBaseRepository
+
+pytestmark = pytest.mark.log_level("INFO")
+
+SMALL = (
+    *("--games", "2", "--held-out-games", "1", "--iterations", "10", "--seed", "1"),
+    *("--seconds", "300", "--memory", "1", "--candidates", "1000", "--prices", "0.1,0.01", "--max-steps", "100"),
+    *("--rollout-actions", "1", "--evaluation-games", "2", "--workers", "1"),
+)
+
+
+def directories(tmp_path: Path) -> tuple[str, ...]:
+    return (
+        *("--log-directory", str(tmp_path / "log"), "--values-directory", str(tmp_path / "values")),
+        *("--report-directory", str(tmp_path / "training")),
+    )
+
+
+def test_train_values_saves_every_round_and_the_report_and_prints_the_rounds(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    main(["tictactoe", "--rounds", "2", *SMALL, *directories(tmp_path)])
+
+    (run,) = (tmp_path / "values" / "tictactoe").iterdir()
+    assert sorted(path.name for path in run.iterdir()) == ["round-1.json", "round-1.md", "round-2.json", "round-2.md"]
+    assert (run / "round-2.md").read_text(encoding="utf-8").startswith("# tictactoe value rules\n")
+    assert ValueBaseRepository(ValueBaseJsonMapper()).load(run / "round-2.json").domain == "tictactoe"
+    (report_file,) = (tmp_path / "training" / "tictactoe").glob("*.json")
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    assert (report["complete"], [item["number"] for item in report["rounds"]]) == (True, [1, 2])
+    output = capsys.readouterr().out
+    assert output.startswith("Trained tictactoe value rules for 2 of 2 rounds, complete; round 1 started from no value rules\n")
+    assert f"\nSaved round 2 values {run / 'round-2.json'}\n" in output
+    assert output.endswith(f"Saved training report {report_file}\n")
+    (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    assert "INFO  openmind.entrypoint.train_values Training in 1 worker processes" in lines
+    assert lines[-1] == f"INFO  openmind.entrypoint.train_values Saved training report {report_file}"
+
+
+def test_start_rules_of_another_domain_are_rejected(tmp_path: Path) -> None:
+    start = ValueBaseRepository(ValueBaseJsonMapper()).save(
+        ValueBase("sudoku", 0.0, 0.0, 1.0, ()), tmp_path / "values", datetime(2026, 9, 14, 13, 0, 0)
+    )
+
+    with pytest.raises(SystemExit):
+        main(["tictactoe", "--start", str(start), *directories(tmp_path)])

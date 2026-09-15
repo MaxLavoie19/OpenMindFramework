@@ -40,8 +40,9 @@ class StateNamespaceMapper:
         return namespace
 
     def to_state(self, state: State, namespace: Mapping[str, object]) -> State:
-        """The state's variables with their values read back from the namespace; an index the state doesn't have raises
-        KeyError, since a state never gains variables."""
+        """The state's variables with their values read back from the namespace. An index a script added under a base the
+        state has is a new variable, after the state's own, in the order the script added it; an index that can't be
+        written in a variable name and read back the same raises ValueError."""
         layout = self._layout(state)
         variables: list[tuple[str, Value]] = []
         known: dict[str, int] = {}
@@ -55,10 +56,18 @@ class StateNamespaceMapper:
             indexed = namespace[base]
             if len(indexed) != count:  # type: ignore[arg-type]
                 keys = {key for layout_base, key in layout if layout_base == base}
-                extra = next(key for key in indexed if key not in keys)  # type: ignore[attr-defined]
-                indices = extra if isinstance(extra, tuple) else (extra,)
-                raise KeyError(f"Unknown state variable: {self._variable_name_mapper.to_name(base, indices)!r}")
+                for extra, value in indexed.items():  # type: ignore[attr-defined]
+                    if extra not in keys:
+                        variables.append((self._added_name(base, extra), value))
         return State(tuple(variables))
+
+    def _added_name(self, base: str, key: object) -> str:
+        indices = key if isinstance(key, tuple) else (key,)
+        name = self._variable_name_mapper.to_name(base, indices)
+        read_back = self._variable_name_mapper.from_name(name)
+        if read_back != (base, tuple(str(index) for index in indices)) or tuple(map(self._index, read_back[1])) != indices:
+            raise ValueError(f"The index {key!r} of {base!r} can't be written in a variable name")
+        return name
 
     def to_source(self, name: str) -> str:
         """How a rule reads a variable: `turn`, `cell[2, 3]`, `payoff['X']`."""

@@ -2,6 +2,7 @@ from typing import Self
 
 from openmind.agent.model.domain import Domain
 from openmind.csp.model.problem import Problem
+from openmind.observation.model.observation import Observation
 from openmind.predictor.model.transition_model import TransitionModel
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -16,6 +17,7 @@ class DomainBuilder:
         self._problem: Problem | None = None
         self._transitions: TransitionModel | None = None
         self._players: Players | None = None
+        self._observation: Observation | None = None
 
     def with_name(self, name: str) -> Self:
         self._name = name
@@ -37,6 +39,11 @@ class DomainBuilder:
         self._players = players
         return self
 
+    def with_observation(self, observation: Observation | None) -> Self:
+        """What each player sees of a state; None, the default, shows every player everything."""
+        self._observation = observation
+        return self
+
     def build(self) -> Domain:
         name, initial_state, problem, transitions, players = (
             self._name,
@@ -55,4 +62,4 @@ class DomainBuilder:
             )
             missing = ", ".join(part for part, value in parts if value is None)
             raise ValueError(f"Domain is missing: {missing}")
-        return Domain(name, initial_state, problem, transitions, players)
+        return Domain(name, initial_state, problem, transitions, players, self._observation)

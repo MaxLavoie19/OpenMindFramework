@@ -54,9 +54,10 @@ def test_each_branch_gives_an_outcome_with_its_probability() -> None:
     )
 
 
-def test_an_effect_on_an_index_the_state_lacks_raises() -> None:
-    with pytest.raises(KeyError, match=r"cell\(3\)"):
-        predict(State((("cell(1)", None), ("cell(2)", None))), certain("cell[3] = 'X'"))
+def test_an_effect_on_an_index_the_state_lacks_adds_the_variable() -> None:
+    outcomes = predict(State((("cell(1)", None), ("cell(2)", None))), certain("cell[3] = 'X'"))
+
+    assert outcomes == ((State((("cell(1)", None), ("cell(2)", None), ("cell(3)", "X"))), 1.0),)
 
 
 def test_action_without_a_transition_raises() -> None:

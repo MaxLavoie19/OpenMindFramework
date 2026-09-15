@@ -14,6 +14,8 @@ from openmind.rbs.constant.consequence_constant import (
     WIN_CHANCE,
     WINS,
 )
+from openmind.inference.constant.inference_constant import HERE
+from openmind.inference.service.mechanics import Mechanics
 from openmind.rbs.constant.generation_constant import DEFAULT_SOLO_LIMIT
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
@@ -34,7 +36,9 @@ class ConsequenceLibrary:
     - `solo_distance(player, action=None, limit=2)`: the fewest of `player`'s own actions after which a win is possible,
       if nobody else moved, now or after `action`; `limit + 1` when none is found;
     - `near(action, *offset)`: the value, now, of the variable at that index offset from the indexed variable the action
-      sets, or `OUTSIDE`.
+      sets, or `OUTSIDE`;
+    - `here`: the position as the mechanics' view, which looks ahead with the domain's actions (see
+      `inference/README.md`).
 
     A win is an outcome with no legal action left in which the player's payoff is higher than every other player's."""
 
@@ -44,11 +48,13 @@ class ConsequenceLibrary:
         predictor: Predictor,
         state_reader: StateReader,
         variable_name_mapper: VariableNameMapper,
+        mechanics: Mechanics,
     ) -> None:
         self._solver = solver
         self._predictor = predictor
         self._state_reader = state_reader
         self._variable_name_mapper = variable_name_mapper
+        self._mechanics = mechanics
         self._domains: dict[int, Domain] = {}
         self._cache: dict[tuple[object, ...], object] = {}
 
@@ -61,6 +67,15 @@ class ConsequenceLibrary:
         self.__dict__.update(state)
         self._domains = {}
         self._cache = {}
+
+    def limit_memory(self, memory_bytes: int) -> None:
+        """How many bytes a process holds before the mechanics clear their views; copies sent to workers carry it."""
+        self._mechanics.limit_memory(memory_bytes)
+
+    def clear_memory(self) -> None:
+        """Forgets the lookups and the mechanics' views this process kept."""
+        self._cache.clear()
+        self._mechanics.clear()
 
     def names(self, domain: Domain, state: State, player: str | None = None) -> dict[str, object]:
         """The names for a state, `me` being the player to act or, when given, that player; the same mapping every time
@@ -81,6 +96,7 @@ class ConsequenceLibrary:
                     domain, state, player, action, limit
                 ),
                 NEAR: lambda action, *offset: self.near(domain, state, action, offset),
+                HERE: self._mechanics.view(domain, state),
             }
             self._remember(key, names)
         return names  # type: ignore[return-value]
@@ -149,8 +165,9 @@ class ConsequenceLibrary:
             anchor = None
             players = {domain.players.to_act, *domain.players.payoffs}
             outcome = self._predictor.predict(domain.transitions, state, action).outcomes[0][0]
-            for (name, before), (_, after) in zip(state.variables, outcome.variables, strict=True):
-                if name in players or after == before:
+            previous = dict(state.variables)
+            for name, after in outcome.variables:
+                if name in players or (name in previous and after == previous[name]):
                     continue
                 base, texts = self._variable_name_mapper.from_name(name)
                 if texts and all(text.lstrip("-").isdecimal() for text in texts):

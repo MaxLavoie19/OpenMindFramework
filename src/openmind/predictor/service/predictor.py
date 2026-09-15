@@ -34,8 +34,9 @@ class Predictor:
             effects = self._rule_compiler.compile_effects(branch.effects, model.definitions)
             outcome = self._rule_runner.apply(effects, state, parameters)
             if logger.isEnabledFor(logging.DEBUG):
-                for (name, before), (_, after) in zip(state.variables, outcome.variables, strict=True):
-                    if after is not before and after != before:
+                previous = dict(state.variables)
+                for name, after in outcome.variables:
+                    if name not in previous or (after is not previous[name] and after != previous[name]):
                         logger.debug("Set %s = %r", name, after)
             outcomes.append((outcome, branch.probability))
         if logger.isEnabledFor(logging.DEBUG):

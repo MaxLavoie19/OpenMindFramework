@@ -6,6 +6,8 @@ from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
 from openmind.csp.model.variable import Variable
+from openmind.inference.service.mechanics import Mechanics
+from openmind.inference.service.memory_meter import MemoryMeter
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
@@ -121,7 +123,9 @@ def test_a_win_is_a_finished_position_where_the_player_scored_highest() -> None:
 
 def test_a_position_with_an_unset_payoff_is_no_win_without_solving() -> None:
     domain, solver = strip_domain(), CountingSolver()
-    library = ConsequenceLibrary(solver, PredictorBuilder().build(), StateReader(), VariableNameMapper())  # type: ignore[arg-type]
+    predictor = PredictorBuilder().build()
+    mechanics = Mechanics(solver, predictor, StateNamespaceMapper(VariableNameMapper()), MemoryMeter())  # type: ignore[arg-type]
+    library = ConsequenceLibrary(solver, predictor, StateReader(), VariableNameMapper(), mechanics)  # type: ignore[arg-type]
 
     assert library.is_win(domain, position({1: "X"}, "O"), domain.players.names.index("X")) is False
     assert solver.calls == 0

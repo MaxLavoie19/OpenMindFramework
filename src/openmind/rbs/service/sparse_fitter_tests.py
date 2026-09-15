@@ -33,6 +33,14 @@ def test_a_price_keeps_the_terms_with_an_effect_shrunk_and_drops_the_others() ->
     assert 0.0 < fit.weights[0] < 2.0 and -1.5 < fit.weights[3] < 0.0
 
 
+def test_a_column_s_cost_multiplies_its_price() -> None:
+    columns, targets = synthetic()
+
+    fit = SparseFitter().fit(columns, targets, 0.01, 5000, 1e-8, costs=np.array([1.0, 1.0, 1.0, 1000.0, 1.0]))
+
+    assert [index for index, weight in enumerate(fit.weights) if weight != 0.0] == [0]
+
+
 def test_a_high_price_drops_every_term_and_leaves_the_bias_to_the_mean_target() -> None:
     columns, targets = synthetic()
 

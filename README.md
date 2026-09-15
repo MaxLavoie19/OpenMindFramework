@@ -108,6 +108,17 @@ held-out games best is kept. It prints the rules and every price's fit. The valu
 searches with them, `--rollout-actions N` playing that many rollout actions before valuing, and also measures the
 values alone.
 
+## Train values
+
+```bash
+.venv/bin/openmind-train-values tictactoe --rounds 3
+```
+
+Trains value rules round after round: each round's self-play values positions with the previous round's rules (or
+`--start PATH` in round 1), fits new rules, and plays them against random, untrained MCTS and the previous round's
+agent. Every round's value base is saved in `data/values/tictactoe/<start time>/` and the report, rewritten after each
+round, in `data/training/tictactoe/`; the log goes in `data/log/train-values/tictactoe/`.
+
 ## Problem projects
 
 OpenMind ships without the libraries a problem needs. A problem is programmed in its own project: the project

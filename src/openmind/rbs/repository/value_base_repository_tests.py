@@ -13,3 +13,12 @@ def test_save_then_load_gives_the_same_value_base(tmp_path: Path) -> None:
 
     assert path == tmp_path / "tictactoe" / "2026-09-14_01-00-00.json"
     assert repository.load(path) == VALUE_BASE
+
+
+def test_write_puts_the_value_base_at_the_path_given(tmp_path: Path) -> None:
+    repository = ValueBaseRepository(ValueBaseJsonMapper())
+
+    path = repository.write(VALUE_BASE, tmp_path / "run" / "round-1.json")
+
+    assert path == tmp_path / "run" / "round-1.json"
+    assert repository.load(path) == VALUE_BASE

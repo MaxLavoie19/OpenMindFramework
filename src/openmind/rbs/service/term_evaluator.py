@@ -29,9 +29,19 @@ class TermEvaluator:
         self._consequence_library = consequence_library
         self._task_runner = task_runner
 
+    def limit_memory(self, memory_bytes: int) -> None:
+        """Every process evaluating terms, this one or a worker, clears its views once it holds more than an even share
+        of that many bytes between the task runner's workers."""
+        self._consequence_library.limit_memory(memory_bytes // self._task_runner.workers)
+
+    def clear_memory(self) -> None:
+        """Forgets what this process's consequence library kept."""
+        self._consequence_library.clear_memory()
+
     def column(self, domain: Domain, rows: Sequence[PositionRow], term: PythonRule) -> np.ndarray | None:
-        """The term's value on every row, a boolean counting as 0 or 1, or None when it raises KeyError, NameError or
-        TypeError on a row or gives something other than a finite number."""
+        """The term's value on every row, a boolean counting as 0 or 1, or None when it raises KeyError, NameError,
+        TypeError, AttributeError, ValueError or an arithmetic error on a row, or gives something other than a finite
+        number."""
         compiled = self._rule_compiler.compile_value(term)
         column = np.empty(len(rows))
         for index, row in enumerate(rows):
@@ -39,7 +49,7 @@ class TermEvaluator:
                 value = self._rule_runner.value(
                     compiled, row.state, None, self._consequence_library.names(domain, row.state, row.player)
                 )
-            except (KeyError, NameError, TypeError):
+            except (KeyError, NameError, TypeError, AttributeError, ValueError, ArithmeticError):
                 return None
             number = self.number(value)
             if number is None:

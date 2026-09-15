@@ -10,7 +10,8 @@ accuracy and explainability.
 Its second kind of rules, value rules, turn a position into each player's expected payoff, so that a search can value
 the positions it reaches without playing them to the end, which random play does badly in deep games. They sit behind
 `PositionValuer` in `mcts`, the way rules about actions sit behind `ActionRater`: weighted Python terms, fitted from
-self-play with a price on every weight, so the terms that don't pay for themselves drop out.
+self-play with a price on every weight, so the terms that don't pay for themselves drop out. The terms come from the
+inference engine's expression search (see `inference/README.md`), which looks ahead with the domain's own actions.
 
 Rules are generated for any domain from its rules and its search samples: nothing here knows a game. A rule generator
 works as an inference engine: it proposes hypotheses about which actions deserve more or less exploration, discovers
@@ -55,19 +56,24 @@ hypotheses that hold become rules.
 | `model/value_rule.py` | `ValueRule(term, weight)`: a term of a position's value, a Python value rule giving a number for the player valued, and its weight |
 | `model/value_base.py` | `ValueBase(domain, bias, low, high, rules)`: a player's value is `low + (high - low) × logistic(bias + Σ weight × term)` |
 | `model/position_row.py` | `PositionRow(state, player, target)`: a position valued for a player, and the payoff its value is fitted to |
-| `model/value_settings.py` | `ValueSettings(pair_pool, cuts, solo_limit, prices, max_steps, tolerance)` |
+| `model/value_settings.py` | `ValueSettings(prices, max_steps, tolerance, seconds, memory_bytes, candidates=None)` |
 | `model/sparse_fit.py` | `SparseFit(weights, bias, steps, settled)`: weights fitted at a price; a weight of 0 drops its term |
+| `model/rule_explanation.py` | `RuleExplanation(source, weight, reading, sentence, model)`: a value rule's literal reading and, with a language model, its sentence |
+| `constant/explanation_constant.py` | `EXPLANATION_PROMPT`, what a language model is asked for each rule; `DEFAULT_EXPLAINER_TIMEOUT` (300 seconds); `DEFAULT_EXPLANATIONS_DIRECTORY` (`data/explanations`) |
+| `service/ollama_language_model.py` | `OllamaLanguageModel(url, model, timeout, transport)`: `complete(prompt)` posts to Ollama's `/api/generate` without streaming or thinking, at temperature 0, with the standard library only; None when the server doesn't answer |
+| `service/rule_explainer.py` | `RuleExplainer.explain(value_base, domain, language_model=None, cache_directory=None)`: every rule's literal reading, and the model's sentence, asked once per rule and cached |
+| `repository/explanation_cache_repository.py` | `ExplanationCacheRepository`: the sentences by rule source, with their readings, in `<directory>/<domain>/<model>.json` |
+| `mapper/value_base_explanation_mapper.py` | `ValueBaseExplanationMapper.to_markdown(value_base, explanations)`: a heading, then a table of Weight, Explanation, Literal reading, Rule |
+| `model/value_generation_result.py` | `ValueGenerationResult(value_base, fits, chosen, candidates)`: the candidates are the sources of the expressions the search kept |
 | `model/value_fit.py` | `ValueFit(price, terms_kept, steps, settled, training_loss, held_out_loss)`: one price of a sweep |
-| `model/value_generation_result.py` | `ValueGenerationResult(value_base, fits, chosen, candidates)` |
-| `constant/value_constant.py` | Default value settings: pair pool 20, 6 cuts, prices 0.1, 0.03, 0.01, 0.003 and 0.001, 1,000 steps, tolerance 1e-6; `COUNT_VARIABLE` (`value`); `MAX_VALUE_TERMS` (32) |
+| `constant/value_constant.py` | Default value settings: prices 0.1, 0.03, 0.01, 0.003 and 0.001, 1,000 steps, tolerance 1e-6; the search budget's defaults are in `inference/constant/inference_constant.py` |
 | `service/term_evaluator.py` | `TermEvaluator`: a term's values on position rows as numbers; several terms at once in the task runner's workers, the rows split in slices |
-| `service/term_generator.py` | `TermGenerator`: the single terms value rules are fitted from |
-| `service/sparse_fitter.py` | `SparseFitter`: a logistic fit with an L1 price on its weights, by accelerated proximal gradient |
-| `service/value_generator.py` | `ValueGenerator`: generates terms and their pairs, fits them at every price, and returns the value base of the fit best on held-out rows |
+| `service/sparse_fitter.py` | `SparseFitter`: a logistic fit with an L1 price on its weights, optionally multiplied per weight by a cost, by accelerated proximal gradient |
+| `service/value_generator.py` | `ValueGenerator`: searches expressions with the inference engine, fits them at every price, each priced per clause, and returns the value base of the fit best on held-out rows |
 | `service/rule_valuer.py` | `RuleValuer`: a `PositionValuer`; values each player's position with a value base and explains what each rule adds |
 | `mapper/value_rule_text_mapper.py` | `ValueRuleTextMapper`: a value rule as readable text, `+0.42 × wins(me)` |
 | `mapper/value_base_json_mapper.py` | `ValueBaseJsonMapper`: a value base as JSON text and back, each term as its Python source |
-| `repository/value_base_repository.py` | `ValueBaseRepository`: saves a value base as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and loads it |
+| `repository/value_base_repository.py` | `ValueBaseRepository`: saves a value base as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json`, writes one at a path given, and loads it |
 | `builder/value_generator_builder.py` | `ValueGeneratorBuilder`: sets how many worker processes terms are evaluated in (`with_workers`, 1 by default) and wires the generator around one term evaluator |
 | `builder/rule_valuer_builder.py` | `RuleValuerBuilder`: sets the value base and the domain and wires the valuer; rejects a missing value base or domain |
 
@@ -85,7 +91,9 @@ reads:
 - `solo_distance(player, action=None, limit=2)`: the fewest of `player`'s own actions after which a win is possible, if
   nobody else moved, now or after `action`; `limit + 1` when none is found;
 - `near(action, *offset)`: the value, now, of the variable at that index offset from the indexed variable the action
-  sets (its *anchor*), or `OUTSIDE`: `near(action, 0, -1) == me` is "my mark just left of where I play".
+  sets (its *anchor*), or `OUTSIDE`: `near(action, 0, -1) == me` is "my mark just left of where I play";
+- `here`: the position as the inference engine's view, which reads variables as attributes and looks ahead with the
+  domain's actions (`here.best(me, lambda v1: ...)`; see `inference/README.md`).
 
 A win is an outcome with no legal action left in which the player's payoff is higher than every other player's. The
 consequence library works these out with the domain's solver and predictor and caches them, cleared when 200,000
@@ -170,38 +178,27 @@ hold. `explain(state, action)` returns the rule behind the rating.
 
 ## How value rules are generated
 
-`ValueGenerator.generate(domain, training, held_out, settings)` takes position rows, each a position, the player it is
-valued for and the payoff to fit, from training games and, separately, from held-out games; `training/README.md` says
-where rows come from.
+`ValueGenerator.generate(domain, training, held_out, settings, seeds=())` takes position rows, each a position, the
+player it is valued for and the payoff to fit, from training games and, separately, from held-out games; `training/README.md`
+says where rows come from. Seeds, such as the expressions a deduction induced, are tried before the leaves.
 
 1. **Payoff range.** `low` and `high` are the lowest and highest training payoffs, and payoffs are scaled from 0 to 1
    between them. When every training payoff is the same, nothing is fitted: the value base has no rules and values every
    position at that payoff.
-2. **Single terms,** from the rows and the domain's players only, a player's name written as `me` or `other`:
-   1. every state variable at every value seen: `cell[2, 2] == me`; the variable naming the player to act is also
-      written absolutely: `turn == 'X'`;
-   2. for every indexed variable, how many of its variables hold each value seen:
-      `sum(value == me for value in cell.values())`;
-   3. `wins(me)`, `wins(other)` and, unless `solo_limit` is 0, `solo_distance(me, None, solo_limit)` and
-      `solo_distance(other, None, solo_limit)`, as they are and at up to `cuts` thresholds seen: `wins(other) >= 1`.
-
-   A variable with more than `MAX_VALUE_TERMS` (32) distinct values, such as a history of positions or a move clock,
-   gets no term per value, and an indexed variable's base with that many gets no count terms: each term would match a
-   handful of rows.
-3. **Usable terms.** A term is dropped when it raises `KeyError`, `NameError` or `TypeError`, or gives something other
-   than a finite number, on a training or a held-out row; when it has the same value on every training row; or when its
-   training values repeat an earlier term's.
-4. **Pairs.** The `pair_pool` single terms most correlated with the scaled payoffs are multiplied two by two:
-   `(wins(me) >= 1) * (turn == me)`. A product is the smooth form of a conjunction, so a pair can say what neither of its
-   terms says alone. Pairs go through the same filter.
-5. **Fits.** Columns are standardized on the training rows. For each price, from the highest down, starting from the
+2. **Search.** `ExpressionSearch` (see `inference/README.md`) grows expressions of the positions and of what the
+   domain's actions make of them, from single variables, pattern counts and mobility up through patterns of any size,
+   thresholds, combinations and look-aheads, for `settings.seconds`, within `settings.memory_bytes` and trying at most
+   `settings.candidates` candidates, at the middle
+   price of the sweep (the lower middle for an even count). Its kept expressions, read as rules on `here`, are the
+   candidate terms, such as `here.worst(other, lambda v2: v2.best(me, lambda v1: v1.payoff[me] == 1.0))`.
+3. **Fits.** Columns are standardized on the training rows. For each price, from the highest down, starting from the
    previous price's weights, `SparseFitter` minimizes the mean logistic loss of the scaled payoffs plus price × the sum
-   of the weights' absolute values, the bias unpriced. It takes accelerated proximal gradient steps (FISTA) of
-   `4 × rows / ‖columns with a bias column‖²`, a step the logistic loss's curvature can't make overshoot; each step
-   shrinks every weight toward 0 by step × price and lands it on 0 when it would cross, so the terms that don't pay
-   their price drop out. A fit stops after `max_steps`, or once no weight moves by more than `tolerance` × the largest of
-   1 and the largest weight.
-6. **Choice.** The fit with the lowest mean logistic loss on the held-out rows is kept, or on the training rows without
+   of each weight's absolute value times its term's clauses, the bias unpriced. It takes accelerated proximal gradient
+   steps (FISTA) of `4 × rows / ‖columns with a bias column‖²`, a step the logistic loss's curvature can't make
+   overshoot; each step shrinks every weight toward 0 by step × price × clauses and lands it on 0 when it would cross, so
+   the terms that don't pay their price drop out. A fit stops after `max_steps`, or once no weight moves by more than
+   `tolerance` × the largest of 1 and the largest weight.
+4. **Choice.** The fit with the lowest mean logistic loss on the held-out rows is kept, or on the training rows without
    held-out rows; ties go to the fewest terms. Its nonzero weights, converted back to their terms' own units, become the
    value rules, the largest standardized weight first.
 
@@ -210,7 +207,8 @@ where rows come from.
 `RuleValuer.value(state)` gives each player, in the order of the players' names,
 `low + (high - low) × logistic(bias + Σ weight × term)`, every term read with `me` being that player. The value stays
 strictly between the lowest and highest payoffs, so a finished game's own payoffs always rank beyond it. A term raising
-`KeyError`, `NameError` or `TypeError`, or giving something other than a finite number, leaves the position unvalued
+`KeyError`, `NameError`, `TypeError`, `AttributeError`, `ValueError` or an arithmetic error, or giving something other
+than a finite number, leaves the position unvalued
 (`None`), and a search plays that rollout to the end. `explain(state, player)` gives each rule with what it adds to the
 player's score: its weight times its term.
 
@@ -241,8 +239,9 @@ from openmind.rbs.factory.rbs_factory import create_rule_valuer, create_value_ge
 from openmind.rbs.model.value_settings import ValueSettings
 
 settings = ValueSettings(
-    pair_pool=20, cuts=6, solo_limit=2, prices=(0.1, 0.03, 0.01, 0.003, 0.001), max_steps=1000, tolerance=1e-6
-)   # the defaults, in constant/value_constant.py and constant/generation_constant.py
+    prices=(0.1, 0.03, 0.01, 0.003, 0.001), max_steps=1000, tolerance=1e-6, seconds=3600.0, memory_bytes=8 * 1024**3,
+    candidates=None,
+)   # the fit's defaults in constant/value_constant.py, the search budget's in inference/constant/inference_constant.py
 result = create_value_generator().generate(domain, training_rows, held_out_rows, settings)   # PositionRow
 valuer = create_rule_valuer(result.value_base, domain)
 valuer.value(state)               # each player's value, in the order of the players' names
@@ -266,12 +265,9 @@ Training does this from self-play too: see `openmind-distill-values`.
   - `DEBUG <tested hypothesis as text>`, one line per hypothesis, such as `place when win_chance(action) >= 1: raises advantage, discovery 0.61 over 40 states, validation 0.58 over 12 states, p 0.0001, q 0.002, validated`
   - `DEBUG <rule as text>`, one line per rule, such as `place when wins(me, action) >= 2: EV 0.9 over 120 visits, priority`
 
-- `openmind.rbs.service.term_generator`:
-  - `INFO Left out the values of <n> variables with more than 32 distinct values: <names>`
 - `openmind.rbs.service.value_generator`:
-  - `INFO <n> single terms generated, <u> usable on <t> training and <h> held-out rows`
   - `INFO Every training payoff is <payoff>: nothing to fit`
-  - `INFO <c> candidate terms: <s> single, <p> products of pairs among the <k> single terms most correlated with the payoffs`
+  - `INFO <c> candidate terms after <g> generations of search (<why it stopped>), looking up to <plies> actions ahead`
   - `INFO Price <price>: <k> of <c> terms kept in <steps> steps, settled|not settled; training loss <loss>, held-out loss <loss>`
   - `INFO Chose price <price>: <r> value rules, bias <bias>, payoffs from <low> to <high>`
   - `DEBUG <value rule as text>`, one line per rule, such as `+0.42 × wins(me)`
@@ -290,5 +286,5 @@ The rater and the valuer don't log: they run inside searches.
   `builder/rule_valuer_builder_tests.py`, `builder/value_generator_builder_tests.py`,
   `mapper/value_base_json_mapper_tests.py`, `mapper/value_rule_text_mapper_tests.py`,
   `repository/value_base_repository_tests.py`, `service/rule_valuer_tests.py`, `service/sparse_fitter_tests.py`,
-  `service/term_evaluator_tests.py`, `service/term_generator_tests.py`, `service/value_generator_tests.py`;
+  `service/term_evaluator_tests.py`, `service/value_generator_tests.py`;
   integration: `test/integration/tictactoe_distillation_tests.py`.

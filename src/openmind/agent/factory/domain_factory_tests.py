@@ -3,8 +3,10 @@ from importlib.metadata import EntryPoint
 
 import pytest
 
+from openmind.agent.constant.prisoners_dilemma_constant import VARIANTS as PRISONERS_DILEMMA_VARIANTS
 from openmind.agent.constant.tictactoe_constant import VARIANTS
 from openmind.agent.factory.domain_factory import create_domain
+from openmind.agent.factory.prisoners_dilemma_factory import create_prisoners_dilemma_domain
 from openmind.agent.factory.sudoku_factory import create_sudoku_domain
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.agent.model.domain import Domain
@@ -41,6 +43,13 @@ def test_creates_sudoku() -> None:
     assert create_domain("sudoku") == create_sudoku_domain()
 
 
+def test_creates_the_prisoners_dilemma_and_its_variants() -> None:
+    assert create_domain("prisonersdilemma") == create_prisoners_dilemma_domain()
+    assert create_domain("prisonersdilemma/uncertain") == create_prisoners_dilemma_domain(PRISONERS_DILEMMA_VARIANTS["uncertain"])
+    with pytest.raises(ValueError, match="Unknown variant 'endless' of prisonersdilemma; variants: standard, uncertain"):
+        create_domain("prisonersdilemma/endless")
+
+
 def test_unknown_variant_raises_with_the_variants() -> None:
     with pytest.raises(ValueError, match="Unknown variant 'chess960' of tictactoe; variants: standard, fourinarow, gomoku"):
         create_domain("tictactoe/chess960")
@@ -60,7 +69,10 @@ def test_the_built_in_domains_come_before_installed_ones(monkeypatch: pytest.Mon
 
 def test_unknown_domain_raises_with_the_known_domains(monkeypatch: pytest.MonkeyPatch) -> None:
     install(monkeypatch, "madeup")
-    known = "Unknown domain 'go'; known domains: tictactoe, tictactoe/fourinarow, tictactoe/gomoku, sudoku, madeup"
+    known = (
+        "Unknown domain 'go'; known domains: tictactoe, tictactoe/fourinarow, tictactoe/gomoku, sudoku, prisonersdilemma, "
+        "prisonersdilemma/uncertain, madeup"
+    )
 
     with pytest.raises(ValueError, match=re.escape(known)):
         create_domain("go")

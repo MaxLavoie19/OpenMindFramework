@@ -18,5 +18,18 @@ class ValueBaseRepository:
         path.write_text(self._value_base_json_mapper.to_json(value_base) + "\n", encoding="utf-8")
         return path
 
+    def write(self, value_base: ValueBase, path: Path) -> Path:
+        """Writes the value base at the path given, creating its folders, and returns the path."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self._value_base_json_mapper.to_json(value_base) + "\n", encoding="utf-8")
+        return path
+
+    def export(self, text: str, path: Path) -> Path:
+        """Writes a value base's text export, such as its explained rules in Markdown, at the path given, creating its
+        folders, and returns the path."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
     def load(self, path: Path) -> ValueBase:
         return self._value_base_json_mapper.from_json(path.read_text(encoding="utf-8"))

@@ -48,8 +48,10 @@ A saved rule is code: loading a rule base runs what it contains, so it needs the
   names are per state and per `names` mapping, by identity, so a caller passes the same mapping for the same state.
 - **Effects rules** run as a module in a fresh copy of those names plus every parameter. What the script leaves in the
   state's variables is the next state: `turn = other(turn)` or `cell[row, col] = turn`. Other names it assigns are its
-  own. An index the state doesn't have (`cell[4, 4] = "X"` on a 3×3 board) raises `KeyError`, since a state never gains
-  variables; a misspelt plain variable is just a new local name.
+  own. An index added under a base the state has (`played[11, 'A'] = 'defect'`) is a new variable, after the state's
+  own, in the order the script added it; an index a variable name can't read back the same (`'1'`, `'a,b'`, `True`,
+  `1.5`) raises `ValueError`. A new base can't be added this way, and a misspelt plain variable is just a new local
+  name.
 - A syntax error names the rule and the line; a runtime error's traceback shows the rule's own source.
 
 ## Usage

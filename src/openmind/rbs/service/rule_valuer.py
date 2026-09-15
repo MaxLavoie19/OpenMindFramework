@@ -14,8 +14,8 @@ from openmind.world.model.state import State
 class RuleValuer:
     """Values a domain's positions with a value base: each player's value is low + (high - low) × logistic(bias + the sum
     of each rule's weight times its term), the terms reading the state's variables and the consequence library's names
-    with `me` being that player. A term raising KeyError, NameError or TypeError, or giving something other than a
-    finite number, leaves the position unvalued."""
+    with `me` being that player. A term raising KeyError, NameError, TypeError, AttributeError, ValueError or an
+    arithmetic error, or giving something other than a finite number, leaves the position unvalued."""
 
     def __init__(
         self,
@@ -55,7 +55,7 @@ class RuleValuer:
             compiled = self._rule_compiler.compile_value(rule.term)
             try:
                 value = self._rule_runner.value(compiled, state, None, names)
-            except (KeyError, NameError, TypeError):
+            except (KeyError, NameError, TypeError, AttributeError, ValueError, ArithmeticError):
                 return None
             if not isinstance(value, bool | int | float | np.bool_ | np.number):
                 return None

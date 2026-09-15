@@ -83,9 +83,8 @@ def test_effects_leave_the_given_state_and_its_names_unchanged() -> None:
     assert runner.value(read_cell, STATE) is None
 
 
-def test_an_effect_on_a_variable_the_state_lacks_raises() -> None:
-    with pytest.raises(KeyError, match=r"cell\(3,3\)"):
-        new_runner().apply(effects_rule("cell[3, 3] = 'X'"), STATE)
+def test_an_effect_on_an_index_the_state_lacks_adds_the_variable() -> None:
+    assert new_runner().apply(effects_rule("cell[3, 3] = 'X'"), STATE) == State((*STATE.variables, ("cell(3,3)", "X")))
 
 
 def test_a_parameter_named_like_a_state_variable_raises() -> None:

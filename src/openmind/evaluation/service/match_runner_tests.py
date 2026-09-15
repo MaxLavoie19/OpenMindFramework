@@ -1,4 +1,5 @@
 import random
+from dataclasses import replace
 
 import pytest
 
@@ -8,6 +9,7 @@ from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.service.match_runner import MatchRunner
+from openmind.observation.model.observation import Observation
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.predictor.model.branch import Branch
@@ -93,6 +95,28 @@ def test_each_game_creates_its_policies_from_its_own_seed() -> None:
     new_match_runner().series(first_mover_decides(), remember, lambda seed: Always("tie"), "always tie", 3, random.Random(1))
 
     assert len(set(seeds)) == 3
+
+
+class Recording:
+    """A policy that always chooses the same action and records every state it is given."""
+
+    def __init__(self, name: str) -> None:
+        self._action = Action(name, ())
+        self.states: list[State] = []
+
+    def choose(self, domain: Domain, state: State) -> Action:
+        self.states.append(state)
+        return self._action
+
+
+def test_a_policy_is_given_only_what_its_player_sees() -> None:
+    hides_b = Observation(PythonRule("('payoff(B)',) if player == 'A' else ()"), PythonRule("[({'payoff(B)': None}, 1.0)]"))
+    domain = replace(first_mover_decides(), observation=hides_b)
+    recording = Recording("win")
+
+    new_match_runner().play_game(domain, lambda seed: recording, lambda seed: Always("win"), 0, 1, 1)
+
+    assert recording.states == [State((("payoff(A)", None), ("payoff(B)", "<hidden>"), ("turn", "A")))]
 
 
 def test_a_domain_without_two_players_raises() -> None:

@@ -7,15 +7,10 @@ from pathlib import Path
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
+from openmind.entrypoint.train_values import _add_deduction_options, _deduction_settings
+from openmind.inference.constant.inference_constant import DEFAULT_SEARCH_MEMORY, DEFAULT_SEARCH_SECONDS
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
-from openmind.rbs.constant.generation_constant import DEFAULT_SOLO_LIMIT
-from openmind.rbs.constant.value_constant import (
-    DEFAULT_CUTS,
-    DEFAULT_MAX_STEPS,
-    DEFAULT_PAIR_POOL,
-    DEFAULT_PRICES,
-    DEFAULT_TOLERANCE,
-)
+from openmind.rbs.constant.value_constant import DEFAULT_MAX_STEPS, DEFAULT_PRICES, DEFAULT_TOLERANCE
 from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.mapper.value_rule_text_mapper import ValueRuleTextMapper
 from openmind.rbs.model.value_settings import ValueSettings
@@ -46,9 +41,8 @@ def main(argv: list[str] | None = None) -> None:
         ("--held-out-games", int, DEFAULT_VALUE_HELD_OUT_GAMES, "self-play games to choose a fit and measure it on"),
         ("--iterations", int, DEFAULT_ITERATIONS, "MCTS iterations per self-play move"),
         ("--seed", int, DEFAULT_SEED, "random seed"),
-        ("--pair-pool", int, DEFAULT_PAIR_POOL, "single terms, the most correlated with the payoffs, multiplied in pairs"),
-        ("--cuts", int, DEFAULT_CUTS, "thresholds a quantity is cut at, at most"),
-        ("--solo-limit", int, DEFAULT_SOLO_LIMIT, "own actions solo_distance() looks ahead; 0 leaves it out"),
+        ("--seconds", float, DEFAULT_SEARCH_SECONDS, "seconds the expression search runs"),
+        ("--memory", float, DEFAULT_SEARCH_MEMORY / 1024**3, "GB the expression search's process holds at most, workers each holding an even share"),
         ("--max-steps", int, DEFAULT_MAX_STEPS, "steps a fit takes at most"),
         ("--tolerance", float, DEFAULT_TOLERANCE, "weight change below which a fit has settled"),
         ("--workers", int, DEFAULT_WORKERS, "worker processes self-play games and term evaluations run in"),
@@ -69,6 +63,12 @@ def main(argv: list[str] | None = None) -> None:
         help=f"comma-separated L1 prices swept (default: {','.join(map(str, DEFAULT_PRICES))})",
     )
     parser.add_argument(
+        "--candidates",
+        type=_non_negative,
+        default=None,
+        help="candidates the expression search tries at most (default: no limit)",
+    )
+    parser.add_argument(
         "--rollout-limit",
         type=_non_negative,
         default=None,
@@ -81,6 +81,7 @@ def main(argv: list[str] | None = None) -> None:
         default=DEFAULT_UNFINISHED_PAYOFF,
         help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF})",
     )
+    _add_deduction_options(parser)
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -98,15 +99,16 @@ def main(argv: list[str] | None = None) -> None:
     arguments = parser.parse_args(argv)
     domain = create_domain(arguments.domain)
     values = ValueSettings(
-        arguments.pair_pool,
-        arguments.cuts,
-        arguments.solo_limit,
         arguments.prices,
         arguments.max_steps,
         arguments.tolerance,
+        arguments.seconds,
+        int(arguments.memory * 1024**3),
+        arguments.candidates,
     )
+    deduction, pondering = _deduction_settings(parser, arguments)
     settings = ValueDistillationSettings(
-        arguments.games, arguments.held_out_games, arguments.iterations, arguments.seed, arguments.target, values
+        arguments.games, arguments.held_out_games, arguments.iterations, arguments.seed, arguments.target, values, pondering
     )
 
     directory = Path(arguments.log_directory) / domain.name
@@ -120,14 +122,22 @@ def main(argv: list[str] | None = None) -> None:
     try:
         logger.info("Running self-play and term evaluations in %d worker processes", arguments.workers)
         logger.info(
-            "Valuing positions at the %s target; pair pool %d, up to %d cuts, solo limit %d, prices %s",
+            "Valuing positions at the %s target; prices %s; searching expressions for %s seconds within %d bytes, "
+            "trying %s candidates",
             settings.target,
-            values.pair_pool,
-            values.cuts,
-            values.solo_limit,
             ", ".join(map(str, values.prices)),
+            values.seconds,
+            values.memory_bytes,
+            "any number of" if values.candidates is None else f"at most {values.candidates}",
         )
-        agent_builder = AgentBuilder().with_exploration(EXPLORATION)
+        agent_builder = AgentBuilder().with_exploration(EXPLORATION).with_deduction(deduction)
+        if deduction is not None:
+            logger.info(
+                "Self-play deduces the positions without rules within %d plies and %s seconds; pondering %d positions",
+                deduction.plies,
+                deduction.seconds,
+                0 if pondering is None else pondering.positions,
+            )
         if arguments.rollout_limit is not None:
             agent_builder.with_rollout_limit(arguments.rollout_limit, arguments.unfinished_payoff)
             logger.info(
@@ -167,6 +177,12 @@ def main(argv: list[str] | None = None) -> None:
             f"Rows: {result.training_rows} for training, {result.held_out_rows} held out, valued at the "
             f"{settings.target} target; mean absolute error on held-out rows: {result.held_out_error}"
         )
+        if result.pondering is not None:
+            summary = result.pondering
+            print(
+                f"Pondered {summary.positions} positions: {summary.proven} proven; {summary.seeds} seeds, "
+                f"{summary.seeds_kept} kept by the search, {summary.seeds_in_rules} in the value rules"
+            )
         print(f"Saved values {path}")
         logger.info("Saved values %s", path)
     finally:

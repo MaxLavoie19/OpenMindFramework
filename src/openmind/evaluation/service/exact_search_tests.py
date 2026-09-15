@@ -1,4 +1,5 @@
 import pickle
+from dataclasses import replace
 
 import pytest
 
@@ -7,6 +8,7 @@ from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
 from openmind.evaluation.service.exact_search import ExactSearch
+from openmind.observation.model.observation import Observation
 from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
@@ -90,6 +92,19 @@ def test_value_gives_every_player_payoff_under_perfect_play() -> None:
 
     assert new_exact_search().value(domain, domain.initial_state) == (0.5, 0.5)
     assert new_exact_search().value(domain, finished) == (1.0, 0.0)
+
+
+def test_a_domain_with_hidden_information_raises() -> None:
+    hides_nothing = Observation(PythonRule("()"), PythonRule("[({}, 1.0)]"))
+    domain = replace(one_move(Transition("win", (Branch(1.0, pay(1.0)),))), observation=hides_nothing)
+
+    for call in (
+        lambda: new_exact_search().value(domain, domain.initial_state),
+        lambda: new_exact_search().action_values(domain, domain.initial_state),
+        lambda: new_exact_search().positions(domain),
+    ):
+        with pytest.raises(ValueError, match="hidden information"):
+            call()
 
 
 def test_the_winning_action_is_optimal() -> None:
