@@ -1,3 +1,4 @@
+from openmind.parallel.model.memory_cap import MemoryCap
 from openmind.training.builder.distiller_builder import DistillerBuilder
 from openmind.training.builder.rule_selector_builder import RuleSelectorBuilder
 from openmind.training.builder.value_distiller_builder import ValueDistillerBuilder
@@ -19,13 +20,13 @@ def create_rule_selector(workers: int = 1) -> RuleSelector:
     return RuleSelectorBuilder().with_workers(workers).build()
 
 
-def create_value_distiller(workers: int = 1) -> ValueDistiller:
+def create_value_distiller(workers: int = 1, memory_cap: MemoryCap | None = None) -> ValueDistiller:
     """A value distiller with its self-play and value generator, running games and term evaluations in that many worker
-    processes, and the valuer services it measures value rules with."""
-    return ValueDistillerBuilder().with_workers(workers).build()
+    processes, each under the memory cap when given, and the valuer services it measures value rules with."""
+    return ValueDistillerBuilder().with_workers(workers).with_memory_cap(memory_cap).build()
 
 
-def create_value_training_loop(workers: int = 1) -> ValueTrainingLoop:
+def create_value_training_loop(workers: int = 1, memory_cap: MemoryCap | None = None) -> ValueTrainingLoop:
     """A value training loop with its value distiller and match runner, running self-play, term evaluations and games in
-    that many worker processes."""
-    return ValueTrainingLoopBuilder().with_workers(workers).build()
+    that many worker processes, each under the memory cap when given."""
+    return ValueTrainingLoopBuilder().with_workers(workers).with_memory_cap(memory_cap).build()

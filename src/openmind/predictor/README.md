@@ -13,10 +13,10 @@ are branches with probabilities below 1.
 |---|---|
 | `model/branch.py` | `Branch(probability, effects)`: one possible outcome of an action; `effects` is a Python script (`PythonRule`) |
 | `model/transition.py` | `Transition(action, branches)`: what performing an action does |
-| `model/transition_model.py` | `TransitionModel(transitions, definitions)`: every transition of a domain, and the definitions their effects see (`None` for none) |
+| `model/transition_model.py` | `TransitionModel(transitions, definitions=None, resolution=None)`: every transition of a domain, the definitions their effects see, and, where players act at once, the resolution branches run after every player's action |
 | `model/outcome_distribution.py` | `OutcomeDistribution(outcomes)`: each outcome (new state) with its probability |
-| `builder/transition_model_builder.py` | `TransitionModelBuilder`: collects transitions and definitions; rejects a repeated action or probabilities that don't sum to 1 |
-| `service/predictor.py` | `Predictor`: runs each branch's effects on the state to give the outcome distribution |
+| `builder/transition_model_builder.py` | `TransitionModelBuilder`: collects transitions, definitions and the resolution (`with_resolution(branches)`); rejects a repeated action or probabilities that don't sum to 1 |
+| `service/predictor.py` | `Predictor`: runs each branch's effects on the state to give the outcome distribution; `predict_joint(model, state, joint)` for actions taken at once |
 | `builder/predictor_builder.py` | `PredictorBuilder`: wires a predictor with its rule compiler, rule runner and action text mapper |
 | `factory/predictor_factory.py` | `create_predictor()` |
 
@@ -50,6 +50,14 @@ create_predictor().predict(model, State((("score", 0),)), Action("shoot", ()))
 - Predicting an action that has no transition raises `KeyError`.
 - Branches are discrete; continuous distributions come with the first domain that needs them.
 
+Actions taken at once (`predict_joint`, a `JointAction`):
+
+- Each player's action runs in the joint's order, on every outcome so far, its effects reading its parameters and its
+  player as `player`: `hand[player] = shape`. The branches' probabilities multiply, one entry per combination.
+- Then the model's resolution runs on each outcome, reading the combined choices: it compares the hands, sets the
+  payoffs, and says who acts next by setting the players' flags (see `world/README.md`).
+- A joint without an action, or an action with a parameter named `player`, raises `ValueError`.
+
 ## Logs
 
 Logger `openmind.predictor.service.predictor`, per branch, one line per variable whose value changed, in the state's
@@ -57,6 +65,8 @@ order, then the summary:
 
 - `DEBUG Set cell(1,1) = 'X'`
 - `DEBUG place(col=1, row=1) gives 1 outcome(s) with probabilities [1.0]`
+- `DEBUG A: throw(shape='rock'), B: throw(shape='paper') gives 1 outcome(s) with probabilities [1.0]`, for actions taken
+  at once
 
 Actions are written by `ActionTextMapper`.
 

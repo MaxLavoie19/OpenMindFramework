@@ -15,7 +15,7 @@ A saved rule is code: loading a rule base runs what it contains, so it needs the
 |---|---|
 | `model/python_rule.py` | `PythonRule(source)`: an expression, or a script |
 | `model/compiled_rule.py` | `CompiledRule(rule, kind, code, arguments, definitions)`: a rule compiled once, with the definitions it sees |
-| `constant/rule_constant.py` | The three kinds (`value`, `effects`, `definitions`), the compiled function's name, `all_different`, and the namespace cache size (10,000 states) |
+| `constant/rule_constant.py` | The three kinds (`value`, `effects`, `definitions`), the compiled function's name and `all_different` |
 | `service/rule_compiler.py` | `RuleCompiler`: compiles a rule for its value, for its effects, or as definitions, and keeps it |
 | `service/rule_runner.py` | `RuleRunner`: a value rule's value in a state, or the state an effects rule leaves |
 | `mapper/state_namespace_mapper.py` | `StateNamespaceMapper`: a state as the names a rule reads, those names back to a state, and how a rule reads a variable (`cell[2, 3]`) |
@@ -46,6 +46,7 @@ A saved rule is code: loading a rule base runs what it contains, so it needs the
   variables, built once per state and kept; a value rule must not change them. `names`, optional, adds names of the
   caller's own, such as the RBS's `win_chance`; a name a state variable already has raises `ValueError`. The kept
   names are per state and per `names` mapping, by identity, so a caller passes the same mapping for the same state.
+  They are kept until the process's memory guard clears them (see `parallel/README.md`).
 - **Effects rules** run as a module in a fresh copy of those names plus every parameter. What the script leaves in the
   state's variables is the next state: `turn = other(turn)` or `cell[row, col] = turn`. Other names it assigns are its
   own. An index added under a base the state has (`played[11, 'A'] = 'defect'`) is a new variable, after the state's

@@ -3,7 +3,7 @@ import pickle
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.inference.constant.inference_constant import MEMORY_CHECK_INTERVAL
 from openmind.inference.service.mechanics import Mechanics
-from openmind.inference.service.memory_meter import MemoryMeter
+from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
 from openmind.rbs.service.consequence_library_tests import position, strip_domain
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper

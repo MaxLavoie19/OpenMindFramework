@@ -33,7 +33,7 @@ hypotheses that hold become rules.
 | `model/generation_result.py` | `GenerationResult(rule_base, patterns, hypotheses, covered)`: the rule base, the goal patterns, every hypothesis's test and the validated rules a simpler rule covers |
 | `model/coverage.py` | `Coverage(rule, covering)`: a validated rule left out of the rule base, and the simpler kept rule matching every row it matches, whose rows' mean advantage is within `min_gain` of its rows' |
 | `constant/generation_constant.py` | Default generation settings; the exploration presets (`EXPLORE_BEAM_WIDTH` 60, `EXPLORE_MAX_CONDITIONS` 3, `EXPLORE_MIN_GAIN` 0.02, `EXPLORE_FALSE_DISCOVERY_RATE` 0.2); `MIN_STATES` (5), `PRIORITY_MARGIN` (0.05), `QUANTITY_CUTS` (6), `ANCHOR_PROBES` (50), `PERMUTATION_BATCH` (1,000) |
-| `constant/consequence_constant.py` | The names generated rules read (`me`, `other`, `action`, `win_chance`, `wins`, `solo_distance`, `near`, `OUTSIDE`) and the consequence cache size (200,000) |
+| `constant/consequence_constant.py` | The names generated rules read (`me`, `other`, `action`, `win_chance`, `wins`, `solo_distance`, `near`, `OUTSIDE`) |
 | `service/consequence_library.py` | `ConsequenceLibrary`: what generated rules read besides state variables, worked out with the domain's own solver and predictor |
 | `service/goal_pattern_miner.py` | `GoalPatternMiner`: the variables winning moves need |
 | `service/condition_evaluator.py` | `ConditionEvaluator`: a rule's values, or where it is true, on action rows; several rules at once in the task runner's workers, the rows split in slices |
@@ -74,7 +74,7 @@ hypotheses that hold become rules.
 | `mapper/value_rule_text_mapper.py` | `ValueRuleTextMapper`: a value rule as readable text, `+0.42 × wins(me)` |
 | `mapper/value_base_json_mapper.py` | `ValueBaseJsonMapper`: a value base as JSON text and back, each term as its Python source |
 | `repository/value_base_repository.py` | `ValueBaseRepository`: saves a value base as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json`, writes one at a path given, and loads it |
-| `builder/value_generator_builder.py` | `ValueGeneratorBuilder`: sets how many worker processes terms are evaluated in (`with_workers`, 1 by default) and wires the generator around one term evaluator |
+| `builder/value_generator_builder.py` | `ValueGeneratorBuilder`: sets how many worker processes terms are evaluated in (`with_workers`, 1 by default) and the memory each holds at most (`with_memory_cap`, no cap by default), and wires the generator around one term evaluator |
 | `builder/rule_valuer_builder.py` | `RuleValuerBuilder`: sets the value base and the domain and wires the valuer; rejects a missing value base or domain |
 
 ## What generated rules read
@@ -96,8 +96,8 @@ reads:
   domain's actions (`here.best(me, lambda v1: ...)`; see `inference/README.md`).
 
 A win is an outcome with no legal action left in which the player's payoff is higher than every other player's. The
-consequence library works these out with the domain's solver and predictor and caches them, cleared when 200,000
-entries are reached.
+consequence library works these out with the domain's solver and predictor and caches them until the process's memory
+guard clears the cache (see `parallel/README.md`).
 
 ## How rules are generated
 

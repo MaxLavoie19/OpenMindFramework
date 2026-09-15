@@ -7,7 +7,12 @@ from pathlib import Path
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
-from openmind.entrypoint.train_values import _add_deduction_options, _deduction_settings
+from openmind.entrypoint.train_values import (
+    _add_deduction_options,
+    _add_worker_memory_option,
+    _deduction_settings,
+    _memory_cap,
+)
 from openmind.inference.constant.inference_constant import DEFAULT_SEARCH_MEMORY, DEFAULT_SEARCH_SECONDS
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
 from openmind.rbs.constant.value_constant import DEFAULT_MAX_STEPS, DEFAULT_PRICES, DEFAULT_TOLERANCE
@@ -82,6 +87,7 @@ def main(argv: list[str] | None = None) -> None:
         help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF})",
     )
     _add_deduction_options(parser)
+    _add_worker_memory_option(parser)
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -112,6 +118,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     directory = Path(arguments.log_directory) / domain.name
+    memory_cap = _memory_cap(parser, arguments, directory)
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(levelname)-5s %(name)s %(message)s"))
@@ -120,7 +127,13 @@ def main(argv: list[str] | None = None) -> None:
     root.addHandler(handler)
     root.setLevel(arguments.log_level)
     try:
-        logger.info("Running self-play and term evaluations in %d worker processes", arguments.workers)
+        logger.info(
+            "Running self-play and term evaluations in %d worker processes, each holding at most %d bytes; memory "
+            "diagnoses in %s",
+            arguments.workers,
+            memory_cap.worker_bytes,
+            memory_cap.diagnosis_directory,
+        )
         logger.info(
             "Valuing positions at the %s target; prices %s; searching expressions for %s seconds within %d bytes, "
             "trying %s candidates",
@@ -145,7 +158,7 @@ def main(argv: list[str] | None = None) -> None:
                 arguments.rollout_limit,
                 arguments.unfinished_payoff,
             )
-        result = create_value_distiller(arguments.workers).distill(domain, agent_builder, settings)
+        result = create_value_distiller(arguments.workers, memory_cap).distill(domain, agent_builder, settings)
         path = ValueBaseRepository(ValueBaseJsonMapper()).save(
             result.value_base, Path(arguments.values_directory), datetime.now()
         )

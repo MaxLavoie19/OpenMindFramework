@@ -57,7 +57,8 @@ class ValueTrainingLoop:
         settings: ValueTrainingSettings,
         on_round: Callable[[TrainingReport], None] | None = None,
     ) -> TrainingReport:
-        """Hands the report so far to on_round after every round; the last report is complete. To run in several
+        """Hands the report so far to on_round once a round's rules are fitted, before its games, so they can be saved
+        even if the games never end, and again after every round; the last report is complete. To run in several
         workers, the value rules' agents must pickle, as a RuleValuer does."""
         created_at = datetime.now().replace(microsecond=0)
         previous, previous_name = start, None if start is None else START_RULES
@@ -87,6 +88,22 @@ class ValueTrainingLoop:
             )
             baselines: tuple[MatchResults, ...] = ()
             against_previous: MatchResults | None = None
+            if settings.evaluation_games and on_round is not None:
+                fitted = TrainingRound(
+                    number,
+                    result.value_base,
+                    result.fits,
+                    result.chosen,
+                    result.training_rows,
+                    result.held_out_rows,
+                    result.held_out_error,
+                    (),
+                    None,
+                    time.perf_counter() - started,
+                    result.pondering,
+                )
+                logger.info("Round %d fitted: handing it over before its games", number)
+                on_round(TrainingReport(domain.name, created_at, settings, (*rounds, fitted), False))
             if settings.evaluation_games:
                 rng = random.Random(seed)
                 evaluated = partial(create_seeded_agent, self._agent_builder(domain, result.value_base, settings))

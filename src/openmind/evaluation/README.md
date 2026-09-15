@@ -23,7 +23,7 @@ with; when it does, they are measured here too.
 | `service/value_measurer.py` | `ValueMeasurer`: a valuer's error on each position and its choice one step ahead |
 | `service/exact_search.py` | `ExactSearch`: every legal action's value, the optimal actions and each player's value in a state, by searching every reachable state; the positions with a legal action; a domain with an observation raises `ValueError`, since perfect play with hidden information needs mixed strategies |
 | `service/reference_search.py` | `ReferenceSearch`: distinct positions from uniformly random games, and every legal action's value from a long unguided search, for domains exact search can't reach |
-| `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers; in a domain with an observation, a policy is given only what its player sees |
+| `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers; in a domain with an observation, a policy is given only what its player sees; a game that took its worker over the memory cap in a fresh worker too isn't counted; where players act at once, every player to act chooses, given its player's name, and the actions are taken together with `Predictor.predict_joint` |
 | `service/choice_measurer.py` | `ChoiceMeasurer`: searches positions with an agent built once and measures each choice against the action values; the optimal actions within a tolerance |
 | `model/choice_measure.py` | `ChoiceMeasure(optimal, optimal_visit_share, regret, seconds)`: one position's choice |
 | `model/action_values.py` | `ActionValues`: every legal action of a position with its value |
@@ -142,6 +142,8 @@ can't reach, add `reference_iterations=2000` to the settings. `ReportTextMapper(
   - `DEBUG <Agreement or Unguided agreement> at <iterations> iterations: chose <action>, regret <regret>; optimal: <actions>; <share> of visits on optimal actions; state: <name = value, ...>`
   - `DEBUG Rater alone: top-rated <actions>; optimal: <actions>; ratings <action>=<rating>, ...; state: <name = value, ...>`
 - `openmind.evaluation.service.match_runner`:
+  - `INFO Game with seeds <policy seed> and <outcome seed> finished in <plies> plies, the evaluated policy playing <player>: payoffs <player>=<payoff> ...`,
+    logged by the worker as soon as the game ends
   - `DEBUG Game <n> against <opponent>: evaluated agent plays <player>, payoffs <player>=<payoff> ...`
 - `openmind.evaluation.service.exact_search`:
   - `INFO <domain> has <n> positions with a legal action`

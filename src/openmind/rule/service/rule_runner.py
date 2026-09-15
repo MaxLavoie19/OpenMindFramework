@@ -1,8 +1,8 @@
-from collections import OrderedDict
 from collections.abc import Mapping
 from types import FunctionType
 
-from openmind.rule.constant.rule_constant import ALL_DIFFERENT, NAMESPACE_CACHE_SIZE
+from openmind.parallel.factory.memory_guard_factory import process_memory_guard
+from openmind.rule.constant.rule_constant import ALL_DIFFERENT
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rule.model.compiled_rule import CompiledRule
 from openmind.world.model.state import State
@@ -17,14 +17,17 @@ class RuleRunner:
     """Runs compiled rules against states. A value rule is called as a function of the parameters it reads, with the
     definitions' names and the state's variables as its globals, built once per state and kept. An effects rule runs as
     a module in a fresh copy of those names plus the action's parameters, and what it leaves in the state's variables is
-    the next state. Every rule also sees `all_different(*values)`."""
+    the next state. Every rule also sees `all_different(*values)`. The namespaces built per state are kept until the
+    process's memory guard clears them."""
 
     def __init__(self, state_namespace_mapper: StateNamespaceMapper) -> None:
         self._state_namespace_mapper = state_namespace_mapper
         self._definitions: dict[CompiledRule | None, dict[str, object]] = {}
-        self._namespaces: OrderedDict[
+        self._namespaces: dict[
             tuple[CompiledRule | None, State, int | None], tuple[Mapping[str, object] | None, dict[str, object]]
-        ] = OrderedDict()
+        ] = {}
+        self._memory_guard = process_memory_guard()
+        self._memory_guard.register(self)
 
     def __getstate__(self) -> dict[str, object]:
         """Namespaces hold functions and modules, which don't travel to other processes: a copy builds its own."""
@@ -33,7 +36,15 @@ class RuleRunner:
     def __setstate__(self, state: dict[str, object]) -> None:
         self.__dict__.update(state)
         self._definitions = {}
-        self._namespaces = OrderedDict()
+        self._namespaces = {}
+        self._memory_guard = process_memory_guard()
+        self._memory_guard.register(self)
+
+    def memory_entries(self) -> int:
+        return len(self._namespaces)
+
+    def clear_memory(self) -> None:
+        self._namespaces.clear()
 
     def value(
         self,
@@ -71,11 +82,9 @@ class RuleRunner:
             if names is not None and (clash := sorted(set(names) & set(variables))):
                 raise ValueError(f"Name {clash[0]!r} is both a state variable and an added name")
             namespace = {**self._definitions_namespace(definitions), **variables, **(names or {})}
+            self._memory_guard.remembered()
             self._namespaces[key] = (names, namespace)
-            if len(self._namespaces) > NAMESPACE_CACHE_SIZE:
-                self._namespaces.popitem(last=False)
             return namespace
-        self._namespaces.move_to_end(key)
         return entry[1]
 
     def _definitions_namespace(self, definitions: CompiledRule | None) -> dict[str, object]:

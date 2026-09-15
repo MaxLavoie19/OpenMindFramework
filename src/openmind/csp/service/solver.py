@@ -1,8 +1,6 @@
 import logging
-from collections import OrderedDict
 from operator import itemgetter
 
-from openmind.csp.constant.solver_constant import CACHE_SIZE
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.all_different_group import AllDifferentGroup
 from openmind.csp.model.discrete_domain import DiscreteDomain
@@ -15,12 +13,14 @@ from openmind.csp.model.support_table import SupportTable
 from openmind.csp.model.variable import Variable
 from openmind.csp.service.backtracking_search import BacktrackingSearch
 from openmind.csp.service.constraint_checker import ConstraintChecker
+from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.rule.constant.rule_constant import ALL_DIFFERENT
 from openmind.rule.mapper.call_operand_mapper import CallOperandMapper
 from openmind.rule.model.compiled_rule import CompiledRule
 from openmind.rule.model.python_rule import PythonRule
 from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner
+from openmind.world.constant.players_constant import PLAYER
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
@@ -33,7 +33,7 @@ class Solver:
     parameter are checked first; then each parameter gets its values, fixed or computed from the state; each other
     constraint, a Python rule, takes the strongest form the parameters it reads allow (a domain filter, an all-different
     group, a support table, or a forward-checked constraint), backtracking search does the rest, and results are cached
-    per problem and state."""
+    per problem and state until the process's memory guard clears them."""
 
     def __init__(
         self,
@@ -48,31 +48,45 @@ class Solver:
         self._call_operand_mapper = call_operand_mapper
         self._constraint_checker = constraint_checker
         self._backtracking_search = backtracking_search
-        self._cache: OrderedDict[
-            tuple[int, State, int | None], tuple[Problem, tuple[tuple[Action, ...], SolveStatistics]]
-        ] = OrderedDict()
+        self._cache: dict[tuple[int, State, int | None], tuple[Problem, tuple[tuple[Action, ...], SolveStatistics]]] = {}
+        self._memory_guard = process_memory_guard()
+        self._memory_guard.register(self)
 
     def __getstate__(self) -> dict[str, object]:
         """The cache stays behind when the solver is copied to another process: its keys are this process's ids."""
-        return {name: value for name, value in self.__dict__.items() if name != "_cache"}
+        return {name: value for name, value in self.__dict__.items() if name not in ("_cache", "_memory_guard")}
 
     def __setstate__(self, state: dict[str, object]) -> None:
         self.__dict__.update(state)
-        self._cache = OrderedDict()
+        self._cache = {}
+        self._memory_guard = process_memory_guard()
+        self._memory_guard.register(self)
 
-    def solve(self, problem: Problem, state: State, limit: int | None = None) -> tuple[Action, ...]:
-        """Every solution, or at most limit, ordered by the variables' domains with the first variable changing slowest."""
-        return self.solve_with_statistics(problem, state, limit)[0]
+    def memory_entries(self) -> int:
+        return len(self._cache)
+
+    def clear_memory(self) -> None:
+        self._cache.clear()
+
+    def solve(
+        self, problem: Problem, state: State, limit: int | None = None, player: str | None = None
+    ) -> tuple[Action, ...]:
+        """Every solution, or at most limit, ordered by the variables' domains with the first variable changing slowest.
+        Given a player, such as one of several players acting at once, the rules also read it as `player`."""
+        return self.solve_with_statistics(problem, state, limit, player)[0]
 
     def solve_with_statistics(
-        self, problem: Problem, state: State, limit: int | None = None
+        self, problem: Problem, state: State, limit: int | None = None, player: str | None = None
     ) -> tuple[tuple[Action, ...], SolveStatistics]:
         """The solutions solve gives, with what the search did summed over the problem's actions. A cached result keeps
-        the statistics of the search that found it."""
+        the statistics of the search that found it. Given a player, a state variable named `player` raises ValueError."""
+        if player is not None:
+            if any(name == PLAYER for name, _ in state.variables):
+                raise ValueError(f"A state variable is named {PLAYER!r}, the name rules read the player solved for by")
+            state = State((*state.variables, (PLAYER, player)))
         key = (id(problem), state, limit)
         cached = self._cache.get(key)
         if cached is not None and cached[0] is problem:
-            self._cache.move_to_end(key)
             return cached[1]
         actions: list[Action] = []
         assignments = dead_ends = pruned_values = 0
@@ -86,9 +100,8 @@ class Solver:
             dead_ends += statistics.dead_ends
             pruned_values += statistics.pruned_values
         result = (tuple(actions), SolveStatistics(len(actions), assignments, dead_ends, pruned_values))
+        self._memory_guard.remembered()
         self._cache[key] = (problem, result)
-        if len(self._cache) > CACHE_SIZE:
-            self._cache.popitem(last=False)
         return result
 
     def _solve_action(

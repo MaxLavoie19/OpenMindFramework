@@ -44,7 +44,8 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
 | `rbs` | Rules generated from search for any domain, as hypotheses validated on held-out games, that rate actions and explain their ratings; value rules, weighted terms fitted sparsely, that value positions | iterations 6, 9, 10 and 11 |
 | `inference` | The inference engine: views of positions that look ahead with a domain's own actions, a search growing expressions of them (patterns of any size, thresholds, combinations, look-aheads) within a time and memory budget, and deduction on one position with induction of candidate expressions from what it proved | iteration 14 |
 | `training` | Self-play, distillation of models from search, selection of the rules that play no worse than all of them, distillation of value rules, and a loop training value rules round after round | iterations 6, 10, 11 and 13 |
-| `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded | iteration 10 |
+| `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded; each process's caches cleared by memory, and workers capped, ended with a diagnosis and replaced when they stay over | iteration 10, 2026-09-15 |
+| `dashboard` | A page following a value training while it runs: the round's progress, every round, the latest rules, the machine's memory and earlyoom's kills | 2026-09-15 |
 | `testing` | Test support shared with problem projects: a pytest plugin saving each test's logs | iteration 12 |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |
 

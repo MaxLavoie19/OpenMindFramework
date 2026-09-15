@@ -1,8 +1,9 @@
 from openmind.agent.model.domain import Domain
 from openmind.csp.service.solver import Solver
 from openmind.inference.constant.inference_constant import DEFAULT_PROCESS_MEMORY, MEMORY_CHECK_INTERVAL
-from openmind.inference.service.memory_meter import MemoryMeter
+from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.inference.service.position_view import Moves, PositionView
+from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.predictor.service.predictor import Predictor
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.world.model.state import State
@@ -12,7 +13,8 @@ class Mechanics:
     """What a domain's own rules make of a position, for generated expressions: the position as a view, its variables as
     rules read them, and the outcomes of every action a player could take in it if it were their turn. Views and moves
     are kept per process, left behind when the mechanics are copied to another process, and cleared whenever the process
-    holds more memory than its share: every MEMORY_CHECK_INTERVAL entries remembered, the memory meter is read."""
+    holds more memory than its share: every MEMORY_CHECK_INTERVAL entries remembered, the memory meter is read. The
+    process's memory guard clears them too."""
 
     def __init__(
         self,
@@ -29,14 +31,26 @@ class Mechanics:
         self._remembered = 0
         self._domains: dict[int, Domain] = {}
         self._cache: dict[tuple[object, ...], object] = {}
+        self._memory_guard = process_memory_guard()
+        self._memory_guard.register(self)
 
     def __getstate__(self) -> dict[str, object]:
-        return {name: value for name, value in self.__dict__.items() if name not in ("_domains", "_cache")}
+        return {
+            name: value for name, value in self.__dict__.items() if name not in ("_domains", "_cache", "_memory_guard")
+        }
 
     def __setstate__(self, state: dict[str, object]) -> None:
         self.__dict__.update(state)
         self._domains = {}
         self._cache = {}
+        self._memory_guard = process_memory_guard()
+        self._memory_guard.register(self)
+
+    def memory_entries(self) -> int:
+        return len(self._cache)
+
+    def clear_memory(self) -> None:
+        self.clear()
 
     def limit_memory(self, memory_bytes: int) -> None:
         """The share of memory a process holds before its views and moves are cleared; copies sent to other processes
@@ -93,4 +107,5 @@ class Mechanics:
         self._remembered += 1
         if self._remembered % MEMORY_CHECK_INTERVAL == 0 and self._memory_meter.resident_bytes() > self._memory_share:
             self._cache.clear()
+        self._memory_guard.remembered()
         self._cache[key] = value

@@ -19,7 +19,7 @@ class TrainingReportTextMapper:
         ]
         if not report.rounds:
             return "\n".join(lines)
-        opponents = [results.opponent for results in report.rounds[0].baselines]
+        opponents = list(dict.fromkeys(results.opponent for item in report.rounds for results in item.baselines))
         pondered = any(item.pondering is not None for item in report.rounds)
         header = (
             "round",
@@ -39,7 +39,7 @@ class TrainingReportTextMapper:
                 self._loss(None if item.chosen is None else item.chosen.held_out_loss),
                 self._loss(next((fit.held_out_loss for fit in item.fits if fit.terms_kept == 0), None)),
                 "none" if item.held_out_error is None else f"{item.held_out_error:.4f}",
-                *(self._results(results) for results in item.baselines),
+                *(self._against(item.baselines, opponent) for opponent in opponents),
                 "none"
                 if item.against_previous is None
                 else f"{item.against_previous.opponent}: {self._results(item.against_previous)}",
@@ -50,6 +50,11 @@ class TrainingReportTextMapper:
         ]
         lines.extend(self._table(header, rows))
         return "\n".join(lines)
+
+    def _against(self, baselines: Sequence[MatchResults], opponent: str) -> str:
+        """The round's games against the opponent, or none, for a round handed over before its games."""
+        found = next((results for results in baselines if results.opponent == opponent), None)
+        return "none" if found is None else self._results(found)
 
     def _pondering(self, summary: PonderingSummary | None) -> str:
         if summary is None:

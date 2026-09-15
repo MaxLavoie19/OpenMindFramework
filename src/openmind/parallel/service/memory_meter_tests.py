@@ -1,4 +1,4 @@
-from openmind.inference.service.memory_meter import MemoryMeter
+from openmind.parallel.service.memory_meter import MemoryMeter
 
 
 def test_the_meter_reads_what_this_process_holds() -> None:

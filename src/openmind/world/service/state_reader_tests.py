@@ -25,6 +25,25 @@ def test_player_to_act_rejects_a_name_that_is_not_a_player() -> None:
         StateReader().player_to_act(State((("turn", "Z"),)), PLAYERS)
 
 
+AT_ONCE = State((("payoff(O)", None), ("payoff(X)", None), ("turn(O)", True), ("turn(X)", True)))
+
+
+def test_players_flagged_under_the_to_act_base_act_at_once() -> None:
+    reader = StateReader()
+
+    assert reader.acts_at_once(AT_ONCE, PLAYERS) and not reader.acts_at_once(State((("turn", "O"),)), PLAYERS)
+    assert reader.players_to_act(AT_ONCE, PLAYERS) == (0, 1)
+    assert reader.players_to_act(State((("turn(O)", True), ("turn(X)", False))), PLAYERS) == (1,)
+    assert reader.players_to_act(State((("turn(O)", False), ("turn(X)", False))), PLAYERS) == ()
+    assert reader.players_to_act(State((("turn", "O"),)), PLAYERS) == (1,)
+
+
+def test_player_to_act_is_the_one_flagged_player_and_raises_for_players_acting_at_once() -> None:
+    assert StateReader().player_to_act(State((("turn(O)", True), ("turn(X)", False))), PLAYERS) == 1
+    with pytest.raises(ValueError, match="X, O act at once"):
+        StateReader().player_to_act(AT_ONCE, PLAYERS)
+
+
 def test_payoffs_follow_the_order_of_players() -> None:
     state = State((("payoff(O)", 0), ("payoff(X)", 1.0)))
 

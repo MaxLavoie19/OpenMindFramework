@@ -15,6 +15,7 @@ erodes that simplicity a bit, in this order, toward the rhetorical agent.
 | Public goods game | several players, simultaneous choices | profiting from others' contributions |
 | Kuhn poker | hidden cards, chance | the smallest game where bluffing is part of perfect play |
 | Liar's dice | hidden dice, claims that can be false and challenged | lies beaten by a better player, not by a rule |
+| Cheat (Bullshit, I Doubt It) | hidden cards, face-down plays whose claimed rank can be a lie, challenges | predicting lies from what players have shown; the test bed of semi-determinized MCTS (Bitan and Kraus, 2017, arXiv:1709.09451) |
 | Kriegspiel | chess with the opponent's pieces hidden | hidden information in chess |
 | Lewis signaling game | a sender and a receiver, meanings not given | the encoder and decoder as a game |
 | Hanabi | cooperative, hidden cards, limited hints | what you say matters; reading intent |

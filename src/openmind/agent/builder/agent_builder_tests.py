@@ -2,9 +2,11 @@ import pytest
 
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.factory.prisoners_dilemma_factory import create_prisoners_dilemma_domain
+from openmind.agent.factory.rock_paper_scissors_factory import create_rock_paper_scissors_domain
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.mcts.model.action_statistics import ActionStatistics
+from openmind.mcts.service.semi_determinized_search_tests import Believes, coin_domain
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -178,3 +180,48 @@ def test_build_rejects_missing_settings() -> None:
 def test_build_rejects_fewer_than_one_iteration() -> None:
     with pytest.raises(ValueError, match="0"):
         AgentBuilder().with_iterations(0).with_exploration(1.4).build()
+
+
+def test_an_agent_with_a_theory_of_mind_searches_once_per_hypothesis_in_a_domain_with_an_observation() -> None:
+    domain = coin_domain("tails", 0.5)
+
+    result = AgentBuilder().with_iterations(40).with_exploration(1.4).with_seed(1).with_theory_of_mind(Believes(0.8)).build().search(
+        domain, domain.initial_state
+    )
+
+    assert result.chosen == Action("guess", (("side", "heads"),))
+    assert [hypothesis.probability for hypothesis in result.hypotheses] == [0.8, pytest.approx(0.2)]
+
+
+def test_an_agent_with_a_theory_of_mind_searches_plainly_where_every_player_sees_everything() -> None:
+    domain = create_tictactoe_domain()
+
+    result = AgentBuilder().with_iterations(20).with_exploration(1.4).with_seed(1).with_theory_of_mind().build().search(
+        domain, domain.initial_state
+    )
+
+    assert result.hypotheses == ()
+
+
+def throw(shape: str) -> Action:
+    return Action("throw", (("shape", shape),))
+
+
+class PredictsRock:
+    """A theory of mind predicting the other player throws rock 0.6 of the time."""
+
+    def hypotheses(self, domain: object, observed: State, player: str) -> tuple[()]:
+        return ()
+
+    def strategy(self, domain: object, state: State, player: str, other: str) -> tuple[tuple[Action, float], ...]:
+        return (throw("rock"), 0.6), (throw("paper"), 0.2), (throw("scissors"), 0.2)
+
+
+def test_an_agent_acting_at_once_searches_for_its_player_against_the_strategy_its_theory_predicts() -> None:
+    domain = create_rock_paper_scissors_domain()
+    agent = AgentBuilder().with_iterations(2000).with_exploration(1.4).with_seed(1).with_theory_of_mind(PredictsRock()).build()  # type: ignore[arg-type]
+
+    result = agent.search(domain, domain.initial_state, "A")
+
+    assert result.player == "A" and dict(result.strategy)[throw("paper")] > 0.5
+    assert agent.choose(domain, domain.initial_state, "B") in (throw("rock"), throw("paper"), throw("scissors"))

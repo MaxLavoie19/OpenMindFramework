@@ -8,11 +8,13 @@ from openmind.rule.model.python_rule import PythonRule
 
 
 class TransitionModelBuilder:
-    """Collects transitions, and the definitions their effects see, into a transition model."""
+    """Collects transitions, the definitions their effects see, and the resolution of actions taken at once, into a
+    transition model."""
 
     def __init__(self) -> None:
         self._transitions: list[Transition] = []
         self._definitions: PythonRule | None = None
+        self._resolution: tuple[Branch, ...] | None = None
 
     def with_transition(self, action: str, branches: tuple[Branch, ...]) -> Self:
         if any(transition.action == action for transition in self._transitions):
@@ -27,5 +29,14 @@ class TransitionModelBuilder:
         self._definitions = definitions
         return self
 
+    def with_resolution(self, branches: tuple[Branch, ...]) -> Self:
+        """The branches run after every player's action when players act at once; probabilities not summing to 1 raise
+        ValueError."""
+        total = math.fsum(branch.probability for branch in branches)
+        if not math.isclose(total, 1.0):
+            raise ValueError(f"Resolution branch probabilities sum to {total}, not 1")
+        self._resolution = branches
+        return self
+
     def build(self) -> TransitionModel:
-        return TransitionModel(tuple(self._transitions), self._definitions)
+        return TransitionModel(tuple(self._transitions), self._definitions, self._resolution)

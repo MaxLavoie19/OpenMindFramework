@@ -1,4 +1,5 @@
-import os
+from openmind.parallel.constant.parallel_constant import DEFAULT_PROCESS_MEMORY as PROCESS_MEMORY
+from openmind.parallel.constant.parallel_constant import HALF_THE_MEMORY
 
 #: The player a position is valued for, and the next player in the domain's order, as generated expressions name them.
 ME = "me"
@@ -45,13 +46,6 @@ MIN_SCREENING_ROWS = 500
 CANDIDATE_BATCH = 200
 
 
-def _half_the_memory() -> int:
-    try:
-        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // 2
-    except (AttributeError, OSError, ValueError):
-        return 8 * 1024**3
-
-
 #: How long a search runs by default, in seconds.
 DEFAULT_SEARCH_SECONDS = 3600.0
 #: How long one position is deduced by default, in seconds, and the highest payoff a player can get by default, as in
@@ -59,7 +53,7 @@ DEFAULT_SEARCH_SECONDS = 3600.0
 DEFAULT_DEDUCTION_SECONDS = 10.0
 DEFAULT_HIGHEST_PAYOFF = 1.0
 #: How many bytes a search's process holds at most by default: half the machine's memory.
-DEFAULT_SEARCH_MEMORY = _half_the_memory()
+DEFAULT_SEARCH_MEMORY = HALF_THE_MEMORY
 #: How many bytes a process holds before the mechanics clear their views, until a search sets its own share: half the
 #: machine's memory shared between its logical CPUs, so that every process of a pool fits together.
-DEFAULT_PROCESS_MEMORY = DEFAULT_SEARCH_MEMORY // (os.cpu_count() or 1)
+DEFAULT_PROCESS_MEMORY = PROCESS_MEMORY

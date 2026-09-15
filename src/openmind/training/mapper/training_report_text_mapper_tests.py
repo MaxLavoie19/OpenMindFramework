@@ -13,6 +13,14 @@ def test_each_round_is_a_line_of_the_table() -> None:
     ]
 
 
+def test_a_round_handed_over_before_its_games_shows_none_against_each_opponent() -> None:
+    report = replace(REPORT, rounds=(ROUND, replace(ROUND, number=2, baselines=(), against_previous=None)))
+
+    lines = TrainingReportTextMapper().to_text(report).splitlines()
+
+    assert lines[3].split() == ["2", "1", "0.691229", "0.691963", "0.0110", "none", "none", "none", "3600"]
+
+
 def test_a_round_that_pondered_shows_its_positions_proofs_and_seeds() -> None:
     report = replace(REPORT, rounds=(replace(ROUND, pondering=PonderingSummary(50, 7, 12, 3, 1)),))
 

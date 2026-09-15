@@ -3,6 +3,7 @@ import math
 
 import pytest
 
+from openmind.agent.factory.rock_paper_scissors_factory import create_rock_paper_scissors_domain
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.discrete_domain import DiscreteDomain
@@ -50,12 +51,13 @@ def search(
     rollout_limit: int | None = None,
     unfinished_payoff: float | None = None,
     observation: Observation | None = None,
+    completions: tuple[tuple[State, float], ...] | None = None,
 ) -> SearchResult:
     tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
     problem, transitions, state = game
     players = Players(("me",), "turn", ("payoff",))
     settings = SearchSettings(iterations, exploration, seed, rollout_limit, unfinished_payoff)
-    return tree_search.search(problem, transitions, players, state, settings, guidance, valuation, observation)
+    return tree_search.search(problem, transitions, players, state, settings, guidance, valuation, observation, completions)
 
 
 def pay(payoff: float) -> PythonRule:
@@ -317,6 +319,87 @@ def test_with_an_observation_the_search_logs_how_many_states_could_be_true(caplo
     search(guessing_game("tails"), iterations=2, observation=hidden_coin(0.9))
 
     assert "me sees 2 states that could be true" in caplog.messages
+
+
+def test_given_completions_are_the_only_states_that_could_be_true(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    tails = (State((("coin", "tails"), ("payoff", None), ("turn", "me"))), 1.0)
+
+    result = search(guessing_game("heads"), iterations=20, observation=hidden_coin(0.9), completions=(tails,))
+
+    assert result.chosen == Action("guess", (("side", "tails"),))
+    assert "me sees 1 states that could be true" in caplog.messages
+
+
+def test_completions_without_an_observation_raise() -> None:
+    tails = (State((("coin", "tails"), ("payoff", None), ("turn", "me"))), 1.0)
+
+    with pytest.raises(ValueError, match="Completions need an observation"):
+        search(guessing_game("heads"), iterations=20, completions=(tails,))
+
+
+def throw(shape: str) -> Action:
+    return Action("throw", (("shape", shape),))
+
+
+def rock_paper_scissors_search(
+    iterations: int,
+    predicted: dict[str, tuple[tuple[Action, float], ...]] | None = None,
+    player: str | None = "A",
+    seed: int = 1,
+) -> SearchResult:
+    domain = create_rock_paper_scissors_domain()
+    tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
+    settings = SearchSettings(iterations, math.sqrt(2), seed)
+    return tree_search.search(
+        domain.problem, domain.transitions, domain.players, domain.initial_state, settings, player=player, predicted=predicted
+    )
+
+
+def test_players_acting_at_once_regret_match_toward_even_throws() -> None:
+    result = rock_paper_scissors_search(3000)
+
+    assert [action for action, _ in result.strategy] == [throw("rock"), throw("paper"), throw("scissors")]
+    assert all(abs(probability - 1 / 3) < 0.1 for _, probability in result.strategy)
+    assert result.chosen in (throw("rock"), throw("paper"), throw("scissors"))
+    assert sum(item.visits for item in result.statistics) == 3000
+    assert {sample.player for sample in result.samples} == {0, 1}
+
+
+def test_a_player_predicted_to_throw_rock_mostly_is_answered_with_paper() -> None:
+    rock_mostly = ((throw("rock"), 0.6), (throw("paper"), 0.2), (throw("scissors"), 0.2))
+
+    result = rock_paper_scissors_search(2000, {"B": rock_mostly})
+
+    assert dict(result.strategy)[throw("paper")] > 0.5
+
+
+def test_a_search_where_players_act_at_once_logs_the_prediction_and_the_average_strategy(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    rock_paper_scissors_search(30, {"B": ((throw("rock"), 1.0),)})
+
+    assert "Searching 30 iterations for A, acting at once with B" in caplog.messages
+    assert "B is predicted to play throw(shape='rock')=1.0 throw(shape='paper')=0.0 throw(shape='scissors')=0.0" in caplog.messages
+    assert any(message.startswith("Sampled from the average strategy: throw(shape=") for message in caplog.messages)
+
+
+@pytest.mark.parametrize(
+    ("player", "predicted", "message"),
+    [
+        (None, None, "needs one of them as the searching player"),
+        ("A", {"A": ((throw("rock"), 1.0),)}, "its own strategy can't be predicted"),
+        ("A", {"B": ((throw("rock"), 0.5),)}, "summing to 1"),
+        ("A", {"C": ((throw("rock"), 1.0),)}, "isn't a player to act"),
+    ],
+)
+def test_a_search_where_players_act_at_once_rejects_a_missing_player_or_a_wrong_prediction(
+    player: str | None, predicted: dict[str, tuple[tuple[Action, float], ...]] | None, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        rock_paper_scissors_search(10, predicted, player)
 
 
 @pytest.mark.parametrize(

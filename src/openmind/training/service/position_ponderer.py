@@ -8,6 +8,7 @@ from openmind.inference.model.expression import Expression
 from openmind.inference.service.deduction_inducer import DeductionInducer
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.position_deducer import PositionDeducer
+from openmind.parallel.model.dropped_call import DroppedCall
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.value_base import ValueBase
@@ -64,9 +65,11 @@ class PositionPonderer:
         playable = [state for state in sorted(worst, key=lambda state: -worst[state]) if self._solver.solve(domain.problem, state)]
         states = playable[: settings.positions]
         deductions = tuple(
-            self._task_runner.map(
-                self._position_deducer.deduce, [domain] * len(states), states, [settings.budget] * len(states)
+            deduction
+            for deduction in self._task_runner.map(
+                self._position_deducer.deduce, [domain] * len(states), states, [settings.budget] * len(states), droppable=True
             )
+            if not isinstance(deduction, DroppedCall)
         )
         proven = {deduction.state: deduction for deduction in deductions if deduction.payoffs is not None}
         names = domain.players.names

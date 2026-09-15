@@ -12,7 +12,8 @@ from openmind.inference.model.search_budget import SearchBudget
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.expression_generator_tests import line_domain, line_position
 from openmind.inference.service.expression_search import ExpressionSearch
-from openmind.inference.service.memory_meter import MemoryMeter
+from openmind.parallel.model.call_over_memory import CallOverMemory
+from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.model.position_row import PositionRow
@@ -58,6 +59,18 @@ class RecordingEvaluator(TermEvaluator):
     def columns(self, domain, rows, sources):  # type: ignore[no-untyped-def]
         self.batches.append(list(sources))
         return super().columns(domain, rows, sources)
+
+
+class OverMemoryEvaluator(TermEvaluator):
+    """A term evaluator whose workers go over their memory cap twice on every batch."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build(), TaskRunner(1)
+        )
+
+    def columns(self, domain, rows, sources):  # type: ignore[no-untyped-def]
+        raise CallOverMemory(0, None)
 
 
 class EndlessGenerator(ExpressionGenerator):
@@ -185,3 +198,14 @@ def test_a_search_whose_process_holds_more_than_its_memory_budget_clears_its_vie
 
     assert (result.stopped, result.tried, result.expressions, evaluator.clears) == ("the memory budget ran out", 0, (), 1)
     assert any(", over the memory budget of 1: cleared the views" in message for message in caplog.messages)
+
+
+def test_a_search_whose_workers_go_over_their_memory_cap_twice_stops_on_memory(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="openmind.inference")
+
+    result = new_search(evaluator=OverMemoryEvaluator()).search(
+        strip_domain(), strip_rows(), (), targets(), 0.01, 500, 1e-6, SearchBudget(300.0, 64 * GIGABYTE, 3000)
+    )
+
+    assert (result.stopped, result.expressions) == ("the memory budget ran out", ())
+    assert any(message.startswith("Evaluating candidates took a worker over its memory cap twice") for message in caplog.messages)

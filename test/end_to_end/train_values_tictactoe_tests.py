@@ -43,7 +43,10 @@ def test_train_values_saves_every_round_and_the_report_and_prints_the_rounds(
     assert output.endswith(f"Saved training report {report_file}\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
     lines = log_file.read_text(encoding="utf-8").splitlines()
-    assert "INFO  openmind.entrypoint.train_values Training in 1 worker processes" in lines
+    assert (
+        "INFO  openmind.entrypoint.train_values Training in 1 worker processes, each holding at most 1073741824 bytes; "
+        f"memory diagnoses in {tmp_path / 'log' / 'tictactoe' / 'memory'}"
+    ) in lines
     assert lines[-1] == f"INFO  openmind.entrypoint.train_values Saved training report {report_file}"
 
 

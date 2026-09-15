@@ -38,8 +38,9 @@ from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
 
-def create_prisoners_dilemma_initial_state() -> State:
-    """Round 1, A to choose first, neither player's choice made nor played, both scores 0, no payoff set."""
+def create_prisoners_dilemma_initial_state(variant: PrisonersDilemmaVariant = STANDARD) -> State:
+    """Round 1, A to choose first, or both to choose at once in a simultaneous variant (turn(A) and turn(B) true),
+    neither player's choice made nor played, both scores 0, no payoff set."""
     variable_name_mapper = VariableNameMapper()
     builder = StateBuilder()
     for player in PLAYERS:
@@ -47,8 +48,11 @@ def create_prisoners_dilemma_initial_state() -> State:
         builder.with_variable(variable_name_mapper.to_name(PLAYED, (1, player)), UNSET)
         builder.with_variable(variable_name_mapper.to_name(SCORE, (player,)), 0)
         builder.with_variable(variable_name_mapper.to_name(PAYOFF, (player,)), UNSET)
+        if variant.simultaneous:
+            builder.with_variable(variable_name_mapper.to_name(TURN, (player,)), True)
     builder.with_variable(ROUND, 1)
-    builder.with_variable(TURN, PLAYERS[0])
+    if not variant.simultaneous:
+        builder.with_variable(TURN, PLAYERS[0])
     return builder.build()
 
 
@@ -77,23 +81,27 @@ def create_prisoners_dilemma_definitions(variant: PrisonersDilemmaVariant = STAN
     )
 
 
-def create_prisoners_dilemma_problem() -> Problem:
-    """While no payoff is set, the player to act chooses to cooperate or defect, once a round."""
+def create_prisoners_dilemma_problem(variant: PrisonersDilemmaVariant = STANDARD) -> Problem:
+    """While no payoff is set, the player to act chooses to cooperate or defect, once a round; in a simultaneous variant,
+    every player to act, read as `player`."""
     no_payoff_set = tuple(PythonRule(f"{PAYOFF}[{player!r}] is {UNSET!r}") for player in PLAYERS)
-    not_chosen = PythonRule(f"{CHOSEN}[{TURN}] is {UNSET!r}")
-    return (
-        ProblemBuilder()
-        .with_action(CHOOSE, (Variable(CHOICE, DiscreteDomain(CHOICES)),), (*no_payoff_set, not_chosen))
-        .build()
-    )
+    if variant.simultaneous:
+        constraints = (*no_payoff_set, PythonRule(f"{TURN}[{PLAYER}]"), PythonRule(f"{CHOSEN}[{PLAYER}] is {UNSET!r}"))
+    else:
+        constraints = (*no_payoff_set, PythonRule(f"{CHOSEN}[{TURN}] is {UNSET!r}"))
+    return ProblemBuilder().with_action(CHOOSE, (Variable(CHOICE, DiscreteDomain(CHOICES)),), constraints).build()
 
 
 def create_prisoners_dilemma_transitions(variant: PrisonersDilemmaVariant = STANDARD) -> TransitionModel:
     """Keep the choice until both players have chosen; then play both, add their points, and either end the game, each
     payoff the player's own score, or start the next round with its choices not yet played. The game ends after the
     variant's last round, and with the variant's ending chance after any round: the action then has a branch where the
-    game goes on and one where it ends, which give the same state when the choice doesn't finish a round."""
+    game goes on and one where it ends, which give the same state when the choice doesn't finish a round. In a
+    simultaneous variant, each choice only keeps its player's choice, and the resolution, run once both have chosen,
+    plays the round with those same branches, ending the game by clearing both players' turns."""
     _check(variant)
+    if variant.simultaneous:
+        return _simultaneous_transitions(variant)
     effects = textwrap.dedent(
         f"""\
         {CHOSEN}[{TURN}] = {CHOICE}
@@ -151,15 +159,51 @@ def create_prisoners_dilemma_players() -> Players:
 def create_prisoners_dilemma_domain(variant: PrisonersDilemmaVariant = STANDARD) -> Domain:
     """The repeated prisoner's dilemma or one of its variants. The standard game is named "prisonersdilemma", any other
     variant "prisonersdilemma/<variant>". A variant with fewer than 1 round, an ending chance outside 0 to 1, or neither
-    a last round nor an ending chance raises ValueError."""
-    return (
+    a last round nor an ending chance raises ValueError. A simultaneous variant has no observation: a choice is kept
+    only until the round's resolution, which no player sees happen before choosing."""
+    builder = (
         DomainBuilder()
         .with_name(NAME if variant == STANDARD else SEPARATOR.join((NAME, variant.name)))
-        .with_initial_state(create_prisoners_dilemma_initial_state())
-        .with_problem(create_prisoners_dilemma_problem())
+        .with_initial_state(create_prisoners_dilemma_initial_state(variant))
+        .with_problem(create_prisoners_dilemma_problem(variant))
         .with_transitions(create_prisoners_dilemma_transitions(variant))
         .with_players(create_prisoners_dilemma_players())
-        .with_observation(create_prisoners_dilemma_observation(variant))
+    )
+    if not variant.simultaneous:
+        builder.with_observation(create_prisoners_dilemma_observation(variant))
+    return builder.build()
+
+
+def _simultaneous_transitions(variant: PrisonersDilemmaVariant) -> TransitionModel:
+    resolution = textwrap.dedent(
+        f"""\
+        points = POINTS[{CHOSEN}[PLAYERS[0]], {CHOSEN}[PLAYERS[1]]]
+        for each, gained in zip(PLAYERS, points):
+            {PLAYED}[{ROUND}, each] = {CHOSEN}[each]
+            {SCORE}[each] = {SCORE}[each] + gained
+            {CHOSEN}[each] = {UNSET!r}
+        if {ROUND} == ROUNDS or {ENDING}:
+            for each in PLAYERS:
+                {PAYOFF}[each] = {SCORE}[each]
+                {TURN}[each] = False
+        else:
+            {ROUND} = {ROUND} + 1
+            for each in PLAYERS:
+                {PLAYED}[{ROUND}, each] = {UNSET!r}
+        """
+    )
+    goes_on, ends = (PythonRule(f"{ENDING} = {ending!r}\n{resolution}") for ending in (False, True))
+    if variant.ending_chance == 0.0:
+        branches = (Branch(CERTAIN, goes_on),)
+    elif variant.ending_chance == 1.0:
+        branches = (Branch(CERTAIN, ends),)
+    else:
+        branches = (Branch(1.0 - variant.ending_chance, goes_on), Branch(variant.ending_chance, ends))
+    return (
+        TransitionModelBuilder()
+        .with_definitions(create_prisoners_dilemma_definitions(variant))
+        .with_transition(CHOOSE, (Branch(CERTAIN, PythonRule(f"{CHOSEN}[{PLAYER}] = {CHOICE}")),))
+        .with_resolution(branches)
         .build()
     )
 

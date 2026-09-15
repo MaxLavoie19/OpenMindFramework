@@ -1,5 +1,6 @@
 import logging
 import random
+import re
 
 import pytest
 
@@ -13,6 +14,10 @@ from openmind.world.service.state_reader import StateReader
 
 pytestmark = pytest.mark.log_level("INFO")
 
+GAME_LINE = re.compile(
+    r"Self-play game with seeds \d+ and \d+ finished in (?P<plies>\d+) plies: (?P<samples>\d+) samples, payoffs (?P<payoffs>.*)"
+)
+
 
 def new_self_play(workers: int = 1) -> SelfPlay:
     return SelfPlay(create_solver(), create_predictor(), StateReader(), TaskRunner(workers))
@@ -25,16 +30,42 @@ def test_play_keeps_every_game_with_its_searches_positions_and_payoffs(caplog: p
     games = new_self_play().play(domain, AgentBuilder().with_iterations(10).with_exploration(1.4), 2, random.Random(1))
 
     game_lines = [
-        record.getMessage() for record in caplog.records if record.name == "openmind.training.service.self_play"
+        GAME_LINE.fullmatch(record.getMessage())
+        for record in caplog.records
+        if record.name == "openmind.training.service.self_play"
     ]
-    assert [line.split(":")[0] for line in game_lines] == ["Self-play game 1", "Self-play game 2"]
-    assert [int(line.split(": ")[1].split(" ")[0]) for line in game_lines] == [len(game.samples) for game in games]
+    assert all(game_lines) and len(game_lines) == 2
+    assert [(int(line["plies"]), int(line["samples"])) for line in game_lines] == [  # type: ignore[index]
+        (len(game.states), len(game.samples)) for game in games
+    ]
+    assert [line["payoffs"] for line in game_lines] == [  # type: ignore[index]
+        " ".join(f"{name}={payoff}" for name, payoff in zip(domain.players.names, game.payoffs)) for game in games
+    ]
     assert {sample.action.name for game in games for sample in game.samples} == {"place"}
     for game in games:
         assert game.states[0] == domain.initial_state
         assert 5 <= len(game.states) == len(game.search_values) <= 9
         assert all(0.0 <= value <= 1.0 for value in game.search_values)
         assert sum(game.payoffs) == 1.0
+
+
+def test_games_played_without_keeping_samples_keep_their_positions_and_count_their_samples(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    domain = create_tictactoe_domain()
+
+    (game,) = new_self_play().play(
+        domain, AgentBuilder().with_iterations(10).with_exploration(1.4), 1, random.Random(1), keep_samples=False
+    )
+
+    (line,) = [
+        GAME_LINE.fullmatch(record.getMessage())
+        for record in caplog.records
+        if record.name == "openmind.training.service.self_play"
+    ]
+    assert game.samples == () and len(game.states) == len(game.search_values) >= 5
+    assert line is not None and int(line["samples"]) > 0
 
 
 def test_workers_play_the_same_games() -> None:

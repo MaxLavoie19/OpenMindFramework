@@ -2,6 +2,7 @@ from typing import Self
 
 from openmind.agent.constant.agent_constant import GUIDED_ROLLOUTS, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
 from openmind.agent.service.agent import Agent
+from openmind.agent.service.completion_theory import CompletionTheory
 from openmind.agent.service.deduction_fallback import DeductionFallback
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.inference.model.deduction_budget import DeductionBudget
@@ -11,9 +12,16 @@ from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.model.search_settings import SearchSettings
+from openmind.mcts.model.theory_of_mind import TheoryOfMind
+from openmind.mcts.service.semi_determinized_search import SemiDeterminizedSearch
 from openmind.mcts.service.tree_search import TreeSearch
+from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
+from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.rule.service.rule_runner import RuleRunner
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
+from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.service.state_reader import StateReader
 
 
@@ -32,6 +40,8 @@ class AgentBuilder:
         self._rollout_limit: int | None = None
         self._unfinished_payoff: float | None = None
         self._deduction: DeductionBudget | None = None
+        self._semi_determinized = False
+        self._theory: TheoryOfMind | None = None
 
     def with_iterations(self, iterations: int) -> Self:
         self._iterations = iterations
@@ -76,6 +86,13 @@ class AgentBuilder:
         self._deduction = budget
         return self
 
+    def with_theory_of_mind(self, theory: TheoryOfMind | None = None) -> Self:
+        """Searches semi-determinized in domains with an observation, with the hypotheses of the given theory of mind;
+        None believes the domain's own completions (`CompletionTheory` without a label rule)."""
+        self._semi_determinized = True
+        self._theory = theory
+        return self
+
     def build(self) -> Agent:
         iterations, exploration = self._iterations, self._exploration
         if iterations is None or exploration is None:
@@ -112,4 +129,11 @@ class AgentBuilder:
         )
         valuation = LeafValuation(self._valuer, self._rollout_actions) if self._valuer is not None else None
         settings = SearchSettings(iterations, exploration, self._seed, self._rollout_limit, self._unfinished_payoff)
-        return Agent(tree_search, settings, guidance, valuation, fallback)
+        if not self._semi_determinized:
+            return Agent(tree_search, settings, guidance, valuation, fallback)
+        state_observer = create_state_observer()
+        theory = self._theory or CompletionTheory(
+            state_observer, RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper()))
+        )
+        semi_determinized = SemiDeterminizedSearch(tree_search, state_observer, state_reader, action_text_mapper)
+        return Agent(tree_search, settings, guidance, valuation, fallback, semi_determinized, theory)

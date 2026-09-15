@@ -1,9 +1,10 @@
 import logging
 import math
 import random
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 
 from openmind.csp.model.problem import Problem
+from openmind.csp.service.joint_solver import JointSolver
 from openmind.csp.service.solver import Solver
 from openmind.mcts.model.action_sample import ActionSample
 from openmind.mcts.model.action_statistics import ActionStatistics
@@ -13,6 +14,7 @@ from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.search_result import SearchResult
 from openmind.mcts.model.search_settings import SearchSettings
+from openmind.mcts.model.simultaneous_node import SimultaneousNode
 from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.observation.model.observation import Observation
 from openmind.observation.service.state_observer import StateObserver
@@ -20,6 +22,7 @@ from openmind.predictor.model.transition_model import TransitionModel
 from openmind.predictor.service.predictor import Predictor
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
+from openmind.world.model.joint_action import JointAction
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
@@ -29,12 +32,15 @@ logger = logging.getLogger(__name__)
 #: How a search with an observation sees: the observation, the searching player's name, and the states that could be
 #: be true at the root with their probabilities.
 type View = tuple[Observation, str, tuple[tuple[State, float], ...]]
+#: What players acting at once picked at a node: each player's action index with the probability it was sampled at.
+type Picked = tuple[tuple[int, float], ...]
 
 
 class TreeSearch:
     """Monte-Carlo Tree Search: UCT selection, chance nodes for outcomes, rollouts, optional guidance by a rater, and
     optional valuation of the positions rollouts reach. With an observation, the searching player sees only what it
-    shows them: single-observer information set MCTS."""
+    shows them: single-observer information set MCTS. Where players act at once, each samples its action by regret
+    matching, and the searching player's action is sampled from its average strategy."""
 
     def __init__(
         self,
@@ -43,12 +49,14 @@ class TreeSearch:
         state_reader: StateReader,
         action_text_mapper: ActionTextMapper,
         state_observer: StateObserver | None = None,
+        joint_solver: JointSolver | None = None,
     ) -> None:
         self._solver = solver
         self._predictor = predictor
         self._state_reader = state_reader
         self._action_text_mapper = action_text_mapper
         self._state_observer = create_state_observer() if state_observer is None else state_observer
+        self._joint_solver = JointSolver(solver, state_reader) if joint_solver is None else joint_solver
 
     def search(
         self,
@@ -60,18 +68,34 @@ class TreeSearch:
         guidance: Guidance | None = None,
         valuation: LeafValuation | None = None,
         observation: Observation | None = None,
+        completions: tuple[tuple[State, float], ...] | None = None,
+        player: str | None = None,
+        predicted: Mapping[str, tuple[tuple[Action, float], ...]] | None = None,
     ) -> SearchResult:
+        """With an observation, the states that could be true at the root are the observation's completions, or the given
+        completions, such as those of one hypothesis; completions without an observation raise ValueError. In a state
+        where players act at once, `player` names the searching player, and `predicted` gives other players to act the
+        strategies they play at the root instead of regret matching, as (action, probability) pairs."""
+        if completions is not None and (observation is None or not completions):
+            raise ValueError("Completions need an observation and at least one state")
         if settings.rollout_limit is not None:
             if settings.rollout_limit < 0:
                 raise ValueError(f"The rollout limit can't be negative, not {settings.rollout_limit}")
             if settings.unfinished_payoff is None:
                 raise ValueError("A rollout limit needs an unfinished payoff")
         rng = random.Random(settings.seed)
+        if self._state_reader.acts_at_once(state, players):
+            if observation is not None:
+                raise ValueError("A search where players act at once doesn't take an observation yet")
+            if not 0.0 < settings.regret_exploration <= 1.0:
+                raise ValueError(f"The regret exploration needs to be above 0 and at most 1, not {settings.regret_exploration}")
+            return self._search_at_once(problem, transitions, players, state, settings, valuation, player, predicted or {}, rng)
         view: View | None = None
         if observation is not None:
             searching = players.names[self._state_reader.player_to_act(state, players)]
             state = self._state_observer.observe(observation, state, searching)
-            view = (observation, searching, self._state_observer.completions(observation, state, searching))
+            possible = self._state_observer.completions(observation, state, searching) if completions is None else completions
+            view = (observation, searching, possible)
         root = self._decision_node(problem, players, state, guidance, rng)
         if root.player is None:
             raise ValueError("No legal action to search from")
@@ -265,13 +289,8 @@ class TreeSearch:
         rollout limit, every player gets the unfinished payoff."""
         length = 0
         while actions := self._solver.solve(problem, state):
-            if valuation is not None and length == valuation.rollout_actions:
-                values = valuation.valuer.value(state)
-                if values is not None:
-                    return values, length, ", then valued"
-            if settings.rollout_limit is not None and length >= settings.rollout_limit:
-                unfinished = float(settings.unfinished_payoff)  # type: ignore[arg-type]
-                return (unfinished,) * len(players.names), length, ", then stopped at the rollout limit"
+            if (stopped := self._stopped(state, length, players, settings, valuation)) is not None:
+                return stopped
             ratings = self._ratings(guidance, state, actions) if guidance is not None and guidance.guided_rollouts else ()
             if guidance is not None and ratings:
                 best = max(ratings)
@@ -283,6 +302,25 @@ class TreeSearch:
             state = self._draw(outcomes, rng)
             length += 1
         return self._state_reader.payoffs(state, players), length, ""
+
+    def _stopped(
+        self,
+        state: State,
+        length: int,
+        players: Players,
+        settings: SearchSettings,
+        valuation: LeafValuation | None,
+    ) -> tuple[tuple[float, ...], int, str] | None:
+        """The payoffs ending a rollout still in play early: the valuer's after its rollout actions, unless it knows
+        nothing about the position, or the unfinished payoff at the rollout limit; None to play on."""
+        if valuation is not None and length == valuation.rollout_actions:
+            values = valuation.valuer.value(state)
+            if values is not None:
+                return values, length, ", then valued"
+        if settings.rollout_limit is not None and length >= settings.rollout_limit:
+            unfinished = float(settings.unfinished_payoff)  # type: ignore[arg-type]
+            return (unfinished,) * len(players.names), length, ", then stopped at the rollout limit"
+        return None
 
     def _draw(self, outcomes: tuple[tuple[State, float], ...], rng: random.Random) -> State:
         (state,) = rng.choices(
@@ -313,4 +351,244 @@ class TreeSearch:
                     continue
                 mean = chance.payoff_sums[node.player] / chance.visits
                 yield ActionSample(node.state, node.player, action, chance.visits, mean)
-                pending.extend(chance.children.values())
+                pending.extend(chance.children.values())  # type: ignore[arg-type]
+
+    def _search_at_once(
+        self,
+        problem: Problem,
+        transitions: TransitionModel,
+        players: Players,
+        state: State,
+        settings: SearchSettings,
+        valuation: LeafValuation | None,
+        player: str | None,
+        predicted: Mapping[str, tuple[tuple[Action, float], ...]],
+        rng: random.Random,
+    ) -> SearchResult:
+        """The search from a state where players act at once, for the searching player: regret matching at every node,
+        the searching player's action sampled from its average strategy at the root."""
+        root = self._node_at_once(problem, players, state)
+        if not root.actions:
+            raise ValueError("No legal action to search from")
+        acting = [players.names[index] for index in root.players]
+        if player not in acting:
+            raise ValueError(f"A search where {', '.join(acting)} act at once needs one of them as the searching player, not {player!r}")
+        seat = root.players.index(players.names.index(player))  # type: ignore[arg-type]
+        root.predicted = self._predicted(root, players, seat, predicted)
+        logger.info("Searching %d iterations for %s, acting at once with %s", settings.iterations, player, ", ".join(
+            name for name in acting if name != player
+        ))
+        for position, strategy in root.predicted.items():
+            logger.info(
+                "%s is predicted to play %s",
+                acting[position],
+                " ".join(
+                    f"{self._action_text_mapper.to_text(action)}={probability}"
+                    for action, probability in zip(root.actions[position], strategy, strict=True)
+                ),
+            )
+        for iteration in range(1, settings.iterations + 1):
+            self._iterate_at_once(iteration, root, problem, transitions, players, settings, valuation, rng)
+        actions, counts, sums = root.actions[seat], root.counts[seat], root.strategy_sums[seat]
+        statistics = tuple(
+            ActionStatistics(action, counts[index], root.payoff_sums[seat][index] / counts[index] if counts[index] else 0.0)
+            for index, action in enumerate(actions)
+        )
+        total = math.fsum(sums)
+        strategy = tuple(
+            (action, sums[index] / total if total > 0.0 else 1.0 / len(actions)) for index, action in enumerate(actions)
+        )
+        (chosen,) = rng.choices(actions, weights=[probability for _, probability in strategy])
+        for item, (_, probability) in zip(statistics, strategy, strict=True):
+            logger.info(
+                "%s: %d visits, mean payoff %s, average strategy %s for %s",
+                self._action_text_mapper.to_text(item.action),
+                item.visits,
+                item.mean_payoff,
+                probability,
+                player,
+            )
+        logger.info("Sampled from the average strategy: %s", self._action_text_mapper.to_text(chosen))
+        return SearchResult(player, statistics, chosen, tuple(self._samples_at_once(root)), (), strategy)  # type: ignore[arg-type]
+
+    def _predicted(
+        self,
+        root: SimultaneousNode,
+        players: Players,
+        seat: int,
+        predicted: Mapping[str, tuple[tuple[Action, float], ...]],
+    ) -> dict[int, tuple[float, ...]]:
+        """The predicted strategies by position at the root, over each player's legal actions in order. A player not to
+        act, the searching player itself, an action it can't take, a negative probability, or probabilities not summing
+        to 1 raise ValueError."""
+        strategies: dict[int, tuple[float, ...]] = {}
+        for name, mix in predicted.items():
+            index = players.names.index(name) if name in players.names else None
+            if index is None or index not in root.players:
+                raise ValueError(f"{name!r} isn't a player to act, so its strategy can't be predicted")
+            position = root.players.index(index)
+            if position == seat:
+                raise ValueError(f"{name} is the searching player: its own strategy can't be predicted")
+            weights = dict(mix)
+            if unknown := [action for action in weights if action not in root.actions[position]]:
+                raise ValueError(f"{name} can't take {self._action_text_mapper.to_text(unknown[0])}")
+            probabilities = tuple(float(weights.get(action, 0.0)) for action in root.actions[position])
+            total = math.fsum(probabilities)
+            if min(probabilities) < 0.0 or not math.isclose(total, 1.0):
+                raise ValueError(f"{name}'s predicted strategy needs probabilities from 0 summing to 1, not {probabilities}")
+            strategies[position] = probabilities
+        return strategies
+
+    def _iterate_at_once(
+        self,
+        iteration: int,
+        root: SimultaneousNode,
+        problem: Problem,
+        transitions: TransitionModel,
+        players: Players,
+        settings: SearchSettings,
+        valuation: LeafValuation | None,
+        rng: random.Random,
+    ) -> None:
+        """One iteration where players act at once: every player to act picks by regret matching, the joint action's
+        outcome is drawn, and from the first new node a rollout of uniformly drawn joint actions plays on; then each
+        node's regrets, strategies and statistics take the payoffs."""
+        node, state = root, root.state
+        visited = [root]
+        chances: list[ChanceNode] = []
+        picks: list[tuple[SimultaneousNode, Picked]] = []
+        while node.actions:
+            picked = self._pick(node, settings.regret_exploration, rng)
+            joint = JointAction(
+                tuple(
+                    (players.names[node.players[position]], node.actions[position][index])
+                    for position, (index, _) in enumerate(picked)
+                )
+            )
+            chance = node.children.get(joint)
+            if chance is None:
+                outcomes = self._predictor.predict_joint(transitions, state, joint).outcomes
+                chance = ChanceNode(joint, outcomes, {}, 0, [0.0] * len(players.names))
+                node.children[joint] = chance
+            picks.append((node, picked))
+            chances.append(chance)
+            state = self._draw(chance.outcomes, rng)
+            child = chance.children.get(state)
+            if child is None:
+                child = self._node_at_once(problem, players, state)
+                chance.children[state] = child
+            visited.append(child)  # type: ignore[arg-type]
+            node = child  # type: ignore[assignment]
+            if node.visits == 0:
+                break
+
+        if not node.actions:
+            payoffs, rollout_length, ending = self._state_reader.payoffs(state, players), 0, ""
+        else:
+            payoffs, rollout_length, ending = self._rollout_at_once(problem, transitions, players, state, settings, valuation, rng)
+
+        for item in visited:
+            item.visits += 1
+        for chance in chances:
+            chance.visits += 1
+            for index, payoff in enumerate(payoffs):
+                chance.payoff_sums[index] += payoff
+        for picked_node, picked in picks:
+            self._learn(picked_node, picked, payoffs)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Iteration %d: %s, rollout of %d actions%s, payoffs %s",
+                iteration,
+                " > ".join(self._action_text_mapper.joint_text(chance.action) for chance in chances),  # type: ignore[arg-type]
+                rollout_length,
+                ending,
+                " ".join(f"{name}={payoff}" for name, payoff in zip(players.names, payoffs)),
+            )
+
+    def _node_at_once(self, problem: Problem, players: Players, state: State) -> SimultaneousNode:
+        legal = self._joint_solver.legal(problem, state, players)
+        actions = tuple(actions for _, actions in legal)
+        return SimultaneousNode(
+            state,
+            tuple(index for index, _ in legal),
+            actions,
+            [[0.0] * len(choices) for choices in actions],
+            [[0.0] * len(choices) for choices in actions],
+            [[0.0] * len(choices) for choices in actions],
+            [[0] * len(choices) for choices in actions],
+            {},
+            0,
+        )
+
+    def _pick(self, node: SimultaneousNode, exploration: float, rng: random.Random) -> Picked:
+        """Each player to act draws an action: a predicted player from its predicted strategy, any other from its
+        regret-matching strategy mixed with uniform choice, that strategy adding to its summed strategies."""
+        picked: list[tuple[int, float]] = []
+        for position, choices in enumerate(node.actions):
+            count = len(choices)
+            mixed = node.predicted.get(position)
+            if mixed is None:
+                strategy = self._regret_matching(node.regrets[position])
+                for index, probability in enumerate(strategy):
+                    node.strategy_sums[position][index] += probability
+                mixed = tuple((1.0 - exploration) * probability + exploration / count for probability in strategy)
+            (index,) = rng.choices(range(count), weights=mixed)
+            picked.append((index, mixed[index]))
+        return tuple(picked)
+
+    def _regret_matching(self, regrets: list[float]) -> tuple[float, ...]:
+        """Each action's probability in proportion to its positive regret; uniform when no regret is positive."""
+        positive = [max(regret, 0.0) for regret in regrets]
+        total = math.fsum(positive)
+        if total <= 0.0:
+            return (1.0 / len(regrets),) * len(regrets)
+        return tuple(regret / total for regret in positive)
+
+    def _learn(self, node: SimultaneousNode, picked: Picked, payoffs: tuple[float, ...]) -> None:
+        """Adds each player's payoff to its picked action's statistics and, for a player not predicted, updates its
+        regrets with the outcome-sampling estimate: the picked action's payoff divided by the probability it was picked
+        at, every action's regret growing by its estimate minus the payoff."""
+        for position, (index, probability) in enumerate(picked):
+            payoff = payoffs[node.players[position]]
+            node.counts[position][index] += 1
+            node.payoff_sums[position][index] += payoff
+            if position in node.predicted:
+                continue
+            regrets = node.regrets[position]
+            for action in range(len(regrets)):
+                regrets[action] += (payoff / probability if action == index else 0.0) - payoff
+
+    def _rollout_at_once(
+        self,
+        problem: Problem,
+        transitions: TransitionModel,
+        players: Players,
+        state: State,
+        settings: SearchSettings,
+        valuation: LeafValuation | None,
+        rng: random.Random,
+    ) -> tuple[tuple[float, ...], int, str]:
+        """A rollout where players act at once: every player to act draws uniformly among its legal actions."""
+        length = 0
+        while legal := self._joint_solver.legal(problem, state, players):
+            if (stopped := self._stopped(state, length, players, settings, valuation)) is not None:
+                return stopped
+            joint = JointAction(tuple((players.names[index], rng.choice(actions)) for index, actions in legal))
+            state = self._draw(self._predictor.predict_joint(transitions, state, joint).outcomes, rng)
+            length += 1
+        return self._state_reader.payoffs(state, players), length, ""
+
+    def _samples_at_once(self, root: SimultaneousNode) -> Iterator[ActionSample]:
+        """A sample for every action a player to act took anywhere in the tree, with its visits and mean payoff for
+        that player."""
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            for position, index in enumerate(node.players):
+                for choice, action in enumerate(node.actions[position]):
+                    count = node.counts[position][choice]
+                    if count:
+                        yield ActionSample(node.state, index, action, count, node.payoff_sums[position][choice] / count)
+            for chance in node.children.values():
+                pending.extend(chance.children.values())  # type: ignore[arg-type]

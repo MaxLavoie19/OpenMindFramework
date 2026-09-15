@@ -46,7 +46,7 @@ def test_creates_sudoku() -> None:
 def test_creates_the_prisoners_dilemma_and_its_variants() -> None:
     assert create_domain("prisonersdilemma") == create_prisoners_dilemma_domain()
     assert create_domain("prisonersdilemma/uncertain") == create_prisoners_dilemma_domain(PRISONERS_DILEMMA_VARIANTS["uncertain"])
-    with pytest.raises(ValueError, match="Unknown variant 'endless' of prisonersdilemma; variants: standard, uncertain"):
+    with pytest.raises(ValueError, match="Unknown variant 'endless' of prisonersdilemma; variants: standard, uncertain, simultaneous"):
         create_domain("prisonersdilemma/endless")
 
 
@@ -71,7 +71,7 @@ def test_unknown_domain_raises_with_the_known_domains(monkeypatch: pytest.Monkey
     install(monkeypatch, "madeup")
     known = (
         "Unknown domain 'go'; known domains: tictactoe, tictactoe/fourinarow, tictactoe/gomoku, sudoku, prisonersdilemma, "
-        "prisonersdilemma/uncertain, madeup"
+        "prisonersdilemma/uncertain, prisonersdilemma/simultaneous, rockpaperscissors, madeup"
     )
 
     with pytest.raises(ValueError, match=re.escape(known)):

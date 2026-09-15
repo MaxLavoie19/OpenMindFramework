@@ -16,7 +16,8 @@ from openmind.inference.model.expression_search_result import ExpressionSearchRe
 from openmind.inference.model.search_budget import SearchBudget
 from openmind.inference.model.vocabulary import Vocabulary
 from openmind.inference.service.expression_generator import ExpressionGenerator
-from openmind.inference.service.memory_meter import MemoryMeter
+from openmind.parallel.model.call_over_memory import CallOverMemory
+from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.sparse_fitter import SparseFitter
 from openmind.rbs.service.term_evaluator import TermEvaluator
@@ -141,7 +142,14 @@ class ExpressionSearch:
                 tried.update(self._digest(candidate[0].template) for candidate in batch)
                 tried_count += len(batch)
                 tried_total += len(batch)
-                admissions, passed = self._admitted(domain, batch, training, held_out, screening, screen_rows, residual, price)
+                try:
+                    admissions, passed = self._admitted(
+                        domain, batch, training, held_out, screening, screen_rows, residual, price
+                    )
+                except CallOverMemory as error:
+                    logger.warning("Evaluating candidates took a worker over its memory cap twice: %s", error)
+                    stopped = "the memory budget ran out"
+                    break
                 passed_over.extend(passed)
                 for expression, columns in admissions:
                     key = columns[0].tobytes()

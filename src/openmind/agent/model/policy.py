@@ -6,6 +6,6 @@ from openmind.world.model.state import State
 
 
 class Policy(Protocol):
-    """Anything that chooses an action in a domain's state."""
+    """Anything that chooses an action in a domain's state; where players act at once, for the player it's given."""
 
-    def choose(self, domain: Domain, state: State) -> Action: ...
+    def choose(self, domain: Domain, state: State, player: str | None = None) -> Action: ...

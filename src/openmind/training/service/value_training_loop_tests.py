@@ -54,8 +54,10 @@ def test_each_round_self_plays_with_the_previous_round_s_rules_and_plays_its_opp
     assert report.rounds[1].against_previous is not None
     assert (report.rounds[1].against_previous.opponent, report.rounds[1].against_previous.games) == ("round 1", 2)
     assert all(item.training_rows > 0 and item.fits for item in report.rounds)
-    assert [(len(item.rounds), item.complete) for item in reports] == [(1, False), (2, True)]
+    assert [(len(item.rounds), item.complete) for item in reports] == [(1, False), (1, False), (2, False), (2, True)]
+    assert (reports[0].rounds[0].baselines, reports[0].rounds[0].value_base) == ((), report.rounds[0].value_base)
     assert reports[-1] == report
+    assert "Round 1 fitted: handing it over before its games" in caplog.messages
     assert "Round 1 of 2: self-play without value rules" in caplog.messages
     assert "Round 2 of 2: self-play valuing positions with round 1's rules" in caplog.messages
     assert any(message.startswith("Round 2 against round 1: 2 games, ") for message in caplog.messages)

@@ -14,17 +14,17 @@ self-play valuing positions with the previous round's rules.
 | `model/distillation_settings.py` | `DistillationSettings(games, held_out_games, iterations, seed, generation)`; `generation` is the rule generator's `GenerationSettings` |
 | `model/distillation_result.py` | `DistillationResult(rule_base, training_samples, held_out_samples, rating_error, mean_conditions, patterns, hypotheses, covered)`; `hypotheses` holds every hypothesis's test, `covered` the validated rules a simpler rule covers |
 | `constant/training_constant.py` | Default games (20), held-out games (5), iterations (200) and seed (1); the range of per-game seeds |
-| `service/self_play.py` | `SelfPlay`: an agent plays a domain against itself, games in the task runner's workers; returns every game |
+| `service/self_play.py` | `SelfPlay`: an agent plays a domain against itself, games in the task runner's workers; returns every game, with its searches' samples unless `keep_samples` is false, and leaves out a game that took its worker over the memory cap in a fresh worker too |
 | `model/played_game.py` | `PlayedGame(samples, states, search_values, payoffs)`: a self-play game's search samples, its positions with the search's mean payoff for the player to act in each, and its final payoffs |
 | `service/distiller.py` | `Distiller`: self-play, rule generation and validation, and the result's measures |
 | `builder/distiller_builder.py` | `DistillerBuilder`: sets how many worker processes self-play games and rule condition checks run in (`with_workers`, 1 by default) and wires self-play, the rule generator, and the rule compiler, runner and consequence library its rater checks conditions with |
-| `factory/training_factory.py` | `create_distiller(workers=1)`, `create_rule_selector(workers=1)`, `create_value_distiller(workers=1)` and `create_value_training_loop(workers=1)` |
+| `factory/training_factory.py` | `create_distiller(workers=1)`, `create_rule_selector(workers=1)`, `create_value_distiller(workers=1, memory_cap=None)` and `create_value_training_loop(workers=1, memory_cap=None)` |
 | `constant/training_constant.py` | Also the value distillation defaults: 100 games and 25 held-out games; the targets, `outcome` and `search` |
 | `mapper/position_row_mapper.py` | `PositionRowMapper`: self-play games to the position rows value rules are fitted on, at a target |
 | `model/value_distillation_settings.py` | `ValueDistillationSettings(games, held_out_games, iterations, seed, target, values, pondering=None)`; `values` is the value generator's `ValueSettings` |
 | `model/value_distillation_result.py` | `ValueDistillationResult(value_base, fits, chosen, candidates, training_rows, held_out_rows, held_out_error, pondering=None)` |
 | `service/value_distiller.py` | `ValueDistiller`: self-play, pondering, value rule generation, and the chosen rules' error on held-out rows |
-| `builder/value_distiller_builder.py` | `ValueDistillerBuilder`: sets how many worker processes self-play games, deductions and term evaluations run in (`with_workers`, 1 by default) and wires the value distiller and its ponderer |
+| `builder/value_distiller_builder.py` | `ValueDistillerBuilder`: sets how many worker processes self-play games, deductions and term evaluations run in (`with_workers`, 1 by default) and the memory each holds at most (`with_memory_cap`, no cap by default), and wires the value distiller and its ponderer |
 | `model/pondering_settings.py` | `PonderingSettings(positions, budget)`: how many positions a round ponders and the `DeductionBudget` each gets |
 | `model/pondering.py` | `Pondering(rows, deductions, seeds, sources)`: the rows with proven targets, every deduction, and the seeds induced, the most often induced first |
 | `model/pondering_summary.py` | `PonderingSummary(positions, proven, seeds, seeds_kept, seeds_in_rules)` |
@@ -34,7 +34,7 @@ self-play valuing positions with the previous round's rules.
 | `model/training_report.py` | `TrainingReport(domain, created_at, settings, rounds, complete)` |
 | `constant/training_constant.py` | Also the training loop defaults: 3 rounds, 200 games and 50 held out, 100 iterations, 10 rollout actions before valuing, 20 games per opponent; `START_RULES` |
 | `service/value_training_loop.py` | `ValueTrainingLoop`: rounds of self-play valuing positions with the previous round's rules, value fitting, and games against the random policy, untrained MCTS and the previous round's agent |
-| `builder/value_training_loop_builder.py` | `ValueTrainingLoopBuilder`: sets how many worker processes self-play, term evaluations and games run in (`with_workers`, 1 by default) and wires the loop |
+| `builder/value_training_loop_builder.py` | `ValueTrainingLoopBuilder`: sets how many worker processes self-play, term evaluations and games run in (`with_workers`, 1 by default) and the memory each holds at most (`with_memory_cap`, no cap by default), and wires the loop |
 | `mapper/training_report_json_mapper.py` | `TrainingReportJsonMapper`: a training report as JSON text, every round's value rules, fits and games included |
 | `mapper/training_report_text_mapper.py` | `TrainingReportTextMapper`: a training report as a table, one line per round |
 | `repository/training_report_repository.py` | `TrainingReportRepository`: saves a report as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json`, named after the training's start, overwriting it as rounds end |
@@ -103,7 +103,9 @@ report so far to `on_progress`; `openmind-select` saves it, so a long selection 
 
 1. `SelfPlay` plays `games` training games, then `held_out_games` more, as in distillation. Every game keeps its
    positions, in order, with the search's mean payoff for the player to act in each (the visit-weighted mean of the
-   root actions' mean payoffs), and its final payoffs.
+   root actions' mean payoffs), and its final payoffs. The searches' samples aren't kept: value rules don't read them,
+   and a chess game's thousands of samples would fill the main process. A game that took its worker over the memory cap
+   in a fresh worker too is left out, and so is a pondered position (see `parallel/README.md`).
 2. `PositionRowMapper` turns the games into rows at the `target`:
    - `outcome`: every position, once for each player, valued at that player's final payoff. One game's result is a
      noisy value for its early positions, but it is what the position led to in the agent's own play;
@@ -147,8 +149,10 @@ How the value rules play shows in `openmind-evaluate --values` (see `evaluation/
    agent (the start rules' in round 1, none without them), switching seats every game. Every agent searches with its
    game's own seed (`create_seeded_agent`), so no two games are searched alike, and the games are seeded from the
    seed plus k.
-4. **Report.** The round joins the report, handed to `on_round`: `openmind-train-values` saves the round's value base
-   and the report at once, so a training can be stopped between rounds and read. The last report is complete.
+4. **Report.** With `evaluation_games`, the report is first handed to `on_round` as soon as the round's rules are
+   fitted, the round without games yet, and again once its games are done; without, once. `openmind-train-values`
+   saves a round's value base the first time it sees the round, and the report every time, so a training stopped or
+   killed during a round's games keeps that round's rules. The last report is complete.
 
 The games run in the task runner's workers; the value rules' agents travel there with their `RuleValuer`.
 
@@ -213,7 +217,8 @@ From the terminal: `openmind-train-values chess --rounds 3 --rollout-limit 100`.
 
 ## Logs
 
-- `openmind.training.service.self_play`: `INFO Self-play game <n>: <samples> samples, payoffs <player>=<payoff> ...`
+- `openmind.training.service.self_play`: `INFO Self-play game with seeds <agent seed> and <outcome seed> finished in
+  <plies> plies: <samples> samples, payoffs <player>=<payoff> ...`, logged by the worker as soon as the game ends
 - `openmind.training.service.distiller`: `INFO Distilled <n> rules, <mean> conditions per rule on average, from <m>
   training samples; <k> of <h> hypotheses validated, <c> covered by a simpler rule, and rating error <error> on <s>
   held-out samples`
@@ -235,6 +240,7 @@ From the terminal: `openmind-train-values chess --rounds 3 --rollout-limit 100`.
   - `INFO Round <k> of <n>: self-play without value rules`, or `... self-play valuing positions with the start rules`,
     or `... with round <k-1>'s rules`
   - `INFO Round <k>: <r> value rules, held-out loss <loss>, held-out error <error>`
+  - `INFO Round <k> fitted: handing it over before its games`, with evaluation games and an `on_round`
   - `INFO Round <k> against <opponent>: <games> games, <wins> wins, <draws> draws, <losses> losses`, for `random`,
     `untrained MCTS` and `start rules` or `round <k-1>`
   - `INFO Round <k> took <seconds> seconds`

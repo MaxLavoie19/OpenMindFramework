@@ -24,10 +24,11 @@ backtracking.
 | `model/search_space.py` | `SearchSpace(action, variables, tables, groups, constraints)`: what backtracking explores for one action |
 | `model/solve_statistics.py` | `SolveStatistics(solutions, assignments, dead_ends, pruned_values)`: what a search did |
 | `model/wipeout.py` | `Wipeout`: raised when propagation leaves a variable without any value |
+| `service/joint_solver.py` | `JointSolver(solver, state_reader).legal(problem, state, players)`: where players act at once, each player to act with its legal actions, one solve per player; empty when no player to act has one; some players to act without one while others have one raise `ValueError` |
 | `builder/problem_builder.py` | `ProblemBuilder`: collects action definitions and definitions; rejects a repeated action or variable name |
 | `builder/solver_builder.py` | `SolverBuilder`: wires a solver with its rule compiler and runner, call operand mapper, constraint checker, propagators and search |
 | `factory/csp_factory.py` | `create_solver()` |
-| `constant/solver_constant.py` | The cache size (100,000 results) and `openmind-solve`'s default solution limit (2) |
+| `constant/solver_constant.py` | `openmind-solve`'s default solution limit (2) |
 | `service/constraint_checker.py` | `ConstraintChecker`: checks a compiled constraint for some parameter values; a constraint must give true or false |
 | `service/arc_consistency.py` | `ArcConsistency`: AC-3 over support tables |
 | `service/all_different_propagator.py` | `AllDifferentPropagator`: Régin's matching-based filtering for all-different |
@@ -92,7 +93,11 @@ For each action definition:
 7. Values are tried in domain order, or least-constraining first when a limit is set. The search stops once it has
    `limit` solutions.
 8. Solutions are sorted by the variables' domain order, first variable slowest, and cached per problem, state and
-   limit: up to 100,000 results, the least recently used going first.
+   limit, until the process's memory guard clears the cache (see `parallel/README.md`).
+
+`solve(problem, state, limit=None, player=None)`: given a player, such as one of several players acting at once, every
+rule also reads it as `player`: it is added to the state as a variable, so results are cached per player too, and a
+state that already has a variable named `player` raises `ValueError`.
 
 `solve_with_statistics` gives the same solutions with the search's statistics summed over the action definitions; an
 action whose parameter-free constraint is false adds nothing. A cached result keeps the statistics of the search that

@@ -8,6 +8,7 @@ from openmind.predictor.model.transition import Transition
 from openmind.predictor.model.transition_model import TransitionModel
 from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.action import Action
+from openmind.world.model.joint_action import JointAction
 from openmind.world.model.state import State
 
 
@@ -18,6 +19,31 @@ def predict(state: State, *branches: Branch, definitions: str | None = None) -> 
 
 def certain(effects: str) -> Branch:
     return Branch(1.0, PythonRule(effects))
+
+
+def test_actions_taken_at_once_run_in_turn_multiplying_their_branches_then_the_resolution_runs() -> None:
+    pick = Transition(
+        "pick", (Branch(0.5, PythonRule("picked[player] = number")), Branch(0.5, PythonRule("picked[player] = number + 1")))
+    )
+    model = TransitionModel((pick,), None, (certain("total = picked['A'] + picked['B']"),))
+    state = State((("picked(A)", None), ("picked(B)", None), ("total", None)))
+    joint = JointAction((("A", Action("pick", (("number", 1),))), ("B", Action("pick", (("number", 10),)))))
+
+    outcomes = create_predictor().predict_joint(model, state, joint).outcomes
+
+    assert [(dict(outcome.variables)["total"], probability) for outcome, probability in outcomes] == [
+        (11, 0.25),
+        (12, 0.25),
+        (12, 0.25),
+        (13, 0.25),
+    ]
+
+
+def test_an_action_taken_at_once_with_a_parameter_named_player_raises() -> None:
+    model = TransitionModel((Transition("pick", (certain("x = 1"),)),))
+
+    with pytest.raises(ValueError, match="parameter named 'player'"):
+        create_predictor().predict_joint(model, State((("x", 0),)), JointAction((("A", Action("pick", (("player", "B"),))),)))
 
 
 def test_effects_set_state_variables_from_the_parameters() -> None:

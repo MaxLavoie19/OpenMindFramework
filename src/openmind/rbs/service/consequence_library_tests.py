@@ -7,7 +7,7 @@ from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
 from openmind.csp.model.variable import Variable
 from openmind.inference.service.mechanics import Mechanics
-from openmind.inference.service.memory_meter import MemoryMeter
+from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition

@@ -13,6 +13,8 @@ from openmind.inference.constant.inference_constant import (
 )
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
+from openmind.parallel.factory.memory_guard_factory import process_memory_guard
+from openmind.parallel.model.memory_cap import MemoryCap
 from openmind.rbs.constant.explanation_constant import DEFAULT_EXPLANATIONS_DIRECTORY
 from openmind.rbs.constant.value_constant import DEFAULT_MAX_STEPS, DEFAULT_PRICES, DEFAULT_TOLERANCE
 from openmind.rbs.factory.rbs_factory import create_rule_explainer
@@ -123,6 +125,7 @@ def main(argv: list[str] | None = None) -> None:
         f"(default: {DEFAULT_EVALUATION_GAMES})",
     )
     _add_deduction_options(parser)
+    _add_worker_memory_option(parser)
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -191,6 +194,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     directory = Path(arguments.log_directory) / domain.name
+    memory_cap = _memory_cap(parser, arguments, directory)
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(levelname)-5s %(name)s %(message)s"))
@@ -225,8 +229,13 @@ def main(argv: list[str] | None = None) -> None:
             report_files.append(reports.save(report, Path(arguments.report_directory)))
             logger.info("Saved training report %s", report_files[-1])
 
-        logger.info("Training in %d worker processes", arguments.workers)
-        report = create_value_training_loop(arguments.workers).train(domain, start, settings, save)
+        logger.info(
+            "Training in %d worker processes, each holding at most %d bytes; memory diagnoses in %s",
+            arguments.workers,
+            memory_cap.worker_bytes,
+            memory_cap.diagnosis_directory,
+        )
+        report = create_value_training_loop(arguments.workers, memory_cap).train(domain, start, settings, save)
         print(TrainingReportTextMapper().to_text(report))
         for number, path in round_files.items():
             print(f"Saved round {number} values {path}")
@@ -265,6 +274,30 @@ def _add_deduction_options(parser: argparse.ArgumentParser) -> None:
         default=0,
         help="positions the rules missed most, deduced before fitting; needs --deduction-plies (default: 0)",
     )
+
+
+def _add_worker_memory_option(parser: argparse.ArgumentParser) -> None:
+    """The option capping each worker's memory, shared with openmind-distill-values."""
+    parser.add_argument(
+        "--worker-memory",
+        type=float,
+        default=None,
+        help="GB each worker process holds at most: over it a worker clears its caches, and a worker that stays over is "
+        "ended, its call run again in a fresh worker, and a call over it twice dropped or its search stopped (default: "
+        "the expression search's memory shared between the workers)",
+    )
+
+
+def _memory_cap(parser: argparse.ArgumentParser, arguments: argparse.Namespace, log_directory: Path) -> MemoryCap:
+    """The workers' memory cap, diagnoses written under the log directory; this process's caches are cleared above the
+    expression search's memory."""
+    if arguments.memory <= 0.0:
+        parser.error(f"--memory needs more than 0, not {arguments.memory}")
+    if arguments.worker_memory is not None and arguments.worker_memory <= 0.0:
+        parser.error(f"--worker-memory needs more than 0, not {arguments.worker_memory}")
+    gigabytes = arguments.memory / max(1, arguments.workers) if arguments.worker_memory is None else arguments.worker_memory
+    process_memory_guard().limit(int(arguments.memory * 1024**3))
+    return MemoryCap(int(gigabytes * 1024**3), log_directory / "memory")
 
 
 def _deduction_settings(

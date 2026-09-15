@@ -21,6 +21,8 @@ openmind-solve = "openmind.entrypoint.solve:main"
 openmind-select = "openmind.entrypoint.select:main"
 openmind-distill-values = "openmind.entrypoint.distill_values:main"
 openmind-train-values = "openmind.entrypoint.train_values:main"
+openmind-dashboard = "openmind.entrypoint.dashboard:main"
+openmind-rerun-call = "openmind.entrypoint.rerun_call:main"
 
 [dependency-groups]
 dev = ["pytest>=9.1"]

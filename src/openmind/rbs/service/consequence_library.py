@@ -3,8 +3,8 @@ import math
 from openmind.agent.model.domain import Domain
 from openmind.csp.service.solver import Solver
 from openmind.predictor.service.predictor import Predictor
+from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.rbs.constant.consequence_constant import (
-    CACHE_SIZE,
     ME,
     NEAR,
     OTHER,
@@ -57,16 +57,25 @@ class ConsequenceLibrary:
         self._mechanics = mechanics
         self._domains: dict[int, Domain] = {}
         self._cache: dict[tuple[object, ...], object] = {}
+        self._memory_guard = process_memory_guard()
+        self._memory_guard.register(self)
 
     def __getstate__(self) -> dict[str, object]:
         """The lookups stay behind when the library is copied to another process: they are keyed by this process's ids
         and hold functions."""
-        return {name: value for name, value in self.__dict__.items() if name not in ("_domains", "_cache")}
+        return {
+            name: value for name, value in self.__dict__.items() if name not in ("_domains", "_cache", "_memory_guard")
+        }
 
     def __setstate__(self, state: dict[str, object]) -> None:
         self.__dict__.update(state)
         self._domains = {}
         self._cache = {}
+        self._memory_guard = process_memory_guard()
+        self._memory_guard.register(self)
+
+    def memory_entries(self) -> int:
+        return len(self._cache)
 
     def limit_memory(self, memory_bytes: int) -> None:
         """How many bytes a process holds before the mechanics clear their views; copies sent to workers carry it."""
@@ -226,6 +235,5 @@ class ConsequenceLibrary:
         return id(domain)
 
     def _remember(self, key: tuple[object, ...], value: object) -> None:
-        if len(self._cache) >= CACHE_SIZE:
-            self._cache.clear()
+        self._memory_guard.remembered()
         self._cache[key] = value

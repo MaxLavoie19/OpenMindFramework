@@ -14,7 +14,7 @@ reading `here`.
 
 | File | What it is |
 |---|---|
-| `constant/inference_constant.py` | `ME`, `OTHER`, `OUTSIDE`, `HERE`, the template's `VIEW` placeholder, look-ahead kinds, pattern relations, combinations, thresholds, `MEMORY_CHECK_INTERVAL` (1,000), `SCREENING_SHARE` (0.1), `MIN_SCREENING_ROWS` (500), `CANDIDATE_BATCH` (200), and the defaults: `DEFAULT_SEARCH_SECONDS` (3,600), `DEFAULT_SEARCH_MEMORY` (half the machine's memory), `DEFAULT_PROCESS_MEMORY` (that half shared between the logical CPUs), `DEFAULT_DEDUCTION_SECONDS` (10) and `DEFAULT_HIGHEST_PAYOFF` (1.0) |
+| `constant/inference_constant.py` | `ME`, `OTHER`, `OUTSIDE`, `HERE`, the template's `VIEW` placeholder, look-ahead kinds, pattern relations, combinations, thresholds, `MEMORY_CHECK_INTERVAL` (1,000), `SCREENING_SHARE` (0.1), `MIN_SCREENING_ROWS` (500), `CANDIDATE_BATCH` (200), and the defaults: `DEFAULT_SEARCH_SECONDS` (3,600), `DEFAULT_SEARCH_MEMORY` (half the machine's memory), `DEFAULT_PROCESS_MEMORY` (that half shared between the logical CPUs; both from `parallel/constant/parallel_constant.py`), `DEFAULT_DEDUCTION_SECONDS` (10) and `DEFAULT_HIGHEST_PAYOFF` (1.0) |
 | `model/deduction_budget.py` | `DeductionBudget(plies, seconds, highest=1.0)`: how far and how long one position is reasoned about, and the highest payoff a player can get |
 | `model/deduction.py` | `Deduction(state, player, action, payoffs, line, plies)`: what reasoning about a position proved for the player to act, and `proven` |
 | `service/position_deducer.py` | `PositionDeducer.deduce(domain, state, budget)`: proves a position's best action from the domain's own rules alone, one ply deeper at a time |
@@ -26,7 +26,6 @@ reading `here`.
 | `model/vocabulary.py` | `Vocabulary(players, to_act, values_by_variable, values_by_base, indices_by_base, offsets_by_arity)` |
 | `model/search_budget.py` | `SearchBudget(seconds, memory_bytes, candidates=None)`: how long a search runs, how many bytes its process holds, and how many candidates it tries, `None` for no limit |
 | `model/expression_search_result.py` | `ExpressionSearchResult(expressions, training, held_out, generations, stopped, tried)` |
-| `service/memory_meter.py` | `MemoryMeter`: how many bytes this process holds, from `/proc/self/statm`, or its peak where `/proc` is missing |
 | `constant/sentence_constant.py` | The words and templates of literal readings: players, places and entries, comparisons, arithmetic, look-aheads, aggregates, patterns |
 | `mapper/expression_sentence_mapper.py` | `ExpressionSentenceMapper.to_sentence(source)`: an expression's Python source read literally in English, construct by construct; a construct without a template is quoted as its source |
 | `service/mechanics.py` | `Mechanics`: views of positions and the outcomes of any player's actions, with the domain's solver and predictor; `limit_memory(bytes)` and `clear()` |
@@ -52,7 +51,11 @@ lambda v1: v1.payoff[me] == 1.0))` is "whatever the other player does, I can win
 its view by the reading's code, the views it closes over, and the `me`, `other` and `here` it reads. Views and moves
 are kept per process. Every 1,000 entries remembered the process's memory is read, and they are all cleared when it
 holds more than its share: `DEFAULT_PROCESS_MEMORY` until a search sets it, then the search's memory budget shared
-evenly between the evaluator's workers, a share copies sent to workers carry.
+evenly between the evaluator's workers, a share copies sent to workers carry. The process's memory guard clears them
+too (see `parallel/README.md`); the memory is read with `parallel`'s `MemoryMeter`.
+
+A search whose term evaluations take a worker over its memory cap in a fresh worker too stops with "the memory budget
+ran out", keeping what it found.
 
 ## How expressions are generated
 
@@ -214,7 +217,7 @@ Mechanics, views and the inducer don't log.
   its sparse fitter, and `rbs`'s consequence library gives rules the mechanics' view.
 - A look-ahead evaluates every action of a player, and every action after each of those: in chess, about 30 actions a
   ply. Deep expressions are slow to evaluate, and the time budget decides how many get tried.
-- Tests: `mapper/expression_sentence_mapper_tests.py`, `service/memory_meter_tests.py`, `service/mechanics_tests.py`, `service/position_view_tests.py`,
+- Tests: `mapper/expression_sentence_mapper_tests.py`, `service/mechanics_tests.py`, `service/position_view_tests.py`,
   `service/expression_generator_tests.py`,
   `service/expression_search_tests.py`, `service/position_deducer_tests.py`, `service/deduction_inducer_tests.py`;
   integration: `test/integration/tictactoe_inference_tests.py`; in OpenMindChess, `test/integration/chess_inference_tests.py`

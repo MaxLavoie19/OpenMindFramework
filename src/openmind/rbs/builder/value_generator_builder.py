@@ -2,7 +2,8 @@ from typing import Self
 
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.expression_search import ExpressionSearch
-from openmind.inference.service.memory_meter import MemoryMeter
+from openmind.parallel.model.memory_cap import MemoryCap
+from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.mapper.value_rule_text_mapper import ValueRuleTextMapper
@@ -16,20 +17,29 @@ from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 
 class ValueGeneratorBuilder:
-    """Sets how many worker processes a value generator evaluates expressions in, 1 by default, and wires it: one
-    expression generator and one sparse fitter shared by its expression search and itself."""
+    """Sets how many worker processes a value generator evaluates expressions in, 1 by default, and the memory each of
+    them holds at most, no cap by default, and wires it: one expression generator and one sparse fitter shared by its
+    expression search and itself."""
 
     def __init__(self) -> None:
         self._workers = 1
+        self._memory_cap: MemoryCap | None = None
 
     def with_workers(self, workers: int) -> Self:
         self._workers = workers
         return self
 
+    def with_memory_cap(self, memory_cap: MemoryCap | None) -> Self:
+        self._memory_cap = memory_cap
+        return self
+
     def build(self) -> ValueGenerator:
         names = VariableNameMapper()
         evaluator = TermEvaluator(
-            RuleCompiler(), RuleRunner(StateNamespaceMapper(names)), ConsequenceLibraryBuilder().build(), TaskRunner(self._workers)
+            RuleCompiler(),
+            RuleRunner(StateNamespaceMapper(names)),
+            ConsequenceLibraryBuilder().build(),
+            TaskRunner(self._workers, self._memory_cap),
         )
         generator, fitter = ExpressionGenerator(names), SparseFitter()
         search = ExpressionSearch(generator, evaluator, fitter, MemoryMeter())

@@ -40,5 +40,6 @@ VARIANTS = {
     for variant in (
         STANDARD,
         replace(STANDARD, name="uncertain", rounds=None, ending_chance=0.1),
+        replace(STANDARD, name="simultaneous", simultaneous=True),
     )
 }

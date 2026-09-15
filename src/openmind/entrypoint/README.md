@@ -15,6 +15,55 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | `select.py` | `openmind-select`: select the smallest set of a rule base's rules that plays no worse than all of them |
 | `distill_values.py` | `openmind-distill-values`: fit value rules on the positions of self-play games, choose a fit on held-out games, and save the value base |
 | `train_values.py` | `openmind-train-values`: train value rules round after round, each round's self-play valuing positions with the previous round's rules, and save every round |
+| `dashboard.py` | `openmind-dashboard`: serve a page following a value training while it runs, on the machine it runs on |
+| `rerun_call.py` | `openmind-rerun-call`: run again, alone, the call a worker ended on for its memory cap, and show where it holds memory |
+
+## `openmind-rerun-call`
+
+```bash
+.venv/bin/openmind-rerun-call data/log/train-values/chess/memory/<YYYY-MM-DD_HH-MM-SS>-worker-<pid>.txt
+systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0 .venv/bin/openmind-rerun-call <diagnosis>   # capped
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--lines N` | `20` | source lines shown, those holding the most memory first |
+| `--log-directory DIR` | `data/log/rerun-call` | where logs are saved |
+
+Given a memory diagnosis or the `.pickle` beside it (see `parallel/README.md`), it loads the call, from the project that
+ran it so its domain can be imported, runs it in this process under `tracemalloc`, and prints and logs:
+
+```
+The call ended|raised after <seconds> seconds; traced memory peaked at <bytes> bytes and holds <bytes> bytes with the call's objects still alive
+bytes  blocks  line
+<bytes>  <blocks>  <file>:<line>
+```
+
+The lines are those holding memory once the call is over, with the call's function, its caches included, still alive;
+the peak says how much the call held at most. Tracing makes the call slower and bigger than it was in the worker, so a
+call that went over a cap is best run again under a capped scope. A pickled call no path points to is rejected.
+
+## `openmind-dashboard`
+
+```bash
+.venv/bin/openmind-dashboard chess     # from the project that trains, on the training machine
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--host ADDRESS` | the machine's Tailscale IPv4 address, from `tailscale ip -4` | address to listen on; without Tailscale, give it, knowing whoever reaches it sees the page |
+| `--port N` | `8765` | port to listen on |
+| `--refresh N` | `30` | seconds between the page's reloads |
+| `--report-directory DIR` | `data/training` | where training reports are, under `<domain>/` |
+| `--log-directory DIR` | `data/log/train-values` | where training logs are, under `<domain>/` |
+| `--syslog PATH` | `/var/log/syslog` | the system log earlyoom writes to; `none` skips it |
+| `--dashboard-log-directory DIR` | `data/log/dashboard` | where the dashboard's own log is saved |
+
+Every request takes a fresh snapshot (see `dashboard/README.md`) and serves it as one page: the current round with its
+self-play games and deduced moves, whether the training runs and with how many workers, memory and swap, each training
+process's memory, every finished round with its games and pondering, the latest round's rules, the latest notable log
+lines, and earlyoom's latest kills. It runs until stopped; no address can be found without Tailscale and `--host`,
+which is rejected.
 
 ## `openmind-play`
 
@@ -242,12 +291,13 @@ searching in <n> worker processes`, has the selector's decisions (see `training/
 | `--seed S` | `1` | random seed |
 | `--target TARGET` | `outcome` | what a position is valued at: `outcome`, the game's final payoff for each player, or `search`, the search's mean payoff for the player to act |
 | `--seconds X` | `3600.0` | seconds the inference engine's expression search runs (see `inference/README.md`) |
-| `--memory X` | half the machine's memory | GB the expression search's process holds at most, measured; its workers each hold an even share |
+| `--memory X` | half the machine's memory | GB the expression search's process holds at most, measured; its workers each hold an even share; this process's caches are cleared above it |
 | `--candidates N` | no limit | candidates the expression search tries at most; a search limited by candidates, unlike one limited by time, gives the same rules on any machine |
 | `--prices LIST` | `0.1,0.03,0.01,0.003,0.001` | comma-separated L1 prices swept |
 | `--max-steps N` | `1000` | steps a fit takes at most |
 | `--tolerance X` | `1e-06` | weight change below which a fit has settled |
 | `--workers N` | half the logical CPUs | worker processes self-play games and term evaluations run in; the value rules are the same whatever the number |
+| `--worker-memory X` | `--memory` shared between the workers | GB each worker process holds at most: over it a worker clears its caches, a worker that stays over is ended with a diagnosis in `<log directory>/<domain>/memory/` and its call runs again in a fresh worker, and a call over it twice is dropped (a game, a pondered position) or stops the expression search (see `parallel/README.md`) |
 | `--rollout-limit N` | no limit | actions a self-play rollout plays at most before every player gets the unfinished payoff; domains whose random games run long, such as chess, need one |
 | `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit |
 | `--deduction-plies N` | `0` | actions ahead a deduction of one position looks at most: self-play agents deduce the positions their rules have no clue about, and pondering deduces the positions missed most; `0` never deduces |
@@ -271,11 +321,12 @@ Pondered <n> positions: <p> proven; <s> seeds, <k> kept by the search, <r> in th
 Saved values <path>
 ```
 
-`--ponder-positions` without `--deduction-plies`, or `--deduction-seconds` of 0 or less with it, is rejected.
+`--ponder-positions` without `--deduction-plies`, `--deduction-seconds` of 0 or less with it, and `--memory` or
+`--worker-memory` of 0 or less are rejected.
 
 It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`: it starts with `INFO Running self-play and term evaluations in
-<n> worker processes` and `INFO Valuing positions at the <target> target; prices <prices>; searching expressions for <seconds> seconds within
+<n> worker processes, each holding at most <bytes> bytes; memory diagnoses in <directory>` and `INFO Valuing positions at the <target> target; prices <prices>; searching expressions for <seconds> seconds within
 <bytes> bytes, trying any number of|at most <n> candidates`, has the search's generations (see `inference/README.md`) and the generator's fits (see
 `rbs/README.md`), and ends with `INFO Saved values <path>` from logger
 `openmind.entrypoint.distill_values`.
@@ -306,6 +357,7 @@ It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.js
 | `--explainer-model NAME` | none | the Ollama model explaining the rules, such as `qwen3:8b` |
 | `--explanations-directory DIR` | `data/explanations` | where the model's sentences are cached, one file per domain and model |
 | `--workers N` | half the logical CPUs | worker processes self-play, term evaluations and games run in |
+| `--worker-memory X` | `--memory` shared between the workers | as `openmind-distill-values`; a dropped game isn't counted in the round's games |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log |
 | `--log-directory DIR` | `data/log/train-values` | where logs are saved |
 | `--values-directory DIR` | `data/values` | where each round's value base is saved |
@@ -326,7 +378,8 @@ Saved training report <path>
 
 `held-out loss` is the chosen fit's, `with no rule` the held-out loss of a fit that kept no rule (`none` when every fit
 kept one), and the games read wins / draws / losses from the round's agent's side. The log,
-`<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, starts with `INFO Training in <n> worker processes`, has the
+`<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, starts with `INFO Training in <n> worker processes, each holding
+at most <bytes> bytes; memory diagnoses in <directory>`, has the
 loop's rounds (see `training/README.md`), `INFO Saved round <k> values <path>` and `INFO Saved training report <path>`
 after every round, from logger `openmind.entrypoint.train_values`.
 

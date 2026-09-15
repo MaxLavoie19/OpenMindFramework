@@ -1,9 +1,13 @@
+import logging
 import random
+import re
 from dataclasses import replace
 
 import pytest
 
+from openmind.agent.factory.rock_paper_scissors_factory import create_rock_paper_scissors_domain
 from openmind.agent.model.domain import Domain
+from openmind.agent.service.random_policy import RandomPolicy
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
@@ -70,6 +74,36 @@ def series(evaluated: str, opponent: str, games: int = 2) -> MatchResults:
         games,
         random.Random(1),
     )
+
+
+def test_each_game_is_logged_as_it_ends(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.evaluation.service.match_runner")
+
+    series("win", "lose")
+
+    lines = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "openmind.evaluation.service.match_runner" and record.levelno == logging.INFO
+    ]
+    assert [re.sub(r"seeds \d+ and \d+", "seeds", line) for line in lines] == [
+        "Game with seeds finished in 1 plies, the evaluated policy playing A: payoffs A=1.0 B=0.0",
+        "Game with seeds finished in 1 plies, the evaluated policy playing B: payoffs A=0.0 B=1.0",
+    ]
+
+
+def test_players_acting_at_once_each_choose_and_their_actions_are_taken_together(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.evaluation.service.match_runner")
+    domain = create_rock_paper_scissors_domain()
+
+    def random_policy(seed: int) -> RandomPolicy:
+        return RandomPolicy(create_solver(), random.Random(seed))
+
+    results = new_match_runner().series(domain, random_policy, random_policy, "random", 4, random.Random(1))
+
+    lines = [record.getMessage() for record in caplog.records if record.name == "openmind.evaluation.service.match_runner"]
+    assert results.games == 4 and results.wins + results.draws + results.losses == 4
+    assert len([line for line in lines if "finished in 1 plies" in line]) == 4
 
 
 def test_seats_switch_every_game() -> None:

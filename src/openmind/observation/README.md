@@ -51,7 +51,8 @@ observer.completions(domain.observation, seen, "B")            # chosen(A) coope
 - `Domain.observation`, `None` when every player sees everything.
 - `MatchRunner` and `openmind-play` give each policy, and print for each human, what the player to act sees.
 - `Agent` and `TreeSearch` search from what the player to act sees, over the states that could be true (see
-  `mcts/README.md`).
+  `mcts/README.md`); an agent with a theory of mind searches once per hypothesis, `CompletionTheory` grouping the
+  completions into hypotheses.
 - `ExactSearch` raises `ValueError` on a domain with an observation.
 - Self-play and training still record true states: not done yet.
 

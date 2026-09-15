@@ -60,8 +60,8 @@ class ValueDistiller:
         given value base, the previous round's rules, or the mean target without one."""
         rng = random.Random(settings.seed)
         agent_builder.with_iterations(settings.iterations)
-        training_games = self._self_play.play(domain, agent_builder, settings.games, rng)
-        held_out_games = self._self_play.play(domain, agent_builder, settings.held_out_games, rng)
+        training_games = self._self_play.play(domain, agent_builder, settings.games, rng, keep_samples=False)
+        held_out_games = self._self_play.play(domain, agent_builder, settings.held_out_games, rng, keep_samples=False)
         training = self._position_row_mapper.to_rows(domain, training_games, settings.target)
         held_out = self._position_row_mapper.to_rows(domain, held_out_games, settings.target)
         pondering = None
