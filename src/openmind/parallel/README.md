@@ -11,7 +11,7 @@ workers.
 
 | File | What it is |
 |---|---|
-| `service/task_runner.py` | `TaskRunner(workers, memory_cap=None)`: `map(function, *argument_lists, droppable=False)` calls the function with the items at each index, in worker processes when it has more than one worker, and gives the results in order; `split(items)` cuts a list into slices for the workers |
+| `service/task_runner.py` | `TaskRunner(workers, memory_cap=None)`: `map(function, *argument_lists, droppable=False)` calls the function with the items at each index, in worker processes when it has more than one worker, and gives the results in order; `stream(function, count, arguments_for, on_result, droppable=False)` does the same, choosing each call's arguments only when a worker takes it and handing back each result as it ends; `split(items)` cuts a list into slices for the workers |
 | `service/memory_guard.py` | `MemoryGuard`: one per process; clears the caches registered with it when the process holds more than its limit, hands freed memory back to the system, and in a worker under a cap watches the memory and ends the worker with a diagnosis |
 | `service/memory_meter.py` | `MemoryMeter`: how many bytes this process holds, from `/proc/self/statm`, or its peak where `/proc` is missing |
 | `factory/memory_guard_factory.py` | `process_memory_guard()`: this process's guard, the same for every cache in the process |
@@ -38,6 +38,11 @@ workers.
 - `split` gives one slice to one worker, otherwise up to `SLICES_PER_WORKER` slices per worker, so that work set up once
   per slice, such as building an agent, is set up rarely.
 - A call that raises in a worker raises here, with the worker's traceback as a note; the other workers are terminated.
+- **Streams.** Calls wait in a queue and a worker takes the next one when it's free. With `stream`, `arguments_for(index)`
+  runs in this process at that moment, and `on_result(index, result)` runs as each call ends, in the order they end, a
+  dropped call's `DroppedCall` included; so a call's arguments can depend on every result finished before it starts, as
+  games between arms choose their arms. A call run again in a fresh worker keeps its arguments. With one worker, calls
+  run here one after another, each result handed back before the next call's arguments are chosen.
 
 ## Memory
 
@@ -77,9 +82,9 @@ Who runs work in workers, and how their results stay the same whatever the numbe
 
 | Service | Work | Seeds | Droppable |
 |---|---|---|---|
-| `training/service/self_play.py` | self-play games | each game draws an agent seed and an outcome seed up front | yes: the game is left out |
+| `training/service/self_play.py` | self-play games; games between arms through `stream` | each game draws an agent seed and an outcome seed up front; a game's arms depend on the games finished before it starts, so on the number of workers | yes: the game is left out |
 | `evaluation/service/match_runner.py` | baseline games | each game draws a policy seed and an outcome seed up front | yes: the game isn't counted |
-| `training/service/position_ponderer.py` | positions deduced | none needed: a deduction depends only on its position | yes: the position isn't pondered |
+| `training/service/position_ponderer.py` | positions deduced, and decisive games walked back from their ends, one game per call | none needed: a deduction depends only on its position | yes: the position isn't pondered, or the game isn't walked |
 | `rbs/service/term_evaluator.py` | terms evaluated on row slices | none needed | no: the expression search stops with "the memory budget ran out" |
 | `evaluation/service/evaluator.py` | positions searched at each budget, reference searches | every search uses the evaluation's seed | no |
 | `rbs/service/condition_evaluator.py` | rule conditions checked on search rows, the rows split in slices, for discovery, validation, coverage and primitives | none needed: a condition's value depends only on its row | no |

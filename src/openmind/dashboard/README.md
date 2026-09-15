@@ -12,15 +12,15 @@ the process file system and the system log.
 | File | What it is |
 |---|---|
 | `model/dashboard_settings.py` | `DashboardSettings(domain, report_directory, log_directory, syslog, proc=Path("/proc"))`: where to read a domain's training from |
-| `model/log_progress.py` | `LogProgress(path, round, rounds, round_note, games, matches, searched, deduced, recent)`: where a training is, from its log |
+| `model/log_progress.py` | `LogProgress(path, round, rounds, round_note, games, matches, searched, deduced, recent, draws=0, decisive=0)`: where a training is, from its log, with how many of the round's self-play games were drawn and how many decisive |
 | `model/round_row.py` | `RoundRow(number, rules, held_out_loss, held_out_error, baselines, against_previous, pondering, seconds)`: a finished round; `pondering` is (positions pondered, proven, seeds, seeds kept, seeds in rules), one column each on the page, and `seconds` shows as `3 h 06 min` |
-| `model/report_summary.py` | `ReportSummary(path, created_at, complete, rounds, latest_rules)`: a training report |
+| `model/report_summary.py` | `ReportSummary(path, created_at, complete, rounds, latest_rules, latest_arms=())`: a training report, with the signals its latest round followed as (name, agreements, disagreements, accuracy, reliability) |
 | `model/process_status.py` | `ProcessStatus(pid, role, rss_bytes, seconds, command)`: a training process: the loop script, the training, or a worker |
 | `model/machine_status.py` | `MachineStatus(memory_total, memory_available, swap_total, swap_free, processes, earlyoom)` |
 | `model/dashboard_snapshot.py` | `DashboardSnapshot(domain, taken_at, report, progress, machine)`: everything the page shows at one moment |
 | `constant/dashboard_constant.py` | Default port (8765) and reload (30 seconds); how many recent lines (15) and earlyoom kills (10) the page shows; the loggers followed; how training processes are recognized |
 | `service/incremental_line_reader.py` | `IncrementalLineReader.new_lines(path)`: the complete lines written since the previous call; a file that got shorter or was replaced is read from its start |
-| `service/log_progress_reader.py` | `LogProgressReader.progress(directory)`: the newest log's round, the round's self-play games, games against opponents, searched and deduced moves, and the latest notable lines |
+| `service/log_progress_reader.py` | `LogProgressReader.progress(directory)`: the newest log's round, the round's self-play games and how many were drawn or decisive, games against opponents, searched and deduced moves, and the latest notable lines |
 | `service/report_reader.py` | `ReportReader.summary(directory)`: the newest report's rounds and latest rules |
 | `service/machine_reader.py` | `MachineReader.status(proc, syslog)`: memory and swap, the training's processes, earlyoom's latest kills |
 | `service/dashboard_service.py` | `DashboardService.snapshot(settings)`: a snapshot from the three readers, which keep their places between snapshots |
@@ -31,14 +31,16 @@ the process file system and the system log.
 
 - **Progress.** The newest `*.log` under `<log directory>/<domain>/` is read once, then only what's written after, so a
   log of hundreds of megabytes costs one read. A line `Round <k> of <n>: ...` from the training loop starts a round:
-  the self-play games (`Self-play game ...`), games against opponents (`Game with seeds ... finished ...`), searched
-  moves (`Searching ...`) and deduced moves (`Deduced ...`) are counted from there. Workers log each game as soon as it
+  the self-play games (`Self-play game ...` lines ending with the payoffs, so a game's record line doesn't count it
+  twice), drawn among them when every payoff is the same and decisive otherwise, games against opponents (`Game with
+  seeds ... finished ...`), searched moves (`Searching ...`) and deduced moves (`Deduced ...`) are counted from there. Workers log each game as soon as it
   ends, so the counts grow during a round; searches grow even while every game is still being played. The latest
   15 INFO and WARNING lines of the training's main loggers (training loop, distiller, ponderer, expression search,
   value generator, entrypoint, task runner) are kept. A newer log starts over.
 - **Rounds.** The newest `*.json` report under `<report directory>/<domain>/`, as `TrainingReportJsonMapper` writes it,
   read whole at every snapshot: reports are small. A round handed over before its games shows none against each
-  opponent.
+  opponent. With the signals target, a table shows the signals the latest round followed, one column each for
+  agreements, disagreements, accuracy, reliability, games between arms, wins, draws, losses and score.
 - **Machine.** `meminfo` gives memory and swap; every process's command line, parent, start and resident memory give the
   training's processes: the loop script (`bash ...continue_training...`), the training entrypoint, and the workers
   whose parent is a training. The system log is read a piece at a time for earlyoom's `sending SIG...` lines, the

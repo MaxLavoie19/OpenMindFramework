@@ -21,3 +21,22 @@ erodes that simplicity a bit, in this order, toward the rhetorical agent.
 | Hanabi | cooperative, hidden cards, limited hints | what you say matters; reading intent |
 | Werewolf, The Resistance (Avalon) | hidden roles, many players | finding liars through what people say |
 | Diplomacy | seven players, negotiation, promises and betrayal | the closest to rhetoric |
+
+## Relaxed domains
+
+"Sometimes fewer constraints lead to good insights." At the end of a round, the agent takes a few positions, relaxes the
+rules and toys with them: free to teleport its pieces, it might learn checkmate geometry, how to cast a mate net, and
+how not to compromise its pieces. Relaxations are hypotheses like signals: what they teach is kept only when it helps
+in real games.
+
+| Relaxation | In chess | In tic-tac-toe |
+|---|---|---|
+| Drop an explicit constraint rule | only "no payoff set": play on after the game ends | "the cell is empty": marks can be overwritten |
+| Widen a variable's domain | any from–to square instead of the legal moves: teleport, since python-chess's `push` doesn't check legality and checkmate is still detected after | any cell |
+| Change turn order | the other side passes, or one side plays two or three moves in a row | the same |
+| Edit the position | fewer pieces, pieces moved (the "what if" views) | fewer marks |
+
+How it would run: pick positions (those where signals disagreed most with the coming winner), relax the domain, deduce
+and walk back inside it within a budget, turn proofs into seeds (`DeductionInducer`) and relaxed goal distances into
+candidate signals, keep only what fits real games, and choose relaxations like arms, by how often their insights
+survive. First step: a `Relaxation` model and a relaxed-domain builder for each kind above.

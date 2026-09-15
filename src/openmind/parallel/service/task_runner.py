@@ -69,8 +69,34 @@ class TaskRunner:
             raise ValueError("Every argument list needs as many items")
         if self._workers == 1 or count <= 1:
             return [function(*items) for items in zip(*arguments, strict=True)]
-        calls = list(zip(*arguments, strict=True))
+        calls: list[tuple[object, ...] | None] = list(zip(*arguments, strict=True))
         return _Run(function, calls, min(self._workers, count), self._memory_cap, droppable).results()  # type: ignore[return-value]
+
+    def stream[R](
+        self,
+        function: Callable[..., R],
+        count: int,
+        arguments_for: Callable[[int], Sequence[object]],
+        on_result: Callable[[int, R | DroppedCall], None],
+        droppable: bool = False,
+    ) -> list[R]:
+        """Calls the function count times, as `map` does, choosing each call's arguments only when a worker takes it:
+        `arguments_for(index)` runs in this process just before call `index` starts, after `on_result` has seen every
+        result finished so far, in the order they finish, a dropped call's `DroppedCall` included. A call run again in a
+        fresh worker keeps its arguments. Results come back in the calls' order."""
+        if count < 0:
+            raise ValueError(f"A stream needs 0 calls or more, not {count}")
+        if self._workers == 1 or count <= 1:
+            results: list[R] = []
+            for index in range(count):
+                result = function(*arguments_for(index))
+                results.append(result)
+                on_result(index, result)
+            return results
+        run = _Run(
+            function, [None] * count, min(self._workers, count), self._memory_cap, droppable, arguments_for, on_result  # type: ignore[arg-type]
+        )
+        return run.results()  # type: ignore[return-value]
 
     def split[T](self, items: Sequence[T]) -> list[Sequence[T]]:
         """Contiguous slices of the items, in order: one slice with one worker, otherwise up to SLICES_PER_WORKER slices
@@ -100,16 +126,20 @@ class _Run:
     def __init__(
         self,
         function: Callable[..., object],
-        calls: list[tuple[object, ...]],
+        calls: list[tuple[object, ...] | None],
         workers: int,
         memory_cap: MemoryCap | None,
         droppable: bool,
+        arguments_for: Callable[[int], Sequence[object]] | None = None,
+        on_result: Callable[[int, object], None] | None = None,
     ) -> None:
         self._function = function
         self._calls = calls
         self._workers = workers
         self._memory_cap = memory_cap
         self._droppable = droppable
+        self._arguments_for = arguments_for
+        self._on_result = on_result
         self._context = multiprocessing.get_context(START_METHOD)
         self._results: list[object] = [_MISSING] * len(calls)
         self._waiting: deque[int] = deque(range(len(calls)))
@@ -152,8 +182,11 @@ class _Run:
             return
         index = self._waiting.popleft()
         worker.call, worker.over = index, None
+        arguments = self._calls[index]
+        if arguments is None:
+            arguments = self._calls[index] = tuple(self._arguments_for(index))  # type: ignore[misc]
         try:
-            worker.connection.send((index, self._function, self._calls[index]))
+            worker.connection.send((index, self._function, arguments))
         except OSError:
             worker.gone = True
 
@@ -179,6 +212,8 @@ class _Run:
                 self._results[index] = value
                 self._done += 1
                 worker.call = None
+                if self._on_result is not None:
+                    self._on_result(index, value)
                 self._assign(worker)
             elif kind == "error":
                 _, index, error, text = message
@@ -234,6 +269,8 @@ class _Run:
             )
             self._results[index] = DroppedCall(index, worker.over)
             self._done += 1
+            if self._on_result is not None:
+                self._on_result(index, self._results[index])
 
     def _stop(self, finished: bool) -> None:
         """Asks every worker to end once the calls are done; terminates them when a call failed."""

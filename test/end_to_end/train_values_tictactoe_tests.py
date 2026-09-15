@@ -8,6 +8,8 @@ from openmind.entrypoint.train_values import main
 from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.model.value_base import ValueBase
 from openmind.rbs.repository.value_base_repository import ValueBaseRepository
+from openmind.training.mapper.signal_library_json_mapper import SignalLibraryJsonMapper
+from openmind.training.repository.signal_library_repository import SignalLibraryRepository
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -23,6 +25,33 @@ def directories(tmp_path: Path) -> tuple[str, ...]:
         *("--log-directory", str(tmp_path / "log"), "--values-directory", str(tmp_path / "values")),
         *("--report-directory", str(tmp_path / "training")),
     )
+
+
+def test_with_the_signals_target_every_round_saves_the_signal_library_and_the_report_holds_the_arms(tmp_path: Path) -> None:
+    signals = tmp_path / "signals"
+    main(
+        [
+            "tictactoe",
+            *("--rounds", "2", "--target", "signals", "--arms", "2", "--signals-directory", str(signals)),
+            *SMALL,
+            *directories(tmp_path),
+        ]
+    )
+
+    (library_file,) = (signals / "tictactoe").glob("*.json")
+    library = SignalLibraryRepository(SignalLibraryJsonMapper()).load(library_file)
+    (report_file,) = (tmp_path / "training" / "tictactoe").glob("*.json")
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    assert library.domain == "tictactoe" and any(record.signal.name == "win" for record in library.records)
+    assert report["settings"]["signals"] == {"arms": 2, "horizon": 0, "goal_limit": 2}
+    assert [arm["name"] for arm in report["rounds"][1]["arms"]][-2:] == ["uniform", "weighted"]
+
+    main(["tictactoe", *("--rounds", "1", "--target", "signals", "--signal-library", str(library_file)), *SMALL, *directories(tmp_path)])
+
+
+def test_a_signal_library_without_the_signals_target_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["tictactoe", "--signal-library", str(tmp_path / "missing.json"), *SMALL, *directories(tmp_path)])
 
 
 def test_train_values_saves_every_round_and_the_report_and_prints_the_rounds(

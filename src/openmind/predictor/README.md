@@ -11,12 +11,12 @@ are branches with probabilities below 1.
 
 | File | What it is |
 |---|---|
-| `model/branch.py` | `Branch(probability, effects)`: one possible outcome of an action; `effects` is a Python script (`PythonRule`) |
+| `model/branch.py` | `Branch(probability, effects)`: one possible outcome of an action; `effects` is a Python script (`PythonRule`) whose assignments to state variables make the new state, or the project's own function `(state, **parameters) -> State` (`EffectsRule`, see `rule/README.md`) |
 | `model/transition.py` | `Transition(action, branches)`: what performing an action does |
 | `model/transition_model.py` | `TransitionModel(transitions, definitions=None, resolution=None)`: every transition of a domain, the definitions their effects see, and, where players act at once, the resolution branches run after every player's action |
 | `model/outcome_distribution.py` | `OutcomeDistribution(outcomes)`: each outcome (new state) with its probability |
 | `builder/transition_model_builder.py` | `TransitionModelBuilder`: collects transitions, definitions and the resolution (`with_resolution(branches)`); rejects a repeated action or probabilities that don't sum to 1 |
-| `service/predictor.py` | `Predictor`: runs each branch's effects on the state to give the outcome distribution; `predict_joint(model, state, joint)` for actions taken at once |
+| `service/predictor.py` | `Predictor(rule_caller, action_text_mapper)`: runs each branch's effects on the state to give the outcome distribution; `predict_joint(model, state, joint)` for actions taken at once |
 | `builder/predictor_builder.py` | `PredictorBuilder`: wires a predictor with its rule compiler, rule runner and action text mapper |
 | `factory/predictor_factory.py` | `create_predictor()` |
 

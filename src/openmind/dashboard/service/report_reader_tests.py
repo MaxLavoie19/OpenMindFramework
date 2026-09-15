@@ -25,7 +25,7 @@ def test_the_newest_report_gives_a_row_per_round_and_the_latest_rules(tmp_path: 
         (("random", "12 / 8 / 0"), ("untrained MCTS", "0 / 20 / 0")),
         "start rules: 5 / 10 / 5",
     )
-    assert (second.baselines, second.against_previous, second.pondering) == ((), None, (50, 7, 12, 3, 1))
+    assert (second.baselines, second.against_previous, second.pondering) == ((), None, (50, 7, 12, 3, 1, 0, 0))
     assert summary.latest_rules == (("wins(me)", 0.7),)
 
 

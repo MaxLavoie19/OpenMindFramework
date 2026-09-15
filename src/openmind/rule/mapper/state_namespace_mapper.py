@@ -1,10 +1,13 @@
 from collections.abc import Mapping
 
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.world.model.grid import Grid
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
 
 type Layout = tuple[tuple[str, object], ...]
+#: A state's layout, and the bases whose indices are all whole numbers.
+type Arrangement = tuple[Layout, frozenset[str]]
 
 _PLAIN = object()
 
@@ -12,11 +15,12 @@ _PLAIN = object()
 class StateNamespaceMapper:
     """Maps a state to the names a rule reads, and a namespace a script changed back to a state. A plain variable such as
     `turn` is its value; variables named with indices are gathered under their base in a dict, so cell(2,3) is
-    cell[2, 3] and payoff(X) is payoff["X"]. An index written as a whole number is an int."""
+    cell[2, 3] and payoff(X) is payoff["X"]. An index written as a whole number is an int, and a base whose indices are
+    all whole numbers, as many of them each, is a Grid, searchable by coordinates."""
 
     def __init__(self, variable_name_mapper: VariableNameMapper) -> None:
         self._variable_name_mapper = variable_name_mapper
-        self._layouts: dict[tuple[str, ...], Layout] = {}
+        self._layouts: dict[tuple[str, ...], Arrangement] = {}
 
     def __getstate__(self) -> dict[str, object]:
         """Layouts mark plain variables with a sentinel only this process knows: a copy lays states out again."""
@@ -29,13 +33,14 @@ class StateNamespaceMapper:
     def to_namespace(self, state: State) -> dict[str, object]:
         """A fresh namespace: changing it, or the dicts in it, doesn't change the state."""
         namespace: dict[str, object] = {}
-        for (base, key), (_, value) in zip(self._layout(state), state.variables, strict=True):
+        layout, grids = self._arrangement(state)
+        for (base, key), (_, value) in zip(layout, state.variables, strict=True):
             if key is _PLAIN:
                 namespace[base] = value
             else:
                 indexed = namespace.get(base)
                 if indexed is None:
-                    indexed = namespace[base] = {}
+                    indexed = namespace[base] = Grid() if base in grids else {}
                 indexed[key] = value  # type: ignore[index]
         return namespace
 
@@ -69,6 +74,11 @@ class StateNamespaceMapper:
             raise ValueError(f"The index {key!r} of {base!r} can't be written in a variable name")
         return name
 
+    def cells(self, state: State) -> tuple[tuple[str, object] | None, ...]:
+        """For each of the state's variables, in order, its base and its index as a rule reads them, or None for a plain
+        variable."""
+        return tuple(None if key is _PLAIN else (base, key) for base, key in self._layout(state))
+
     def to_source(self, name: str) -> str:
         """How a rule reads a variable: `turn`, `cell[2, 3]`, `payoff['X']`."""
         base, texts = self._variable_name_mapper.from_name(name)
@@ -77,9 +87,12 @@ class StateNamespaceMapper:
         return f"{base}[{', '.join(repr(self._index(text)) for text in texts)}]"
 
     def _layout(self, state: State) -> Layout:
+        return self._arrangement(state)[0]
+
+    def _arrangement(self, state: State) -> Arrangement:
         names = tuple(name for name, _ in state.variables)
-        layout = self._layouts.get(names)
-        if layout is None:
+        arrangement = self._layouts.get(names)
+        if arrangement is None:
             entries: list[tuple[str, object]] = []
             for name in names:
                 base, texts = self._variable_name_mapper.from_name(name)
@@ -92,8 +105,21 @@ class StateNamespaceMapper:
             indexed = {base for base, key in entries if key is not _PLAIN}
             if clash := sorted(plain & indexed):
                 raise ValueError(f"State variable {clash[0]!r} is both a plain and an indexed variable")
-            layout = self._layouts[names] = tuple(entries)
-        return layout
+            keys: dict[str, list[object]] = {}
+            for base, key in entries:
+                if key is not _PLAIN:
+                    keys.setdefault(base, []).append(key)
+            grids = frozenset(base for base, found in keys.items() if self._whole(found))
+            arrangement = self._layouts[names] = (tuple(entries), grids)
+        return arrangement
+
+    def _whole(self, keys: list[object]) -> bool:
+        """Whether every key is a whole number, or every key a tuple of as many whole numbers."""
+        if all(isinstance(key, int) and not isinstance(key, bool) for key in keys):
+            return True
+        return all(isinstance(key, tuple) for key in keys) and len({len(key) for key in keys}) == 1 and all(  # type: ignore[arg-type]
+            isinstance(index, int) and not isinstance(index, bool) for key in keys for index in key  # type: ignore[attr-defined]
+        )
 
     def _index(self, text: str) -> object:
         return int(text) if text.lstrip("-").isdecimal() else text

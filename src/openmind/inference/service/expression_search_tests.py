@@ -200,6 +200,67 @@ def test_a_search_whose_process_holds_more_than_its_memory_budget_clears_its_vie
     assert any(", over the memory budget of 1: cleared the views" in message for message in caplog.messages)
 
 
+def first_generation_budget() -> SearchBudget:
+    """A budget of exactly the first generation's candidates, the strip's leaves."""
+    generator = ExpressionGenerator(VariableNameMapper())
+    leaves = generator.leaves(generator.vocabulary(strip_domain(), (row.state for row in strip_rows())))
+    return SearchBudget(300.0, GIGABYTE, len(leaves))
+
+
+def test_a_candidate_is_kept_when_any_target_supports_it(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.inference")
+    noise = np.random.default_rng(1).uniform(0.0, 1.0, len(strip_rows()))
+
+    alone = new_search().search(strip_domain(), strip_rows(), (), targets(), 0.01, 500, 1e-6, first_generation_budget())
+    both = new_search().search(
+        strip_domain(), strip_rows(), (), {"payoff": targets(), "noise": noise}, 0.01, 500, 1e-6, first_generation_budget()
+    )
+
+    alone_templates = {expression.template for expression in alone.expressions}
+    assert alone_templates and alone_templates <= {expression.template for expression in both.expressions}
+    assert any("training loss payoff=" in message and " noise=" in message for message in caplog.messages)
+
+
+def test_one_named_target_searches_as_the_target_given_alone() -> None:
+    named = new_search().search(strip_domain(), strip_rows(), (), {"payoff": targets()}, 0.01, 500, 1e-6, first_generation_budget())
+    alone = new_search().search(strip_domain(), strip_rows(), (), targets(), 0.01, 500, 1e-6, first_generation_budget())
+
+    assert (named.expressions, named.stopped, named.tried) == (alone.expressions, alone.stopped, alone.tried)
+
+
+def test_a_search_without_a_target_raises() -> None:
+    with pytest.raises(ValueError, match="at least one target"):
+        new_search().search(strip_domain(), strip_rows(), (), {}, 0.01, 500, 1e-6, first_generation_budget())
+
+
+def test_a_column_with_blanks_is_scaled_without_centering_and_priced_by_its_share() -> None:
+    search = new_search()
+    fires = np.array([1.0, np.nan, 1.0, np.nan])
+    counts = np.array([1.0, 3.0, 1.0, 3.0])
+
+    assert search.scaling(fires) == (0.0, 1.0)
+    assert search.standard(fires).tolist() == [1.0, 0.0, 1.0, 0.0]
+    assert search.share(fires) == 0.5
+    assert search.standard(counts).tolist() == [-1.0, 1.0, -1.0, 1.0]
+    assert search.share(counts) == 1.0
+    assert search.standard(np.array([np.nan, np.nan])).tolist() == [0.0, 0.0]
+
+
+def test_a_blank_term_is_kept_and_its_children_stay_blank_where_it_is() -> None:
+    seed = Expression("(1 if wins(me) else None)", 1, 0)
+
+    result = new_search().search(
+        strip_domain(), strip_rows(), strip_rows()[:5], targets(), 0.01, 500, 1e-6, SearchBudget(300.0, GIGABYTE, 3000), (seed,)
+    )
+
+    columns = dict(zip((expression.template for expression in result.expressions), result.training, strict=True))
+    assert seed.template in columns
+    blank = np.isnan(columns[seed.template])
+    assert blank.any() and not blank.all()
+    children = [column for template, column in columns.items() if template != seed.template and seed.template in template]
+    assert all(np.isnan(column[blank]).all() for column in children)
+
+
 def test_a_search_whose_workers_go_over_their_memory_cap_twice_stops_on_memory(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.WARNING, logger="openmind.inference")
 

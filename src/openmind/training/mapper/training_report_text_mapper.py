@@ -4,6 +4,10 @@ from openmind.evaluation.model.match_results import MatchResults
 from openmind.training.model.pondering_summary import PonderingSummary
 from openmind.training.model.training_report import TrainingReport
 
+#: The pondering columns, one count each: positions pondered and proven, seeds, seeds kept by the search, seeds in the
+#: rules, and positions of decisive games deduced walking back from their ends, and proven.
+PONDERING_COLUMNS = ("pondered", "proven", "seeds", "seeds kept", "seeds in rules", "endings deduced", "endings proven")
+
 
 class TrainingReportTextMapper:
     """Maps a training report to readable text: a heading, then a table with one line per round: its value rules, the
@@ -29,7 +33,7 @@ class TrainingReportTextMapper:
             "held-out error",
             *(f"against {opponent}" for opponent in opponents),
             "against the previous",
-            *(("pondered: proven / seeds / kept / in rules",) if pondered else ()),
+            *(PONDERING_COLUMNS if pondered else ()),
             "seconds",
         )
         rows = [
@@ -43,7 +47,7 @@ class TrainingReportTextMapper:
                 "none"
                 if item.against_previous is None
                 else f"{item.against_previous.opponent}: {self._results(item.against_previous)}",
-                *((self._pondering(item.pondering),) if pondered else ()),
+                *(self._pondering(item.pondering) if pondered else ()),
                 f"{item.seconds:.0f}",
             )
             for item in report.rounds
@@ -56,10 +60,20 @@ class TrainingReportTextMapper:
         found = next((results for results in baselines if results.opponent == opponent), None)
         return "none" if found is None else self._results(found)
 
-    def _pondering(self, summary: PonderingSummary | None) -> str:
+    def _pondering(self, summary: PonderingSummary | None) -> tuple[str, ...]:
+        """One cell per count, in the order of PONDERING_COLUMNS."""
         if summary is None:
-            return "none"
-        return f"{summary.positions}: {summary.proven} / {summary.seeds} / {summary.seeds_kept} / {summary.seeds_in_rules}"
+            return ("none",) * len(PONDERING_COLUMNS)
+        counts = (
+            summary.positions,
+            summary.proven,
+            summary.seeds,
+            summary.seeds_kept,
+            summary.seeds_in_rules,
+            summary.endings_deduced,
+            summary.endings_proven,
+        )
+        return tuple(str(count) for count in counts)
 
     def _loss(self, loss: float | None) -> str:
         return "none" if loss is None else f"{loss:.6f}"

@@ -11,6 +11,8 @@ from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rule.model.python_rule import PythonRule
 from openmind.training.factory.training_factory import create_value_training_loop
 from openmind.training.model.pondering_settings import PonderingSettings
+from openmind.training.model.signal_library import SignalLibrary
+from openmind.training.model.signal_settings import SignalSettings
 from openmind.training.model.training_report import TrainingReport
 from openmind.training.model.value_distillation_settings import ValueDistillationSettings
 from openmind.training.model.value_training_settings import ValueTrainingSettings
@@ -35,6 +37,48 @@ SETTINGS = ValueTrainingSettings(
     evaluation_games=2,
     start_file=None,
 )
+
+
+def test_with_the_signals_target_the_signal_library_carries_from_round_to_round() -> None:
+    distillation = replace(SETTINGS.distillation, games=3, target="signals", signals=SignalSettings(arms=2))
+    settings = replace(SETTINGS, evaluation_games=0, distillation=distillation)
+
+    report = create_value_training_loop().train(create_tictactoe_domain(), None, settings)
+
+    first, second = report.rounds
+    assert first.library is not None and second.library is not None
+
+    def readings(library: SignalLibrary) -> int:
+        return sum(record.agreements + record.disagreements for record in library.records)
+
+    assert readings(second.library) >= readings(first.library)
+    assert [record.signal.name for record in second.arms][-2:] == ["uniform", "weighted"]
+    assert len(first.library.value_bases) >= 3
+    # Round 1's arms are the deduced value bases, round 2's the signals round 1 fitted: every game scores two arms.
+    assert sum(record.games for record in first.library.records) == 2 * (3 + 1)
+    assert sum(record.games for record in second.library.records) == 2 * 2 * (3 + 1)
+
+
+def test_with_the_signals_target_a_library_without_value_bases_is_prepared_and_one_with_them_is_kept(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.training")
+    distillation = replace(SETTINGS.distillation, games=3, target="signals", signals=SignalSettings(arms=2))
+    settings = replace(SETTINGS, rounds=1, evaluation_games=0, distillation=distillation)
+    loop, domain = create_value_training_loop(), create_tictactoe_domain()
+
+    (prepared,) = loop.train(domain, None, settings).rounds
+    kept_bases = prepared.library.value_bases  # type: ignore[union-attr]
+    kept = SignalLibrary("tictactoe", (), (), (("mine", kept_bases[0][1]), ("yours", kept_bases[1][1])))
+    caplog.clear()
+    (loaded,) = loop.train(domain, None, settings, library=kept).rounds
+
+    first_records = {record.signal.name: record for record in prepared.library.records}  # type: ignore[union-attr]
+    assert {"options", "my options", "their options"} <= first_records.keys() and first_records["options"].signal.premises == ()
+    assert sum(first_records[name].games for name in first_records if name.startswith("deduced")) == 2 * (3 + 1)
+    loaded_records = {record.signal.name: record for record in loaded.library.records}  # type: ignore[union-attr]
+    assert (loaded_records["mine"].games + loaded_records["yours"].games, "options" in loaded_records) == (2 * (3 + 1), False)
+    assert not any(message.startswith("Prepared ") for message in caplog.messages)
 
 
 def test_each_round_self_plays_with_the_previous_round_s_rules_and_plays_its_opponents(

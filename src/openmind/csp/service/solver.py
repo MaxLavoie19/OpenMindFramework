@@ -16,10 +16,10 @@ from openmind.csp.service.constraint_checker import ConstraintChecker
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.rule.constant.rule_constant import ALL_DIFFERENT
 from openmind.rule.mapper.call_operand_mapper import CallOperandMapper
-from openmind.rule.model.compiled_rule import CompiledRule
+from openmind.rule.model.called_rule import CalledRule
 from openmind.rule.model.python_rule import PythonRule
-from openmind.rule.service.rule_compiler import RuleCompiler
-from openmind.rule.service.rule_runner import RuleRunner
+from openmind.rule.model.rule import Rule
+from openmind.rule.service.rule_caller import RuleCaller
 from openmind.world.constant.players_constant import PLAYER
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -31,20 +31,18 @@ logger = logging.getLogger(__name__)
 class Solver:
     """Finds the actions whose parameter values satisfy all of their constraints in a state. The constraints reading no
     parameter are checked first; then each parameter gets its values, fixed or computed from the state; each other
-    constraint, a Python rule, takes the strongest form the parameters it reads allow (a domain filter, an all-different
+    constraint takes the strongest form the parameters it reads allow (a domain filter, an all-different
     group, a support table, or a forward-checked constraint), backtracking search does the rest, and results are cached
     per problem and state until the process's memory guard clears them."""
 
     def __init__(
         self,
-        rule_compiler: RuleCompiler,
-        rule_runner: RuleRunner,
+        rule_caller: RuleCaller,
         call_operand_mapper: CallOperandMapper,
         constraint_checker: ConstraintChecker,
         backtracking_search: BacktrackingSearch,
     ) -> None:
-        self._rule_compiler = rule_compiler
-        self._rule_runner = rule_runner
+        self._rule_caller = rule_caller
         self._call_operand_mapper = call_operand_mapper
         self._constraint_checker = constraint_checker
         self._backtracking_search = backtracking_search
@@ -109,26 +107,26 @@ class Solver:
     ) -> tuple[list[Action], SolveStatistics]:
         action = definition.name
         names = [variable.name for variable in definition.variables]
-        compiled_constraints = [
-            (constraint, self._rule_compiler.compile_value(constraint, names, definitions))
+        prepared_constraints = [
+            (constraint, self._rule_caller.prepare(constraint, names, definitions))
             for constraint in definition.constraints
         ]
-        for constraint, compiled in compiled_constraints:
-            if not compiled.arguments and not self._constraint_checker.holds(compiled, state, action, {}):
+        for constraint, prepared in prepared_constraints:
+            if not prepared.arguments and not self._constraint_checker.holds(prepared, state, action, {}):
                 return self._no_solution(action, constraint)
         ordered = {variable.name: self._values(variable.domain, state, definitions) for variable in definition.variables}
         domains = dict(ordered)
 
         groups: list[AllDifferentGroup] = []
-        wider: list[CompiledRule] = []
-        for constraint, compiled in compiled_constraints:
-            scope = compiled.arguments
+        wider: list[CalledRule] = []
+        for constraint, prepared in prepared_constraints:
+            scope = prepared.arguments
             if not scope:
                 continue
             group = self._group(constraint, names, definitions)
             if group is not None:
                 parameters, fixed_rules = group
-                fixed = [self._rule_runner.value(rule, state) for rule in fixed_rules]
+                fixed = [self._rule_caller.call(rule, state) for rule in fixed_rules]
                 if len(set(parameters)) < len(parameters) or len(set(fixed)) < len(fixed):
                     return self._no_solution(action, constraint)
                 for name in parameters:
@@ -140,27 +138,27 @@ class Solver:
                 domains[name] = tuple(
                     value
                     for value in domains[name]
-                    if self._constraint_checker.holds(compiled, state, action, {name: value})
+                    if self._constraint_checker.holds(prepared, state, action, {name: value})
                 )
             else:
-                wider.append(compiled)
+                wider.append(prepared)
 
         tables: list[SupportTable] = []
         constraints: list[ScopedConstraint] = []
-        for compiled in wider:
-            if len(compiled.arguments) == 2:
-                first, second = compiled.arguments
+        for prepared in wider:
+            if len(prepared.arguments) == 2:
+                first, second = prepared.arguments
                 allowed = frozenset(
                     (first_value, second_value)
                     for first_value in domains[first]
                     for second_value in domains[second]
                     if self._constraint_checker.holds(
-                        compiled, state, action, {first: first_value, second: second_value}
+                        prepared, state, action, {first: first_value, second: second_value}
                     )
                 )
                 tables.append(SupportTable(first, second, allowed))
             else:
-                constraints.append(ScopedConstraint(compiled, compiled.arguments))
+                constraints.append(ScopedConstraint(prepared, prepared.arguments))
 
         space = SearchSpace(
             action,
@@ -190,29 +188,30 @@ class Solver:
         """A discrete domain's values, or the values a state domain's rule gives in the state, each once, in order."""
         if isinstance(domain, DiscreteDomain):
             return domain.values
-        compiled = self._rule_compiler.compile_value(domain.rule, (), definitions)
-        return tuple(dict.fromkeys(self._rule_runner.value(compiled, state)))  # type: ignore[call-overload]
+        return tuple(dict.fromkeys(self._rule_caller.value(domain.rule, state, None, None, definitions)))  # type: ignore[call-overload]
 
     def _group(
-        self, constraint: PythonRule, names: list[str], definitions: PythonRule | None
-    ) -> tuple[list[str], list[CompiledRule]] | None:
-        """The parameters and the parameter-free operands of an all_different call, or None when it isn't one or an
-        operand is anything else."""
+        self, constraint: Rule, names: list[str], definitions: PythonRule | None
+    ) -> tuple[list[str], list[CalledRule]] | None:
+        """The parameters and the parameter-free operands of an all_different call, or None when it isn't one, an operand
+        is anything else, or the constraint is one of the project's functions, whose operands can't be read."""
+        if not isinstance(constraint, PythonRule):
+            return None
         operands = self._call_operand_mapper.to_operands(constraint, ALL_DIFFERENT)
         if operands is None:
             return None
         parameters: list[str] = []
-        fixed: list[CompiledRule] = []
+        fixed: list[CalledRule] = []
         for operand in operands:
             if operand.source in names:
                 parameters.append(operand.source)
                 continue
-            compiled = self._rule_compiler.compile_value(operand, names, definitions)
-            if compiled.arguments:
+            prepared = self._rule_caller.prepare(operand, names, definitions)
+            if prepared.arguments:
                 return None
-            fixed.append(compiled)
+            fixed.append(prepared)
         return parameters, fixed
 
-    def _no_solution(self, action: str, constraint: PythonRule) -> tuple[list[Action], SolveStatistics]:
-        logger.debug("%s: no solution, constraint is false: %s", action, constraint.source)
+    def _no_solution(self, action: str, constraint: Rule) -> tuple[list[Action], SolveStatistics]:
+        logger.debug("%s: no solution, constraint is false: %s", action, self._rule_caller.source(constraint))
         return [], SolveStatistics(0, 0, 0, 0)

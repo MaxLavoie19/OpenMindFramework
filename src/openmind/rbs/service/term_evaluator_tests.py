@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from openmind.parallel.service.task_runner import TaskRunner
@@ -38,6 +39,12 @@ def test_a_term_reads_the_state_and_the_names_with_me_being_the_row_player() -> 
     my_turn = evaluator.column(strip_domain(), ROWS, PythonRule("turn == me"))
 
     assert (counts.tolist(), wins.tolist(), my_turn.tolist()) == ([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 1.0])  # type: ignore[union-attr]
+
+
+def test_a_term_giving_none_is_blank_on_that_row() -> None:
+    column = new_evaluator().column(strip_domain(), ROWS, PythonRule("1 if wins(me) else None"))
+
+    assert column is not None and column[0] == 1.0 and np.isnan(column[1:]).all()
 
 
 @pytest.mark.parametrize("source", ["lamp == 1", "turn", "float('inf')"])

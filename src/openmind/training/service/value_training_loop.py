@@ -19,10 +19,13 @@ from openmind.rbs.service.consequence_library import ConsequenceLibrary
 from openmind.rbs.service.rule_valuer import RuleValuer
 from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner
-from openmind.training.constant.training_constant import START_RULES
+from openmind.training.constant.training_constant import SIGNALS_TARGET, START_RULES
+from openmind.training.model.signal_library import SignalLibrary
+from openmind.training.model.signal_settings import SignalSettings
 from openmind.training.model.training_report import TrainingReport
 from openmind.training.model.training_round import TrainingRound
 from openmind.training.model.value_training_settings import ValueTrainingSettings
+from openmind.training.service.signal_preparer import SignalPreparer
 from openmind.training.service.value_distiller import ValueDistiller
 
 logger = logging.getLogger(__name__)
@@ -43,12 +46,14 @@ class ValueTrainingLoop:
         rule_compiler: RuleCompiler,
         rule_runner: RuleRunner,
         consequence_library: ConsequenceLibrary,
+        signal_preparer: SignalPreparer,
     ) -> None:
         self._value_distiller = value_distiller
         self._match_runner = match_runner
         self._rule_compiler = rule_compiler
         self._rule_runner = rule_runner
         self._consequence_library = consequence_library
+        self._signal_preparer = signal_preparer
 
     def train(
         self,
@@ -56,11 +61,25 @@ class ValueTrainingLoop:
         start: ValueBase | None,
         settings: ValueTrainingSettings,
         on_round: Callable[[TrainingReport], None] | None = None,
+        library: SignalLibrary | None = None,
     ) -> TrainingReport:
         """Hands the report so far to on_round once a round's rules are fitted, before its games, so they can be saved
         even if the games never end, and again after every round; the last report is complete. To run in several
-        workers, the value rules' agents must pickle, as a RuleValuer does."""
+        workers, the value rules' agents must pickle, as a RuleValuer does. With the signals target, round 1 records its
+        signals in the given library, a new one without it, and every round hands the library it updated to the next;
+        each round holds it. Once the library holds two value bases or more, the signals the previous round followed,
+        self-play games are between agents each following one of them. With the signals target and a library without value
+        bases, the signal preparer first deduces signals from the rules: their records join the library's, and round 1's
+        arms follow the deduced value bases."""
         created_at = datetime.now().replace(microsecond=0)
+        if settings.distillation.target == SIGNALS_TARGET and (library is None or not library.value_bases):
+            prepared = self._signal_preparer.prepare(domain, (settings.distillation.signals or SignalSettings()).goal_limit)
+            if library is None:
+                library = prepared
+            else:
+                known = {record.signal.name for record in library.records}
+                records = (*library.records, *(record for record in prepared.records if record.signal.name not in known))
+                library = replace(library, records=records, value_bases=prepared.value_bases)
         previous, previous_name = start, None if start is None else START_RULES
         rounds: list[TrainingRound] = []
         report = TrainingReport(domain.name, created_at, settings, (), settings.rounds == 0)
@@ -76,9 +95,20 @@ class ValueTrainingLoop:
                     f"the {previous_name}" if previous_name == START_RULES else f"{previous_name}'s rules",
                 )
             seed = settings.distillation.seed + number
-            result = self._value_distiller.distill(
-                domain, self._agent_builder(domain, previous, settings), replace(settings.distillation, seed=seed), previous
+            arm_builders = (
+                None
+                if library is None or len(library.value_bases) < 2
+                else {name: self._agent_builder(domain, base, settings) for name, base in library.value_bases}
             )
+            result = self._value_distiller.distill(
+                domain,
+                self._agent_builder(domain, previous, settings),
+                replace(settings.distillation, seed=seed),
+                previous,
+                library,
+                arm_builders,
+            )
+            library = result.library if result.library is not None else library
             logger.info(
                 "Round %d: %d value rules, held-out loss %s, held-out error %s",
                 number,
@@ -101,6 +131,8 @@ class ValueTrainingLoop:
                     None,
                     time.perf_counter() - started,
                     result.pondering,
+                    result.arms,
+                    result.library,
                 )
                 logger.info("Round %d fitted: handing it over before its games", number)
                 on_round(TrainingReport(domain.name, created_at, settings, (*rounds, fitted), False))
@@ -135,6 +167,8 @@ class ValueTrainingLoop:
                     against_previous,
                     seconds,
                     result.pondering,
+                    result.arms,
+                    result.library,
                 )
             )
             previous, previous_name = result.value_base, f"round {number}"

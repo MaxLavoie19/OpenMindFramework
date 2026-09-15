@@ -22,12 +22,12 @@ def test_a_round_handed_over_before_its_games_shows_none_against_each_opponent()
 
 
 def test_a_round_that_pondered_shows_its_positions_proofs_and_seeds() -> None:
-    report = replace(REPORT, rounds=(replace(ROUND, pondering=PonderingSummary(50, 7, 12, 3, 1)),))
+    report = replace(REPORT, rounds=(replace(ROUND, pondering=PonderingSummary(50, 7, 12, 3, 1, 90, 41)),))
 
     lines = TrainingReportTextMapper().to_text(report).splitlines()
 
-    assert "pondered: proven / seeds / kept / in rules" in lines[1]
-    assert "50: 7 / 12 / 3 / 1" in lines[2]
+    assert "pondered  proven  seeds  seeds kept  seeds in rules  endings deduced  endings proven  seconds" in lines[1]
+    assert lines[2].split()[-8:] == ["50", "7", "12", "3", "1", "90", "41", "3600"]
 
 
 def test_a_training_without_rounds_is_only_its_heading() -> None:

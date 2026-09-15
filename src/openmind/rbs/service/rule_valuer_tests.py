@@ -38,6 +38,16 @@ def test_explain_gives_what_each_rule_adds_to_the_score() -> None:
     assert create_rule_valuer(BASE, strip_domain()).explain(X_THREATENS, "X") == ((BASE.rules[0], 2.0), (BASE.rules[1], 0.0))
 
 
+def test_a_blank_term_adds_nothing() -> None:
+    blank = ValueRule(PythonRule("1 if wins(me) else None"), 2.0)
+    base = replace(BASE, rules=(blank, BASE.rules[1]))
+    valuer = create_rule_valuer(base, strip_domain())
+
+    # X: the term is 1; O can't win next, so the term is blank and only O's turn counts.
+    assert valuer.value(X_THREATENS) == pytest.approx((logistic(2.0), logistic(-1.0)))
+    assert valuer.explain(X_THREATENS, "O") == ((blank, 0.0), (BASE.rules[1], -1.0))
+
+
 @pytest.mark.parametrize("source", ["lamp", "turn"])
 def test_a_term_that_raises_or_gives_no_number_leaves_the_position_unvalued(source: str) -> None:
     base = replace(BASE, rules=(ValueRule(PythonRule(source), 1.0),))

@@ -3,12 +3,15 @@ import logging
 import math
 from dataclasses import replace
 
+import numpy as np
 import pytest
 
+from openmind.inference.model.expression import Expression
 from openmind.rbs.factory.rbs_factory import create_rule_valuer, create_value_generator
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.consequence_library_tests import position, strip_domain
+from openmind.rule.model.python_rule import PythonRule
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -59,6 +62,42 @@ def test_generation_fits_value_rules_closer_to_the_payoffs_than_their_mean(caplo
     assert mean_absolute_error(values, rows) < mean_absolute_error([mean] * len(rows), rows)
     assert any(message.startswith("Chose price ") for message in caplog.messages)
     assert any(" candidate terms after " in message for message in caplog.messages)
+
+
+def test_several_targets_share_one_search_and_each_gets_its_own_fit_and_strengths(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.rbs")
+    rows, domain = strip_rows(), strip_domain()
+    payoffs = np.array([row.target for row in rows])
+    targets = {"payoff": (payoffs, payoffs), "flipped": (1.0 - payoffs, 1.0 - payoffs), "flat": (np.full(len(rows), 0.5),) * 2}
+
+    results = create_value_generator().generate_for_targets(domain, rows, rows, targets, SETTINGS)
+
+    payoff, flipped, flat = results["payoff"], results["flipped"], results["flat"]
+    assert list(results) == ["payoff", "flipped", "flat"]
+    assert payoff.candidates == flipped.candidates and payoff.value_base.rules and flat.value_base.rules == ()
+    assert [term for term, _ in payoff.strengths] == [rule.term for rule in payoff.value_base.rules]
+    assert all(strength != 0.0 for _, strength in payoff.strengths)
+    shared = dict(payoff.strengths).keys() & dict(flipped.strengths).keys()
+    assert shared and all(dict(payoff.strengths)[term] * dict(flipped.strengths)[term] < 0 for term in shared)
+    assert any(message.startswith("payoff: Chose price ") for message in caplog.messages)
+    assert "flat: Every training payoff is 0.5: nothing to fit" in caplog.messages
+
+
+def test_a_blank_term_s_rule_values_as_its_fit_without_moving_the_bias() -> None:
+    rows, domain = strip_rows(), strip_domain()
+    seed = Expression("(1 if wins(me) else None)", 1, 0)
+
+    result = create_value_generator().generate(domain, rows, rows, replace(SETTINGS, candidates=1), (seed,))
+
+    # Only the seed is tried: its rule's weight is the fit's weight over the scale, and a blank row adds nothing.
+    base = result.value_base
+    assert [rule.term for rule in base.rules] == [PythonRule("(1 if wins(me) else None)")]
+    assert result.strengths[0][1] == pytest.approx(base.rules[0].weight)
+    valuer = create_rule_valuer(base, domain)
+    blank = next(row for row in rows if valuer.explain(row.state, row.player)[0][1] == 0.0)  # type: ignore[index]
+    assert valuer.value(blank.state)[domain.players.names.index(blank.player)] == pytest.approx(  # type: ignore[index]
+        1.0 / (1.0 + math.exp(-base.bias))
+    )
 
 
 def test_without_held_out_rows_the_lowest_training_loss_is_chosen() -> None:

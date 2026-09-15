@@ -20,7 +20,21 @@ class ReportReader:
         rules = tuple(
             sorted(((rule["term"], float(rule["weight"])) for rule in latest), key=lambda rule: -abs(rule[1]))
         )
-        return ReportSummary(reports[-1], document["created_at"], bool(document["complete"]), rounds, rules)
+        arms = tuple(
+            (
+                arm["name"],
+                int(arm["agreements"]),
+                int(arm["disagreements"]),
+                float(arm["accuracy"]),
+                float(arm["reliability"]),
+                int(arm.get("games", 0)),
+                int(arm.get("wins", 0)),
+                int(arm.get("draws", 0)),
+                int(arm.get("losses", 0)),
+            )
+            for arm in (document["rounds"][-1].get("arms") or [] if document["rounds"] else [])
+        )
+        return ReportSummary(reports[-1], document["created_at"], bool(document["complete"]), rounds, rules, arms)
 
     def _row(self, item: dict[str, object]) -> RoundRow:
         chosen = item.get("chosen_price")
@@ -38,8 +52,8 @@ class ReportReader:
             None
             if pondering is None
             else tuple(  # type: ignore[arg-type]
-                int(pondering[key])  # type: ignore[index]
-                for key in ("positions", "proven", "seeds", "seeds_kept", "seeds_in_rules")
+                int(pondering.get(key, 0))  # type: ignore[union-attr]
+                for key in ("positions", "proven", "seeds", "seeds_kept", "seeds_in_rules", "endings_deduced", "endings_proven")
             ),
             float(item["seconds"]),  # type: ignore[arg-type]
         )

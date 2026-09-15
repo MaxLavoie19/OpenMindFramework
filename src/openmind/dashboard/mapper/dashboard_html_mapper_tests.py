@@ -12,12 +12,12 @@ GB = 1024**3
 
 
 def snapshot() -> DashboardSnapshot:
-    rounds = (RoundRow(1, 1, 0.6931, 0.0026, (("random", "3 / 14 / 3"),), None, (200, 48, 30, 1, 1), 14400.0),)
+    rounds = (RoundRow(1, 1, 0.6931, 0.0026, (("random", "3 / 14 / 3"),), None, (200, 48, 30, 1, 1, 90, 41), 14400.0),)
     return DashboardSnapshot(
         "chess",
         "2026-09-15 09:30:00",
-        ReportSummary(Path("data/training/chess/run.json"), "2026-09-15T08:54:52", False, rounds, (("here.color[1, 5] == other", -0.06),)),
-        LogProgress(Path("data/log/train-values/chess/run.log"), 2, 100000, "self-play valuing positions with round 1's rules", 37, 11, 4213, 5, ("INFO value_distiller: <Distilled>",)),
+        ReportSummary(Path("data/training/chess/run.json"), "2026-09-15T08:54:52", False, rounds, (("here.color[1, 5] == other", -0.06),), (("win", 40, 0, 1.0, 1.0, 0, 0, 0, 0), ("pieces", 7, 3, 0.7, 0.4, 6, 2, 3, 1))),
+        LogProgress(Path("data/log/train-values/chess/run.log"), 2, 100000, "self-play valuing positions with round 1's rules", 37, 11, 4213, 5, ("INFO value_distiller: <Distilled>",), 30, 7),
         MachineStatus(
             62 * GB,
             5 * GB,
@@ -36,6 +36,8 @@ def test_the_page_reloads_itself_and_shows_the_progress_the_machine_the_rounds_a
     for shown in (
         "2 of 100000",
         "Self-play games this round<b>37</b>",
+        "Drawn self-play games this round<b>30</b>",
+        "Decisive self-play games this round<b>7</b>",
         "Games against opponents this round<b>11</b>",
         "Moves searched this round<b>4213</b>",
         "Moves deduced this round<b>5</b>",
@@ -44,10 +46,13 @@ def test_the_page_reloads_itself_and_shows_the_progress_the_machine_the_rounds_a
         "class='warn'",
         "<th>against random</th>",
         "<td>3 / 14 / 3</td>",
-        "<th>pondered</th><th>proven</th><th>seeds</th><th>seeds kept</th><th>seeds in rules</th>",
-        "<td>200</td><td>48</td><td>30</td><td>1</td><td>1</td>",
+        "<th>pondered</th><th>proven</th><th>seeds</th><th>seeds kept</th><th>seeds in rules</th><th>endings deduced</th><th>endings proven</th>",
+        "<td>200</td><td>48</td><td>30</td><td>1</td><td>1</td><td>90</td><td>41</td>",
         "<th>time</th>",
         "<summary>What the columns mean</summary>",
+        "<h2>Latest round's signals</h2>",
+        "<td>pieces</td><td>7</td><td>3</td><td>0.700</td><td>0.400</td><td>6</td><td>2</td><td>3</td><td>1</td><td>0.583</td>",
+        "<td>win</td><td>40</td><td>0</td><td>1.000</td><td>1.000</td><td>0</td><td>0</td><td>0</td><td>0</td><td>none</td>",
         "<li><b>seeds kept</b>: seeds the expression search kept",
         "<td>4 h 00 min</td>",
         "here.color[1, 5] == other",

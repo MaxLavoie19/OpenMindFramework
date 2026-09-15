@@ -4,6 +4,7 @@ import pytest
 
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.world.model.grid import Grid
 from openmind.world.model.state import State
 
 STATE = State((("cell(1,1)", "X"), ("cell(1,2)", None), ("payoff(O)", None), ("payoff(X)", None), ("turn", "O")))
@@ -19,6 +20,19 @@ def test_plain_variables_are_values_and_indexed_ones_are_gathered_under_their_ba
         "payoff": {"O": None, "X": None},
         "turn": "O",
     }
+
+
+def test_a_base_indexed_by_whole_numbers_is_a_grid_and_rules_still_write_it() -> None:
+    mapper = new_mapper()
+    state = State((*STATE.variables[:2], ("lamp(1)", True), ("lamp(2)", False), *STATE.variables[2:]))
+
+    namespace = mapper.to_namespace(state)
+    namespace["cell"][1, 2] = "O"  # type: ignore[index]
+
+    assert isinstance(namespace["cell"], Grid) and isinstance(namespace["lamp"], Grid)
+    assert not isinstance(namespace["payoff"], Grid)
+    assert (namespace["cell"].where("O"), namespace["lamp"].where(True)) == (((1, 2),), (1,))  # type: ignore[attr-defined]
+    assert dict(mapper.to_state(state, namespace).variables)["cell(1,2)"] == "O"
 
 
 def test_to_state_reads_the_changed_values_back() -> None:

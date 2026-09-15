@@ -107,11 +107,21 @@ class ExpressionGenerator:
                         aggregate = Aggregate(base, False, kind, f"{VIEW}.{base}[{AGGREGATE_INDEX}]", 1)
                         self._add(expressions, Expression(self._aggregate_template(aggregate), 2, 0, aggregate=aggregate))
                 continue
-            zero = (0,) * self._arity(vocabulary.indices_by_base[base])
+            indices = vocabulary.indices_by_base[base]
+            zero = (0,) * self._arity(indices)
             for value in values:
                 for rendered in self._rendered(value, vocabulary):
                     pattern = Pattern(base, (PatternCondition(base, zero, "==", rendered),))
                     self._add(expressions, Expression(self._pattern_template(pattern, vocabulary), 1, 0, pattern))
+                    if self._whole(indices):
+                        held = f"{VIEW}.{base}[{AGGREGATE_INDEX}] == {rendered}"
+                        readings = (
+                            (self._parity(base, AGGREGATE_INDEX), 0),
+                            *((self._changed(base, player, AGGREGATE_INDEX), 1) for player in (ME, OTHER)),
+                        )
+                        for reading, plies in readings:
+                            aggregate = Aggregate(base, False, COUNT, self._body("and", held, reading), 2, plies)
+                            self._add(expressions, Expression(self._aggregate_template(aggregate), 3, plies, aggregate=aggregate))
         for player in (ME, OTHER):
             self._add(expressions, Expression(f"{VIEW}.mobility({player})", 1, 0))
         return tuple(expressions.values())
@@ -169,14 +179,15 @@ class ExpressionGenerator:
             return ()
         indices = vocabulary.indices_by_base[aggregate.base]
         group = [base for base, others in vocabulary.indices_by_base.items() if others == indices]
-        body, clauses = aggregate.body, aggregate.body_clauses
-        bodies: list[tuple[str, int, bool]] = []
+        whole = self._whole(indices)
+        body, clauses, body_plies = aggregate.body, aggregate.body_clauses, aggregate.body_plies
+        bodies: list[tuple[str, int, bool, int]] = []
         for pair in (aggregate.pair, True):
             variables = (AGGREGATE_INDEX, AGGREGATE_OTHER_INDEX) if pair else (AGGREGATE_INDEX,)
             if pair and not aggregate.pair:
-                other = body.replace(f"[{AGGREGATE_INDEX}]", f"[{AGGREGATE_OTHER_INDEX}]")
+                other = self._at_other_index(body)
                 bodies.extend(
-                    (template, clauses * 2 + 1, True)
+                    (template, clauses * 2 + 1, True, body_plies)
                     for template in (
                         f"({body}) - ({other})",
                         f"abs(({body}) - ({other}))",
@@ -184,30 +195,85 @@ class ExpressionGenerator:
                         f"({body}) == ({other})",
                     )
                 )
-            readings: list[str] = []
+            readings: list[tuple[str, int]] = []
             for base in group:
                 values = vocabulary.values_by_base[base]
+                renderings = [] if self._numeric(values) else [rendered for value in values for rendered in self._rendered(value, vocabulary)]
                 for variable in variables:
                     reading = f"{VIEW}.{base}[{variable}]"
                     if self._numeric(values):
-                        readings.append(reading)
+                        readings.append((reading, 0))
                     else:
-                        readings.extend(
-                            f"{reading} == {rendered}" for value in values for rendered in self._rendered(value, vocabulary)
-                        )
+                        readings.extend((f"{reading} == {rendered}", 0) for rendered in renderings)
+                    if whole:
+                        readings.extend((self._changed(base, player, variable), 1) for player in (ME, OTHER))
+                        readings.extend(self._cell_readings(base, variable, renderings, self._arity(indices)))
+                        readings.extend(self._what_if_readings(base, variable, renderings))
                 if pair and not self._numeric(values):
-                    readings.append(f"{VIEW}.{base}[{AGGREGATE_INDEX}] == {VIEW}.{base}[{AGGREGATE_OTHER_INDEX}]")
+                    readings.append((f"{VIEW}.{base}[{AGGREGATE_INDEX}] == {VIEW}.{base}[{AGGREGATE_OTHER_INDEX}]", 0))
+                if pair and whole:
+                    readings.extend(
+                        (f"({rendered} in {VIEW}.{base}.between({AGGREGATE_INDEX}, {AGGREGATE_OTHER_INDEX}))", 0) for rendered in renderings
+                    )
+                    if ME in renderings:
+                        copied = f"{VIEW}.copied({AGGREGATE_OTHER_INDEX}, {AGGREGATE_INDEX})"
+                        readings.extend(
+                            (f"{copied}.changed({player}, {base!r}, {AGGREGATE_INDEX})", 1) for player in (ME, OTHER)
+                        )
+            if whole:
+                readings.extend((self._parity(aggregate.base, variable), 0) for variable in variables)
+                if pair:
+                    readings.extend(
+                        (f"{VIEW}.{aggregate.base}.{query}({AGGREGATE_INDEX}, {AGGREGATE_OTHER_INDEX})", 0)
+                        for query in ("distance", "aligned")
+                    )
             if pair and not aggregate.pair:
                 continue
-            for reading in readings:
+            for reading, plies in readings:
                 for operation in BODY_OPERATIONS:
-                    bodies.append((self._body(operation, body, reading), clauses + 1, pair))
+                    bodies.append((self._body(operation, body, reading), clauses + 1, pair, max(body_plies, plies)))
         children: dict[str, Expression] = {}
-        for template, body_clauses, pair in bodies:
+        for template, grown_clauses, pair, grown_plies in bodies:
             for kind in AGGREGATES:
-                grown = Aggregate(aggregate.base, pair, kind, template, body_clauses)
-                self._add(children, Expression(self._aggregate_template(grown), body_clauses + 1, 0, aggregate=grown))
+                grown = Aggregate(aggregate.base, pair, kind, template, grown_clauses, grown_plies)
+                self._add(children, Expression(self._aggregate_template(grown), grown_clauses + 1, grown_plies, aggregate=grown))
         return tuple(children.values())
+
+    def _parity(self, base: str, index: str) -> str:
+        """Which of two alternating colours the cell at the index is."""
+        return f"{VIEW}.{base}.parity({index})"
+
+    def _changed(self, base: str, player: str, index: str) -> str:
+        """How many of the player's actions change the base at the index: one action ahead."""
+        return f"{VIEW}.changed({player}, {base!r}, {index})"
+
+    def _cell_readings(self, base: str, index: str, renderings: Sequence[str], arity: int) -> list[tuple[str, int]]:
+        """Around the cell at the index: how many neighbours hold each name, and whether a ray in each direction meets
+        it; a direction steps every coordinate by -1, 0 or 1."""
+        readings = [
+            (f"sum(1 for value in {VIEW}.{base}.neighbours({index}) if value == {rendered})", 0) for rendered in renderings
+        ]
+        for direction in itertools.product((-1, 0, 1), repeat=arity):
+            if any(direction):
+                readings.extend((f"({rendered} in {VIEW}.{base}.ray({index}, {direction!r}))", 0) for rendered in renderings)
+        return readings
+
+    def _what_if_readings(self, base: str, index: str, renderings: Sequence[str]) -> list[tuple[str, int]]:
+        """What if: how many moves the thing at the index has alone on the grids, for each player; and, for a grid whose
+        values name players, how many of a player's moves would change the cell if it held the other player's name."""
+        readings = [(f"{VIEW}.alone({index}).mobility({player})", 1) for player in (ME, OTHER)]
+        if ME in renderings:
+            readings.extend(
+                (f"{VIEW}.with_value({base!r}, {index}, {owner}).changed({player}, {base!r}, {index})", 1)
+                for owner, player in ((OTHER, ME), (ME, OTHER))
+            )
+        return readings
+
+    def _at_other_index(self, body: str) -> str:
+        """The body read at `j` where it reads `i`: as an index, or as a call's only, first, middle or last argument."""
+        for form in ("[{0}]", "({0})", "({0},", ", {0},", ", {0})"):
+            body = body.replace(form.format(AGGREGATE_INDEX), form.format(AGGREGATE_OTHER_INDEX))
+        return body
 
     def unary(self, expression: Expression) -> tuple[tuple[Expression, str], ...]:
         return tuple(

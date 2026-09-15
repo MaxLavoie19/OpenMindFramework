@@ -26,6 +26,7 @@ from openmind.training.constant.training_constant import (
     DEFAULT_VALUE_GAMES,
     DEFAULT_VALUE_HELD_OUT_GAMES,
     OUTCOME_TARGET,
+    SIGNALS_TARGET,
     VALUE_TARGETS,
 )
 from openmind.training.factory.training_factory import create_value_distiller
@@ -103,6 +104,8 @@ def main(argv: list[str] | None = None) -> None:
         "--values-directory", default="data/values", help="where value bases are saved (default: data/values)"
     )
     arguments = parser.parse_args(argv)
+    if arguments.target == SIGNALS_TARGET:
+        parser.error("--target signals needs openmind-train-values, which keeps the signal library from round to round")
     domain = create_domain(arguments.domain)
     values = ValueSettings(
         arguments.prices,

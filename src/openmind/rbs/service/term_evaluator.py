@@ -39,9 +39,10 @@ class TermEvaluator:
         self._consequence_library.clear_memory()
 
     def column(self, domain: Domain, rows: Sequence[PositionRow], term: PythonRule) -> np.ndarray | None:
-        """The term's value on every row, a boolean counting as 0 or 1, or None when it raises KeyError, NameError,
-        TypeError, AttributeError, ValueError or an arithmetic error on a row, or gives something other than a finite
-        number."""
+        """The term's value on every row, a boolean counting as 0 or 1, and NaN on a row where the term gives None: what
+        it reads isn't there at that moment, as a fork detector without a fork. None when the term raises KeyError,
+        NameError, TypeError, AttributeError, ValueError or an arithmetic error on a row, or gives something other than a
+        finite number or None."""
         compiled = self._rule_compiler.compile_value(term)
         column = np.empty(len(rows))
         for index, row in enumerate(rows):
@@ -51,6 +52,9 @@ class TermEvaluator:
                 )
             except (KeyError, NameError, TypeError, AttributeError, ValueError, ArithmeticError):
                 return None
+            if value is None:
+                column[index] = np.nan
+                continue
             number = self.number(value)
             if number is None:
                 return None
@@ -81,6 +85,11 @@ class TermEvaluator:
     def number(self, value: object) -> float | None:
         """A term's value as a number, a boolean counting as 0 or 1; None for anything else or a number that isn't
         finite."""
+        kind = type(value)
+        if kind is float:
+            return value if math.isfinite(value) else None  # type: ignore[arg-type,return-value]
+        if kind is int or kind is bool:
+            return float(value)  # type: ignore[arg-type]
         if not isinstance(value, bool | int | float | np.bool_ | np.number):
             return None
         number = float(value)  # type: ignore[arg-type]

@@ -20,7 +20,7 @@ reading `here`.
 | `service/position_deducer.py` | `PositionDeducer.deduce(domain, state, budget)`: proves a position's best action from the domain's own rules alone, one ply deeper at a time |
 | `service/deduction_inducer.py` | `DeductionInducer.seeds(domain, deduction, vocabulary, highest)`: candidate expressions scoped to what a proven deduction touched |
 | `model/expression.py` | `Expression(template, clauses, plies, pattern=None)`: Python source reading its position where `{view}` stands, what the fit prices, how many actions it looks ahead, and its pattern when it counts one |
-| `model/aggregate.py` | `Aggregate(base, pair, kind, body, body_clauses)`: a body read at every index `i`, or every pair of different indices `i` and `j`, of a base, then counted where it holds, summed, or taken at its lowest or highest |
+| `model/aggregate.py` | `Aggregate(base, pair, kind, body, body_clauses, body_plies=0)`: a body read at every index `i`, or every pair of different indices `i` and `j`, of a base, then counted where it holds, summed, or taken at its lowest or highest; `body_plies`, how many actions the body looks ahead |
 | `model/pattern.py` | `Pattern(anchor, conditions)`: conditions around an index, counted over every index of the anchor base |
 | `model/pattern_condition.py` | `PatternCondition(base, steps, relation, value=None, other_condition=None)`: a base read at the index shifted by steps, `==` or `!=` a value or another condition's variable |
 | `model/vocabulary.py` | `Vocabulary(players, to_act, values_by_variable, values_by_base, indices_by_base, offsets_by_arity)` |
@@ -42,6 +42,16 @@ search keeps (see `rbs/README.md`).
 - `offset(base, at, *steps)`: the variable of `base` at index `at` shifted by the steps, or `OUTSIDE`.
 - `moves(player)`: for each action `player` could take if it were their turn, its outcomes as `(view, probability)`.
 - `mobility(player)`: how many such actions there are.
+- `changed(player, base, at)`: how many of those actions change the variable of `base` at index `at`, each outcome
+  weighted by its probability. The mechanics work out every variable's changes once per position and player, from the
+  moves, so reading every cell of a grid costs one pass over the moves (`Mechanics.changes`).
+- What if, each the view of an edited copy, the player to act and every other variable left as they are:
+  `with_value(base, at, value)`, one variable set (a variable the position doesn't have raises `KeyError`);
+  `cleared(at)`, every grid's cell at `at` set to the grid's empty value, the value most of its cells hold in the
+  domain's initial position (`Mechanics.empties`); `copied(source, target)`, every grid's value at `source` also placed
+  at `target`; `alone(at)`, every grid emptied except at `at`. In chess, `here.with_value('color', at, other).changed(me,
+  'color', at)` counts the defenders of my piece on `at`, `here.alone(at).mobility(me)` its moves on an empty board, and
+  `here.copied(j, at).changed(me, 'color', at)` whether I attack an empty square `at`, pawns' diagonals included.
 - `best(player, reading)` and `worst(player, reading)`: the highest and lowest reading expected after one of those
   actions; the reading here when the player has none.
 - `count(player, reading)`: how many of those actions the reading is expected to hold after.
@@ -73,6 +83,10 @@ and aggregates build on it.
      `sum(1 for at in {view}.cell if {view}.cell[at] == me)`;
    - for every numeric indexed base, the sum, the lowest and the highest of its values, aggregates of one reading:
      `min((({view}.x[i]) for i in {view}.x), default=0)`;
+   - for every grid of names (a base whose indices are whole numbers, a `Grid`) and every value, how many cells hold it
+     and are of odd parity, and how many hold it and some action of `me`, or of `other`, changes:
+     `sum(1 for i in {view}.cell if (({view}.cell[i] == None) and ({view}.changed(me, 'cell', i))))`,
+     one action ahead;
    - `{view}.mobility(me)` and `{view}.mobility(other)`.
 2. **Pattern children,** for grids, where indices are whole numbers: one more condition, on any base read at the
    pattern's index shifted by any offset seen between two indices of one base (the same index included): `==` or `!=`
@@ -84,7 +98,13 @@ and aggregates build on it.
    (a numeric base as it is, a base of names equal to each name, or equal at `i` and `j`); a body read at `i` also turns
    into its difference, distance, order and equality at `i` and at `j`, over every pair of different indices. Every new
    body is counted, summed, and taken at its lowest and highest: `min(((abs(({view}.x[i]) - ({view}.x[j]))) for i in
-   {view}.x for j in {view}.x if i != j), default=0)` is the smallest gap between two entities.
+   {view}.x for j in {view}.x if i != j), default=0)` is the smallest gap between two entities. Over a grid, the readings
+   also ask the grid by coordinates: at `i` (and `j`), the cell's parity, how many of `me`'s or `other`'s actions change
+   it (one action ahead), how many neighbours hold each name, and whether a ray in each direction (every coordinate
+   stepping by -1, 0 or 1) meets each name; over pairs, the distance and alignment of `i` and `j`, and whether each name
+   lies between them. What if, one action ahead: the moves `me` or `other` would have alone at `i`; for a grid whose
+   values name players, how many of `me`'s moves would change `i` were it `other`'s, and the other way round; and over
+   pairs, how many of `me`'s or `other`'s moves would change `i` with `j`'s values copied there.
 4. **Thresholds:** at least each value an expression takes above its lowest, and at most each below its highest; and
    the expression's absolute value.
 5. **Combinations** of two expressions: `+`, `-`, `*`, `/ max(1, ·)`, `max`, `min`, `>=`, `==`; their clauses add up.
@@ -100,8 +120,9 @@ A child has one clause more than its parent, a combination the clauses of both.
 training payoffs scaled from 0 to 1. The screening rows are every row up to 500 rows, otherwise a tenth of them, evenly
 spread, 500 at least. Each generation:
 
-1. The kept expressions are fitted at the price, each weight priced by its clauses (`SparseFitter` with costs), and the
-   residual, prediction minus payoff, is taken on the training rows.
+1. The kept expressions are fitted at the price, each weight priced by its clauses times the share of rows where its
+   expression isn't blank (`SparseFitter` with costs), and the residual, prediction minus payoff, is taken on the
+   training rows.
 2. From the second generation, every kept expression is expanded, the weighted first, by weight then gradient: its
    look-aheads, absolute value, thresholds, pattern children and aggregate children once, and its combinations with each
    kept expression it hasn't met. Then the expressions tried since the last expansion that varied without being kept
@@ -112,12 +133,27 @@ spread, 500 at least. Each generation:
 3. Candidates not tried before are tried in batches of 200 or the candidates left, whichever is fewer; the time, the
    candidates and the memory left are checked before each batch. A candidate is
    evaluated on the screening rows; it goes on when its gradient, the mean of its standardized values times the
-   residual, is above price × clauses, that is when the fit would give it a weight. It is kept when, on every training
-   row, it still is, it varies, its values are finite, and no kept expression has the same values. Thresholds and
-   combinations are computed from their parents' kept values; the others are evaluated as rules by `TermEvaluator`, in
-   its workers. A candidate raising an error or giving something other than a finite number on a row is dropped.
+   residual, is above price × clauses × the share of rows where it isn't blank, that is when the fit would give it a
+   weight. It is kept when, on every training row, it still is, it varies, its values are finite where not blank, and no
+   kept expression has the same values. Thresholds and combinations are computed from their parents' kept values, a row
+   blank in a parent staying blank; the others are evaluated as rules by `TermEvaluator`, in its workers. A candidate
+   raising an error or giving something other than a finite number or `None` on a row is dropped.
 4. When the kept values and the fit's two copies of them would pass the memory budget (8 bytes per row per expression,
    three times), the expressions without weight and with the smallest gradients are evicted first.
+
+**Blanks.** A term giving `None` on a row is blank there: what it reads isn't there at that moment, as a fork detector
+without a fork. `TermEvaluator` gives NaN on that row. `ExpressionSearch.scaling(column)` gives the center and scale the
+fit reads a column with: its mean and standard deviation without blanks; with blanks, 0 and the root mean square of its
+values, uncentered, so a blank reads as 0 and adds nothing, and a detector always worth the same when it fires still
+tells its rows apart (centering it would make it a constant). `standard(column, scaling)` applies it, and
+`share(column)` is the share of rows that aren't blank: a rare term is priced for the rows where it speaks.
+
+Given several targets by name (`targets` a mapping instead of one array), such as the targets of several signals, each
+generation fits every target, a candidate goes on and is kept when its gradient against any target's residual passes
+its price, and expansion and eviction go by an expression's largest weight and steepest gradient over the targets:
+an expression is kept when any target supports it. One target given as an array is named `SINGLE_TARGET` (`"target"`)
+and searches as before; no target raises `ValueError`. The generation log then gives each target's training loss,
+`<name>=<loss> ...`.
 
 Memory is measured, not estimated. Before each batch, when this process holds more than the memory budget, the search
 clears the views, forgets the expressions passed over and evicts every unweighted column; if the process still holds

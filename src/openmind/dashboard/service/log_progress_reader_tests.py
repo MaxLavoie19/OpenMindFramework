@@ -35,6 +35,7 @@ def test_progress_counts_the_round_s_games_searches_and_deductions_and_keeps_the
         2,
         1,
     )
+    assert (progress.draws, progress.decisive) == (1, 1)
     assert progress.round_note == "self-play valuing positions with the start rules"
     assert progress.recent == (
         "INFO __main__: Training in 14 worker processes",
@@ -52,9 +53,31 @@ def test_progress_picks_up_where_it_stopped_and_starts_counting_again_at_a_new_r
     write(log, ["INFO  openmind.training.service.value_training_loop Round 2 of 100000: self-play valuing positions with round 1's rules"], "a")
     second_round = reader.progress(tmp_path)
 
-    assert third is not None and third.games == 3
+    assert third is not None and (third.games, third.draws, third.decisive) == (3, 2, 1)
     assert second_round is not None
-    assert (second_round.round, second_round.games, second_round.matches, second_round.searched, second_round.deduced) == (2, 0, 0, 0, 0)
+    assert (
+        second_round.round,
+        second_round.games,
+        second_round.matches,
+        second_round.searched,
+        second_round.deduced,
+        second_round.draws,
+        second_round.decisive,
+    ) == (2, 0, 0, 0, 0, 0, 0)
+
+
+def test_a_game_between_arms_counts_by_its_payoffs_too(tmp_path: Path) -> None:
+    write(
+        tmp_path / "run.log",
+        [
+            "INFO  openmind.training.service.self_play Self-play game with seeds 1 and 2, uniform against win, finished in 80 plies by checkmate: 0 samples, payoffs white=0.0 black=1.0",
+            "INFO  openmind.training.service.self_play Self-play game with seeds 1 and 2 record: [Event \"?\"] 1. e4 e5 *",
+        ],
+    )
+
+    progress = LogProgressReader(IncrementalLineReader()).progress(tmp_path)
+
+    assert progress is not None and (progress.games, progress.draws, progress.decisive) == (1, 0, 1)
 
 
 def test_a_newer_log_starts_over_and_a_directory_without_logs_gives_nothing(tmp_path: Path) -> None:

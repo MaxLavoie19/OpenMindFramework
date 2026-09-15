@@ -6,18 +6,13 @@ from openmind.agent.service.completion_theory import CompletionTheory
 from openmind.mcts.service.semi_determinized_search_tests import coin_domain
 from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.predictor.factory.predictor_factory import create_predictor
-from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.rule.model.python_rule import PythonRule
-from openmind.rule.service.rule_compiler import RuleCompiler
-from openmind.rule.service.rule_runner import RuleRunner
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 
 
 def new_theory(label: PythonRule | None = None) -> CompletionTheory:
-    return CompletionTheory(
-        create_state_observer(), RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), label
-    )
+    return CompletionTheory(create_state_observer(), create_rule_caller(), label)
 
 
 def test_the_second_prisoner_weighs_the_first_s_hidden_choice_as_the_domain_does() -> None:

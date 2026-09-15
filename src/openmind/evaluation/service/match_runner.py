@@ -3,7 +3,9 @@ import random
 
 from openmind.agent.model.domain import Domain
 from openmind.agent.model.policy_factory import PolicyFactory
+from openmind.agent.service.game_recorder import GameRecorder
 from openmind.csp.service.joint_solver import JointSolver
+from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.csp.service.solver import Solver
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.observation.factory.state_observer_factory import create_state_observer
@@ -33,7 +35,13 @@ class MatchRunner:
         task_runner: TaskRunner,
         state_observer: StateObserver | None = None,
         joint_solver: JointSolver | None = None,
+        game_recorder: GameRecorder | None = None,
     ) -> None:
+        self._game_recorder = (
+            GameRecorder(create_rule_caller())
+            if game_recorder is None
+            else game_recorder
+        )
         self._solver = solver
         self._predictor = predictor
         self._state_reader = state_reader
@@ -102,7 +110,7 @@ class MatchRunner:
         created = (evaluated(policy_seed), opponent(policy_seed))
         policies = created if seat == 0 else (created[1], created[0])
         rng = random.Random(outcome_seed)
-        state, plies = domain.initial_state, 0
+        state, plies, actions = domain.initial_state, 0, []
         names = domain.players.names
         while True:
             if self._state_reader.acts_at_once(state, domain.players):
@@ -121,18 +129,25 @@ class MatchRunner:
                     break
                 player = self._state_reader.player_to_act(state, domain.players)
                 seen = self._seen(domain, state, player)
-                outcomes = self._predictor.predict(domain.transitions, state, policies[player].choose(domain, seen)).outcomes
+                action = policies[player].choose(domain, seen)
+                actions.append(action)
+                outcomes = self._predictor.predict(domain.transitions, state, action).outcomes
             plies += 1
             (state,) = rng.choices([outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes])
         payoffs = self._state_reader.payoffs(state, domain.players)
+        ending = self._game_recorder.ending(domain, state)
         logger.info(
-            "Game with seeds %d and %d finished in %d plies, the evaluated policy playing %s: payoffs %s",
+            "Game with seeds %d and %d finished in %d plies%s, the evaluated policy playing %s: payoffs %s",
             policy_seed,
             outcome_seed,
             plies,
+            "" if ending is None else f" by {ending}",
             domain.players.names[seat],
             " ".join(f"{name}={payoff}" for name, payoff in zip(domain.players.names, payoffs)),
         )
+        record = self._game_recorder.record(domain, actions) if actions else None
+        if record is not None:
+            logger.info("Game with seeds %d and %d record: %s", policy_seed, outcome_seed, record)
         return payoffs
 
     def _seen(self, domain: Domain, state: State, player: int) -> State:

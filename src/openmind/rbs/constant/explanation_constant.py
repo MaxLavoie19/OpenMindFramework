@@ -16,6 +16,9 @@ What a position can do, for a position `v`:
 the lambda over every move `player` could make, the lambda reading the position after that move;
 - `v.count(player, lambda after: ...)`: how many of those moves the lambda holds after;
 - `v.mobility(player)`: how many moves `player` could make;
+- `v.changed(player, base, at)`: how many moves of `player` change the variable of `base` at index `at`;
+- `v.with_value(base, at, value)`, `v.cleared(at)`, `v.copied(source, target)`, `v.alone(at)`: the position as it would
+  be with one variable set, a cell emptied, a cell's things copied to another, or every cell emptied but one;
 - `v.offset(base, at, *steps)`: the variable of `base` at index `at` shifted by the steps, or '<outside>' off the \
 positions that exist.
 A comparison counts as 1 when true and 0 when false.

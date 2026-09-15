@@ -17,11 +17,8 @@ from openmind.mcts.service.semi_determinized_search import SemiDeterminizedSearc
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
-from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
-from openmind.rule.service.rule_compiler import RuleCompiler
-from openmind.rule.service.rule_runner import RuleRunner
+from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.service.state_reader import StateReader
 
 
@@ -132,8 +129,6 @@ class AgentBuilder:
         if not self._semi_determinized:
             return Agent(tree_search, settings, guidance, valuation, fallback)
         state_observer = create_state_observer()
-        theory = self._theory or CompletionTheory(
-            state_observer, RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper()))
-        )
+        theory = self._theory or CompletionTheory(state_observer, create_rule_caller())
         semi_determinized = SemiDeterminizedSearch(tree_search, state_observer, state_reader, action_text_mapper)
         return Agent(tree_search, settings, guidance, valuation, fallback, semi_determinized, theory)

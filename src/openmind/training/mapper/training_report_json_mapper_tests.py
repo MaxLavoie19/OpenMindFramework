@@ -12,6 +12,9 @@ from openmind.rule.model.python_rule import PythonRule
 from openmind.training.mapper.training_report_json_mapper import TrainingReportJsonMapper
 from openmind.training.model.pondering_settings import PonderingSettings
 from openmind.training.model.pondering_summary import PonderingSummary
+from openmind.training.model.signal import Signal
+from openmind.training.model.signal_record import SignalRecord
+from openmind.training.model.signal_settings import SignalSettings
 from openmind.training.model.training_report import TrainingReport
 from openmind.training.model.training_round import TrainingRound
 from openmind.training.model.value_distillation_settings import ValueDistillationSettings
@@ -67,6 +70,8 @@ def test_to_json_holds_the_settings_and_every_round() -> None:
         "evaluation_games": 20,
         "deduction": None,
         "ponder_positions": 0,
+        "ponder_endings": 0,
+        "signals": None,
     }
     assert document["rounds"] == [
         {
@@ -87,27 +92,56 @@ def test_to_json_holds_the_settings_and_every_round() -> None:
             "against_previous": {"opponent": "start rules", "games": 20, "wins": 5, "draws": 10, "losses": 5},
             "seconds": 3600.4,
             "pondering": None,
+            "arms": [],
         }
     ]
+
+
+def test_to_json_holds_the_signal_settings_and_each_round_s_arms() -> None:
+    settings = replace(SETTINGS, distillation=replace(SETTINGS.distillation, target="signals", signals=SignalSettings(4, 2)))
+    arms = (SignalRecord(Signal("win"), 40, 0), SignalRecord(Signal("pieces", PythonRule("pieces(me)")), 7, 3, 6, 2, 3, 1))
+    report = replace(REPORT, settings=settings, rounds=(replace(ROUND, arms=arms),))
+
+    document = json.loads(TrainingReportJsonMapper().to_json(report))
+
+    assert document["settings"]["signals"] == {"arms": 4, "horizon": 2, "goal_limit": 2}
+    pieces = document["rounds"][0]["arms"][1]
+    keys = ("name", "source", "parts", "agreements", "disagreements", "accuracy", "games", "wins", "draws", "losses")
+    assert {key: pieces[key] for key in keys} == {
+        "name": "pieces",
+        "source": "pieces(me)",
+        "parts": [],
+        "agreements": 7,
+        "disagreements": 3,
+        "accuracy": 0.7,
+        "games": 6,
+        "wins": 2,
+        "draws": 3,
+        "losses": 1,
+    }
+    assert round(pieces["reliability"], 6) == 0.4
 
 
 def test_to_json_holds_the_deduction_budget_and_each_round_s_pondering() -> None:
     budget = DeductionBudget(3, 10.0, 1.0)
     settings = replace(
-        SETTINGS, deduction=budget, distillation=replace(SETTINGS.distillation, pondering=PonderingSettings(50, budget))
+        SETTINGS, deduction=budget, distillation=replace(SETTINGS.distillation, pondering=PonderingSettings(50, budget, 200))
     )
-    report = replace(REPORT, settings=settings, rounds=(replace(ROUND, pondering=PonderingSummary(50, 7, 12, 3, 1)),))
+    report = replace(REPORT, settings=settings, rounds=(replace(ROUND, pondering=PonderingSummary(50, 7, 12, 3, 1, 90, 41)),))
 
     document = json.loads(TrainingReportJsonMapper().to_json(report))
 
-    assert (document["settings"]["deduction"], document["settings"]["ponder_positions"]) == (
-        {"plies": 3, "seconds": 10.0, "highest": 1.0},
-        50,
-    )
+    assert (
+        document["settings"]["deduction"],
+        document["settings"]["ponder_positions"],
+        document["settings"]["ponder_endings"],
+    ) == ({"plies": 3, "seconds": 10.0, "highest": 1.0}, 50, 200)
     assert document["rounds"][0]["pondering"] == {
         "positions": 50,
         "proven": 7,
         "seeds": 12,
         "seeds_kept": 3,
         "seeds_in_rules": 1,
+        "endings_deduced": 90,
+        "endings_proven": 41,
     }

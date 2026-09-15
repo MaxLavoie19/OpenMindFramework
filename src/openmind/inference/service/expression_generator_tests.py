@@ -138,6 +138,64 @@ def test_an_aggregate_grows_into_relations_between_pairs_of_indices() -> None:
     assert generator.unary(Expression("{view}.x[me]", 1, 0))[0][0].template == "abs({view}.x[me])"
 
 
+def count_of(body: str) -> str:
+    return f"sum(1 for i in {{view}}.cell if {body})"
+
+
+def test_a_grid_of_names_counts_its_cells_by_parity_and_by_the_actions_changing_them() -> None:
+    generator, vocabulary = ExpressionGenerator(VariableNameMapper()), strip_vocabulary()
+    leaves = {leaf.template: leaf for leaf in generator.leaves(vocabulary)}
+    mine_by_parity = count_of("(({view}.cell[i] == me) and ({view}.cell.parity(i)))")
+    fillable = count_of("(({view}.cell[i] == None) and ({view}.changed(me, 'cell', i)))")
+    rows = (PositionRow(position({1: "X", 2: "X", 3: "O"}, "O"), "X", 0.0), PositionRow(position({1: "X"}, "O"), "X", 0.0))
+
+    columns = new_evaluator().columns(strip_domain(), rows, [generator.source(leaves[mine_by_parity]), generator.source(leaves[fillable])])
+
+    assert (leaves[mine_by_parity].clauses, leaves[mine_by_parity].plies, leaves[fillable].plies) == (3, 0, 1)
+    assert [list(column) for column in columns] == [[1.0, 0.0], [1.0, 3.0]]  # type: ignore[arg-type]
+
+
+def test_an_aggregate_over_a_grid_grows_by_rays_neighbours_changes_and_relations_between_cells() -> None:
+    generator, vocabulary = ExpressionGenerator(VariableNameMapper()), strip_vocabulary()
+    empty = "(({view}.cell[i] == None) and ({view}.changed(me, 'cell', i)))"
+    (fillable,) = [leaf for leaf in generator.leaves(vocabulary) if leaf.template == count_of(empty)]
+
+    children = {child.template: child for child in generator.aggregate_children(fillable, vocabulary)}
+
+    with_mine_left = count_of(f"(({empty}) and ((me in {{view}}.cell.ray(i, (0, -1)))))")
+    assert with_mine_left in children and children[with_mine_left].plies == 1
+    templates = "\n".join(children)
+    assert all(
+        reading in templates
+        for reading in (
+            "sum(1 for value in {view}.cell.neighbours(i) if value == other)",
+            "{view}.changed(other, 'cell', i)",
+            "{view}.cell.parity(i)",
+            "{view}.changed(me, 'cell', j)",
+            "{view}.alone(i).mobility(me)",
+            "{view}.with_value('cell', i, other).changed(me, 'cell', i)",
+            "{view}.with_value('cell', i, me).changed(other, 'cell', i)",
+        )
+    )
+    defended = next(child for child in children.values() if child.template == count_of(f"(({empty}) and ({{view}}.with_value('cell', i, other).changed(me, 'cell', i)))"))
+    compared = "\n".join(child.template for child in generator.aggregate_children(defended, vocabulary))
+    assert "{view}.with_value('cell', j, other).changed(me, 'cell', j)" in compared
+    (pairs,) = [child for child in children.values() if child.template.startswith("sum(1 for i in {view}.cell for j") and "- ((({view}.cell[j]" in child.template][:1]
+    grown = "\n".join(child.template for child in generator.aggregate_children(pairs, vocabulary))
+    assert all(
+        query in grown
+        for query in (
+            "{view}.cell.distance(i, j)",
+            "{view}.cell.aligned(i, j)",
+            "(me in {view}.cell.between(i, j))",
+            "{view}.copied(j, i).changed(other, 'cell', i)",
+        )
+    )
+    rows = (PositionRow(position({1: "X"}, "O"), "X", 0.0), PositionRow(position({4: "X"}, "O"), "X", 0.0))
+    (column,) = new_evaluator().columns(strip_domain(), rows, [generator.source(children[with_mine_left])])
+    assert list(column) == [3.0, 0.0]  # type: ignore[arg-type]
+
+
 def test_thresholds_combinations_and_look_aheads() -> None:
     generator = ExpressionGenerator(VariableNameMapper())
     marks, mobility = Expression("{view}.marks", 1, 0), Expression("{view}.best(me, lambda v1: v1.marks)", 2, 1)

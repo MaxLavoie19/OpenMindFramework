@@ -1,6 +1,7 @@
 import json
 
 from openmind.evaluation.model.match_results import MatchResults
+from openmind.training.model.signal_record import SignalRecord
 from openmind.training.model.training_report import TrainingReport
 from openmind.training.model.training_round import TrainingRound
 
@@ -43,6 +44,14 @@ class TrainingReportJsonMapper:
                         "highest": settings.deduction.highest,
                     },
                     "ponder_positions": 0 if distillation.pondering is None else distillation.pondering.positions,
+                    "ponder_endings": 0 if distillation.pondering is None else distillation.pondering.endings,
+                    "signals": None
+                    if distillation.signals is None
+                    else {
+                        "arms": distillation.signals.arms,
+                        "horizon": distillation.signals.horizon,
+                        "goal_limit": distillation.signals.goal_limit,
+                    },
                 },
                 "rounds": [self._round(item) for item in report.rounds],
             },
@@ -85,7 +94,26 @@ class TrainingReportJsonMapper:
                 "seeds": item.pondering.seeds,
                 "seeds_kept": item.pondering.seeds_kept,
                 "seeds_in_rules": item.pondering.seeds_in_rules,
+                "endings_deduced": item.pondering.endings_deduced,
+                "endings_proven": item.pondering.endings_proven,
             },
+            "arms": [self._arm(record) for record in item.arms],
+        }
+
+    def _arm(self, record: SignalRecord) -> dict[str, object]:
+        signal = record.signal
+        return {
+            "name": signal.name,
+            "source": None if signal.source is None else signal.source.source,
+            "parts": list(signal.parts),
+            "agreements": record.agreements,
+            "disagreements": record.disagreements,
+            "accuracy": record.accuracy,
+            "reliability": record.reliability,
+            "games": record.games,
+            "wins": record.wins,
+            "draws": record.draws,
+            "losses": record.losses,
         }
 
     def _results(self, results: MatchResults) -> dict[str, object]:

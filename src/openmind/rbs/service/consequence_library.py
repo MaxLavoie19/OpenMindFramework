@@ -231,8 +231,10 @@ class ConsequenceLibrary:
 
     def _pin(self, domain: Domain) -> int:
         """An identity for the domain that stays valid: the domain is kept alive as long as the library."""
-        self._domains.setdefault(id(domain), domain)
-        return id(domain)
+        key = id(domain)
+        if key not in self._domains:
+            self._domains[key] = domain
+        return key
 
     def _remember(self, key: tuple[object, ...], value: object) -> None:
         self._memory_guard.remembered()

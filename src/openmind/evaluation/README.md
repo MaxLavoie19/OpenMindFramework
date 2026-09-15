@@ -143,7 +143,9 @@ can't reach, add `reference_iterations=2000` to the settings. `ReportTextMapper(
   - `DEBUG Rater alone: top-rated <actions>; optimal: <actions>; ratings <action>=<rating>, ...; state: <name = value, ...>`
 - `openmind.evaluation.service.match_runner`:
   - `INFO Game with seeds <policy seed> and <outcome seed> finished in <plies> plies, the evaluated policy playing <player>: payoffs <player>=<payoff> ...`,
-    logged by the worker as soon as the game ends
+    logged by the worker as soon as the game ends, with ` by <ending>` after the plies when the domain says why games end
+  - `INFO Game with seeds <policy seed> and <outcome seed> record: <record>`, when the domain records games, such as a
+    chess game's PGN; games where players act at once aren't recorded yet
   - `DEBUG Game <n> against <opponent>: evaluated agent plays <player>, payoffs <player>=<payoff> ...`
 - `openmind.evaluation.service.exact_search`:
   - `INFO <domain> has <n> positions with a legal action`

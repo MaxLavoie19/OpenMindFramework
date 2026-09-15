@@ -304,6 +304,7 @@ searching in <n> worker processes`, has the selector's decisions (see `training/
 | `--deduction-seconds X` | `10.0` | seconds a deduction of one position runs at most |
 | `--highest-payoff X` | `1.0` | the highest payoff a player can get: a move proven to reach it needs no comparison with moves not proven yet |
 | `--ponder-positions N` | `0` | training positions the rules missed most, deduced before fitting, their proofs becoming targets and seeds; needs `--deduction-plies` |
+| `--ponder-endings N` | `0` | positions of decisive training games deduced at most per round, walking back from each game's end until a position isn't proven, before the positions missed most; their proofs become targets and seeds too; needs `--deduction-plies` |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log |
 | `--log-directory DIR` | `data/log/distill-values` | where logs are saved |
 | `--values-directory DIR` | `data/values` | where value bases are saved |
@@ -321,8 +322,8 @@ Pondered <n> positions: <p> proven; <s> seeds, <k> kept by the search, <r> in th
 Saved values <path>
 ```
 
-`--ponder-positions` without `--deduction-plies`, `--deduction-seconds` of 0 or less with it, and `--memory` or
-`--worker-memory` of 0 or less are rejected.
+`--ponder-positions` or `--ponder-endings` without `--deduction-plies`, `--deduction-seconds` of 0 or less with it, and `--memory` or
+`--worker-memory` of 0 or less are rejected, and so is `--target signals`, which needs `openmind-train-values`.
 
 It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` and writes the log as
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`: it starts with `INFO Running self-play and term evaluations in
@@ -352,12 +353,19 @@ It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.js
 | `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit |
 | `--evaluation-games N` | `20` | games against each opponent after every round; `0` plays none |
 | `--seconds X`, `--memory X`, `--candidates N`, `--prices LIST`, `--max-steps N`, `--tolerance X` | as `openmind-distill-values` | how each round's value rules are searched and fitted; the search budget is per round |
-| `--deduction-plies N`, `--deduction-seconds X`, `--highest-payoff X`, `--ponder-positions N` | as `openmind-distill-values` | the deduction every agent but untrained MCTS falls back on when its rules have no clue, in self-play and in each round's games, and the positions each round ponders against the previous round's rules; the report's table then has a `pondered: proven / seeds / kept / in rules` column |
+| `--deduction-plies N`, `--deduction-seconds X`, `--highest-payoff X`, `--ponder-positions N`, `--ponder-endings N` | as `openmind-distill-values` | the deduction every agent but untrained MCTS falls back on when its rules have no clue, in self-play and in each round's games, and the positions each round ponders against the previous round's rules; the report's table then has a `pondered: proven / seeds / kept / in rules` column |
 | `--explainer-url URL` | none | an Ollama server that explains each round's rules in sentences, such as `http://127.0.0.1:11434`; given with `--explainer-model` |
 | `--explainer-model NAME` | none | the Ollama model explaining the rules, such as `qwen3:8b` |
 | `--explanations-directory DIR` | `data/explanations` | where the model's sentences are cached, one file per domain and model |
 | `--workers N` | half the logical CPUs | worker processes self-play, term evaluations and games run in |
 | `--worker-memory X` | `--memory` shared between the workers | as `openmind-distill-values`; a dropped game isn't counted in the round's games |
+| `--target signals` | | every position valued at the signals the round follows, the round's rules being their weighted aggregation's (see `training/README.md`) |
+| `--arms N` | `8` | with `--target signals`: signals each round follows at most, those with the best records, besides winning and the aggregations |
+| `--signal-horizon N` | `0` | with `--target signals`: plies later a position's signals are read for its targets |
+| `--arm-exploration X` | `1.414...` (√2) | with `--target signals`: UCB1's exploration weight when a worker starting a game chooses which signals' agents play it; below 0 is rejected |
+| `--goal-limit N` | `2` | with `--target signals`: how many moves ahead the deduced goal distance looks for a win when signals are prepared before round 1; below 1 is rejected |
+| `--signal-library PATH` | a new one | with `--target signals`: the signal library round 1 starts from, such as an earlier run's; a library for another domain, or one given without `--target signals`, is rejected |
+| `--signals-directory DIR` | `data/signals` | where the signal library is saved after every round, as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` named after the training's start |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log |
 | `--log-directory DIR` | `data/log/train-values` | where logs are saved |
 | `--values-directory DIR` | `data/values` | where each round's value base is saved |

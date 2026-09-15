@@ -9,6 +9,7 @@ from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.predictor.factory.predictor_factory import create_predictor
+from openmind.training.service.arm_selector import ArmSelector
 from openmind.training.service.self_play import SelfPlay
 from openmind.world.service.state_reader import StateReader
 
@@ -66,6 +67,50 @@ def test_games_played_without_keeping_samples_keep_their_positions_and_count_the
     ]
     assert game.samples == () and len(game.states) == len(game.search_values) >= 5
     assert line is not None and int(line["samples"]) > 0
+
+
+def test_arms_play_each_other_each_player_s_agent_following_its_arm_and_scores_add_up_as_games_end(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    domain = create_tictactoe_domain()
+    builders = {arm: AgentBuilder().with_iterations(iterations).with_exploration(1.4) for arm, iterations in (("few", 5), ("many", 30), ("some", 10))}
+
+    games = new_self_play().play_arms(domain, builders, 4, {"many": (2, 2.0)}, ArmSelector(), 1.4, random.Random(1))
+
+    assert len(games) == 4
+    assert all(len(set(game.arms)) == 2 and set(game.arms) <= set(builders) for game in games)
+    assert "many" not in games[0].arms
+    arms_lines = [message for message in caplog.messages if message.startswith("Arms game ")]
+    assert len(arms_lines) == 4 and " scores " in arms_lines[0]
+    assert all(" against " in message for message in caplog.messages if message.startswith("Self-play game with seeds "))
+
+
+def test_arms_need_a_two_player_domain() -> None:
+    from dataclasses import replace
+
+    from openmind.world.model.players import Players
+
+    alone = replace(create_tictactoe_domain(), players=Players(("X",), "turn", ("payoff(X)",)))
+    builders = {arm: AgentBuilder().with_iterations(5).with_exploration(1.4) for arm in ("a", "b")}
+
+    with pytest.raises(ValueError, match="two players, not 1"):
+        new_self_play().play_arms(alone, builders, 1, {}, ArmSelector(), 1.4, random.Random(1))
+
+
+def test_a_domain_saying_why_games_end_and_recording_them_gets_both_logged(caplog: pytest.LogCaptureFixture) -> None:
+    from dataclasses import replace
+
+    from openmind.rule.model.python_rule import PythonRule
+
+    caplog.set_level(logging.INFO)
+    domain = replace(create_tictactoe_domain(), ending=PythonRule("'the end'"), record=PythonRule("len(actions)"))
+
+    (game,) = new_self_play().play(domain, AgentBuilder().with_iterations(10).with_exploration(1.4), 1, random.Random(1))
+
+    assert len(game.actions) == len(game.states) >= 5
+    assert any(" plies by the end: " in message for message in caplog.messages)
+    assert any(message.endswith(f" record: {len(game.actions)}") for message in caplog.messages)
 
 
 def test_workers_play_the_same_games() -> None:

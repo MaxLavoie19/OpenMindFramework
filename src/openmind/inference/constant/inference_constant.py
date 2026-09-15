@@ -44,6 +44,8 @@ SCREENING_SHARE = 0.1
 MIN_SCREENING_ROWS = 500
 #: Candidates evaluated together, between checks of the time, memory and candidates left.
 CANDIDATE_BATCH = 200
+#: The name a search gives the only target it is given as an array.
+SINGLE_TARGET = "target"
 
 
 #: How long a search runs by default, in seconds.
@@ -52,6 +54,8 @@ DEFAULT_SEARCH_SECONDS = 3600.0
 #: games paying 1 for a win, 0.5 for a draw and 0 for a loss.
 DEFAULT_DEDUCTION_SECONDS = 10.0
 DEFAULT_HIGHEST_PAYOFF = 1.0
+#: The lowest payoff a player can get by default, as in games paying 0 for a loss.
+DEFAULT_LOWEST_PAYOFF = 0.0
 #: How many bytes a search's process holds at most by default: half the machine's memory.
 DEFAULT_SEARCH_MEMORY = HALF_THE_MEMORY
 #: How many bytes a process holds before the mechanics clear their views, until a search sets its own share: half the

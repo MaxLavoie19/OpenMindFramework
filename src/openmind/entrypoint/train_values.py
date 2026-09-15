@@ -23,6 +23,12 @@ from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.repository.value_base_repository import ValueBaseRepository
 from openmind.rbs.service.ollama_language_model import OllamaLanguageModel
+from openmind.training.constant.signal_constant import (
+    DEFAULT_ARM_EXPLORATION,
+    DEFAULT_ARMS,
+    DEFAULT_GOAL_LIMIT,
+    DEFAULT_SIGNAL_HORIZON,
+)
 from openmind.training.constant.training_constant import (
     DEFAULT_EVALUATION_GAMES,
     DEFAULT_SEED,
@@ -32,8 +38,12 @@ from openmind.training.constant.training_constant import (
     DEFAULT_TRAINING_ROLLOUT_ACTIONS,
     DEFAULT_TRAINING_ROUNDS,
     SEARCH_TARGET,
+    SIGNALS_TARGET,
     VALUE_TARGETS,
 )
+from openmind.training.mapper.signal_library_json_mapper import SignalLibraryJsonMapper
+from openmind.training.model.signal_settings import SignalSettings
+from openmind.training.repository.signal_library_repository import SignalLibraryRepository
 from openmind.training.factory.training_factory import create_value_training_loop
 from openmind.training.mapper.training_report_json_mapper import TrainingReportJsonMapper
 from openmind.training.mapper.training_report_text_mapper import TrainingReportTextMapper
@@ -127,6 +137,45 @@ def main(argv: list[str] | None = None) -> None:
     _add_deduction_options(parser)
     _add_worker_memory_option(parser)
     parser.add_argument(
+        "--arms",
+        type=_non_negative,
+        default=DEFAULT_ARMS,
+        help=f"with --target signals: signals each round follows at most, those with the best records, besides winning and "
+        f"the aggregations (default: {DEFAULT_ARMS})",
+    )
+    parser.add_argument(
+        "--signal-horizon",
+        type=_non_negative,
+        default=DEFAULT_SIGNAL_HORIZON,
+        help=f"with --target signals: plies later a position's signals are read for its targets (default: "
+        f"{DEFAULT_SIGNAL_HORIZON})",
+    )
+    parser.add_argument(
+        "--arm-exploration",
+        type=float,
+        default=DEFAULT_ARM_EXPLORATION,
+        help=f"with --target signals: UCB1's exploration weight when choosing which signals' agents play each other "
+        f"(default: {DEFAULT_ARM_EXPLORATION})",
+    )
+    parser.add_argument(
+        "--goal-limit",
+        type=_non_negative,
+        default=DEFAULT_GOAL_LIMIT,
+        help=f"with --target signals: moves ahead the deduced goal distance looks for a win, 1 or more (default: "
+        f"{DEFAULT_GOAL_LIMIT})",
+    )
+    parser.add_argument(
+        "--signal-library",
+        type=Path,
+        default=None,
+        help="with --target signals: the signal library round 1 starts from, such as an earlier run's (default: a new one)",
+    )
+    parser.add_argument(
+        "--signals-directory",
+        default="data/signals",
+        help="where the signal library is saved after every round, with --target signals (default: data/signals)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING"),
@@ -165,6 +214,17 @@ def main(argv: list[str] | None = None) -> None:
     start = None if arguments.start is None else value_bases.load(arguments.start)
     if start is not None and start.domain != domain.name:
         parser.error(f"--start holds value rules for {start.domain}, not {domain.name}")
+    signaled = arguments.target == SIGNALS_TARGET
+    if arguments.signal_library is not None and not signaled:
+        parser.error("--signal-library needs --target signals")
+    if arguments.arm_exploration < 0.0:
+        parser.error(f"--arm-exploration needs 0 or more, not {arguments.arm_exploration}")
+    if arguments.goal_limit < 1:
+        parser.error(f"--goal-limit needs 1 or more, not {arguments.goal_limit}")
+    libraries = SignalLibraryRepository(SignalLibraryJsonMapper())
+    library = None if arguments.signal_library is None else libraries.load(arguments.signal_library)
+    if library is not None and library.domain != domain.name:
+        parser.error(f"--signal-library holds signals for {library.domain}, not {domain.name}")
     values = ValueSettings(
         arguments.prices,
         arguments.max_steps,
@@ -184,6 +244,9 @@ def main(argv: list[str] | None = None) -> None:
             arguments.target,
             values,
             pondering,
+            SignalSettings(arguments.arms, arguments.signal_horizon, arguments.arm_exploration, arguments.goal_limit)
+            if signaled
+            else None,
         ),
         arguments.rollout_actions,
         arguments.rollout_limit,
@@ -228,6 +291,10 @@ def main(argv: list[str] | None = None) -> None:
                     logger.info("Exported round %d rules %s", item.number, exported)
             report_files.append(reports.save(report, Path(arguments.report_directory)))
             logger.info("Saved training report %s", report_files[-1])
+            latest = report.rounds[-1].library if report.rounds else None
+            if latest is not None:
+                path = Path(arguments.signals_directory) / report.domain / f"{report.created_at:%Y-%m-%d_%H-%M-%S}.json"
+                logger.info("Saved signal library %s", libraries.write(latest, path))
 
         logger.info(
             "Training in %d worker processes, each holding at most %d bytes; memory diagnoses in %s",
@@ -235,7 +302,16 @@ def main(argv: list[str] | None = None) -> None:
             memory_cap.worker_bytes,
             memory_cap.diagnosis_directory,
         )
-        report = create_value_training_loop(arguments.workers, memory_cap).train(domain, start, settings, save)
+        if signaled:
+            logger.info(
+                "Following signals: at most %d besides winning and the aggregations, read %d plies later, goal distance "
+                "looking up to %d moves ahead; starting from %s",
+                arguments.arms,
+                arguments.signal_horizon,
+                arguments.goal_limit,
+                arguments.signal_library or "a new signal library",
+            )
+        report = create_value_training_loop(arguments.workers, memory_cap).train(domain, start, settings, save, library)
         print(TrainingReportTextMapper().to_text(report))
         for number, path in round_files.items():
             print(f"Saved round {number} values {path}")
@@ -274,6 +350,13 @@ def _add_deduction_options(parser: argparse.ArgumentParser) -> None:
         default=0,
         help="positions the rules missed most, deduced before fitting; needs --deduction-plies (default: 0)",
     )
+    parser.add_argument(
+        "--ponder-endings",
+        type=_non_negative,
+        default=0,
+        help="positions of decisive training games deduced at most per round, walking back from each game's end until a "
+        "position isn't proven; needs --deduction-plies (default: 0)",
+    )
 
 
 def _add_worker_memory_option(parser: argparse.ArgumentParser) -> None:
@@ -303,14 +386,15 @@ def _memory_cap(parser: argparse.ArgumentParser, arguments: argparse.Namespace, 
 def _deduction_settings(
     parser: argparse.ArgumentParser, arguments: argparse.Namespace
 ) -> tuple[DeductionBudget | None, PonderingSettings | None]:
-    if arguments.ponder_positions and not arguments.deduction_plies:
-        parser.error("--ponder-positions needs --deduction-plies")
+    pondered = arguments.ponder_positions or arguments.ponder_endings
+    if pondered and not arguments.deduction_plies:
+        parser.error("--ponder-positions and --ponder-endings need --deduction-plies")
     if arguments.deduction_plies and arguments.deduction_seconds <= 0.0:
         parser.error(f"--deduction-seconds needs more than 0, not {arguments.deduction_seconds}")
     if not arguments.deduction_plies:
         return None, None
     budget = DeductionBudget(arguments.deduction_plies, arguments.deduction_seconds, arguments.highest_payoff)
-    return budget, PonderingSettings(arguments.ponder_positions, budget) if arguments.ponder_positions else None
+    return budget, PonderingSettings(arguments.ponder_positions, budget, arguments.ponder_endings) if pondered else None
 
 
 def _positive(text: str) -> int:

@@ -14,22 +14,22 @@ backtracking.
 | File | What it is |
 |---|---|
 | `model/discrete_domain.py` | `DiscreteDomain(values)`: the finite values a variable can take, in order |
-| `model/state_domain.py` | `StateDomain(rule)`: the values a variable takes in a state, given in order by a value rule reading the state and the problem's definitions; a value given twice counts once |
+| `model/state_domain.py` | `StateDomain(rule)`: the values a variable takes in a state, given in order by a rule reading the state, and the problem's definitions when it is source; a value given twice counts once. The rule is `PythonRule` source or the project's own function (`ValuesRule`, see `rule/README.md`) |
 | `model/variable.py` | `Variable(name, domain)`: an action parameter to solve for, over a `DiscreteDomain` or a `StateDomain` |
-| `model/action_definition.py` | `ActionDefinition(name, variables, constraints)`: an action and the constraints, Python rules, that make it legal |
+| `model/action_definition.py` | `ActionDefinition(name, variables, constraints)`: an action and the constraints that make it legal, `PythonRule` source or the project's own functions (`ConstraintRule`); source says which parameters it reads, so it can be pruned by parameter, while a function is checked once every parameter has a value |
 | `model/problem.py` | `Problem(actions, definitions)`: every action definition of a domain, and the definitions its constraints see (`None` for none) |
 | `model/support_table.py` | `SupportTable(first, second, allowed)`: the value pairs a two-parameter constraint allows |
 | `model/all_different_group.py` | `AllDifferentGroup(variables)`: parameters that must all take different values |
-| `model/scoped_constraint.py` | `ScopedConstraint(rule, scope)`: a compiled constraint on three or more parameters |
+| `model/scoped_constraint.py` | `ScopedConstraint(rule, scope)`: a prepared constraint (`CalledRule`) on three or more parameters |
 | `model/search_space.py` | `SearchSpace(action, variables, tables, groups, constraints)`: what backtracking explores for one action |
 | `model/solve_statistics.py` | `SolveStatistics(solutions, assignments, dead_ends, pruned_values)`: what a search did |
 | `model/wipeout.py` | `Wipeout`: raised when propagation leaves a variable without any value |
 | `service/joint_solver.py` | `JointSolver(solver, state_reader).legal(problem, state, players)`: where players act at once, each player to act with its legal actions, one solve per player; empty when no player to act has one; some players to act without one while others have one raise `ValueError` |
 | `builder/problem_builder.py` | `ProblemBuilder`: collects action definitions and definitions; rejects a repeated action or variable name |
-| `builder/solver_builder.py` | `SolverBuilder`: wires a solver with its rule compiler and runner, call operand mapper, constraint checker, propagators and search |
+| `builder/solver_builder.py` | `SolverBuilder`: wires a solver with its rule caller, call operand mapper, constraint checker, propagators and search |
 | `factory/csp_factory.py` | `create_solver()` |
 | `constant/solver_constant.py` | `openmind-solve`'s default solution limit (2) |
-| `service/constraint_checker.py` | `ConstraintChecker`: checks a compiled constraint for some parameter values; a constraint must give true or false |
+| `service/constraint_checker.py` | `ConstraintChecker(rule_caller)`: checks a prepared constraint for some parameter values; a constraint must give true or false |
 | `service/arc_consistency.py` | `ArcConsistency`: AC-3 over support tables |
 | `service/all_different_propagator.py` | `AllDifferentPropagator`: Régin's matching-based filtering for all-different |
 | `service/backtracking_search.py` | `BacktrackingSearch`: backtracking with maintained propagation and ordering heuristics |

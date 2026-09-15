@@ -13,11 +13,8 @@ from openmind.mcts.service.tree_search import TreeSearch
 from openmind.mcts.service.tree_search_tests import guessing_game, hidden_coin
 from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.predictor.factory.predictor_factory import create_predictor
-from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
-from openmind.rule.service.rule_compiler import RuleCompiler
-from openmind.rule.service.rule_runner import RuleRunner
+from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -63,7 +60,7 @@ def new_search() -> SemiDeterminizedSearch:
 
 
 def completion_theory() -> CompletionTheory:
-    return CompletionTheory(create_state_observer(), RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())))
+    return CompletionTheory(create_state_observer(), create_rule_caller())
 
 
 def test_a_theory_believing_heads_guesses_heads_where_the_domain_gives_even_chances() -> None:

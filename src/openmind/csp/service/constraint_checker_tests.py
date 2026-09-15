@@ -1,21 +1,18 @@
 import pytest
 
 from openmind.csp.service.constraint_checker import ConstraintChecker
-from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
-from openmind.rule.model.compiled_rule import CompiledRule
+from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.rule.model.called_rule import CalledRule
 from openmind.rule.model.python_rule import PythonRule
-from openmind.rule.service.rule_compiler import RuleCompiler
-from openmind.rule.service.rule_runner import RuleRunner
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.state import State
 
 
 def new_checker() -> ConstraintChecker:
-    return ConstraintChecker(RuleRunner(StateNamespaceMapper(VariableNameMapper())))
+    return ConstraintChecker(create_rule_caller())
 
 
-def constraint(source: str, *parameters: str) -> CompiledRule:
-    return RuleCompiler().compile_value(PythonRule(source), parameters)
+def constraint(source: str, *parameters: str) -> CalledRule:
+    return create_rule_caller().prepare(PythonRule(source), parameters)
 
 
 def test_holds_checks_the_constraint_with_the_given_values() -> None:

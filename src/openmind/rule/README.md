@@ -3,7 +3,16 @@
 ## Purpose
 
 Rules are Python. A constraint, an effect, an RBS condition: each is a `PythonRule`, the source of a Python expression
-or a whole script. Any Python is allowed — imports, libraries, classes, `eval` — because OpenMind is a framework
+or a whole script, **or one of the project's own functions**, given to OMF and called as it is.
+
+A project that writes its domain in Python hands OMF functions of the prototypes in `model/rule.py`: a constraint
+`(state, **parameters) -> bool`, a parameter's values `(state) -> Iterable[Value]`, effects `(state, **parameters) ->
+State`, an ending `(state) -> str | None`, a record `(state, actions) -> str | None`, and an observation's `hidden` and
+`completions`. `RuleCaller` calls either kind, so nothing else in OMF cares which it is; the rules the inference engine
+generates stay source. A function must live at a module's top level, since workers are started fresh and are given a
+rule by name; `DomainBuilder` rejects a lambda or a function defined inside another as it is given.
+
+Any Python is allowed — imports, libraries, classes, `eval` — because OpenMind is a framework
 people use to write the rules of their own problems, and they must be able to plug in whatever their problem needs.
 This domain compiles rules once and runs them against states.
 
@@ -14,11 +23,15 @@ A saved rule is code: loading a rule base runs what it contains, so it needs the
 | File | What it is |
 |---|---|
 | `model/python_rule.py` | `PythonRule(source)`: an expression, or a script |
+| `model/rule.py` | `Rule`, a domain's rule: `PythonRule` source OMF compiles, or one of the project's own functions; and the prototypes a function follows, `ConstraintRule`, `ValuesRule`, `EffectsRule`, `EndingRule`, `RecordRule`, `HiddenRule` and `CompletionsRule` |
+| `model/called_rule.py` | `CalledRule(rule, compiled, arguments, source)`: a rule ready to call, its compiled code when it is source, the parameters it reads, and how it reads in a log |
+| `service/rule_caller.py` | `RuleCaller`: calls a rule whichever way it is written; `prepare(rule, parameters, definitions)`, `call(prepared, state, parameters, names)`, `value(...)`, `apply(rule, state, parameters, definitions)` for effects, `check(rule)` rejecting a function no worker could find, and `source(rule)` |
+| `factory/rule_factory.py` | `create_rule_caller()`: a caller with its own compiler and runner |
 | `model/compiled_rule.py` | `CompiledRule(rule, kind, code, arguments, definitions)`: a rule compiled once, with the definitions it sees |
 | `constant/rule_constant.py` | The three kinds (`value`, `effects`, `definitions`), the compiled function's name and `all_different` |
 | `service/rule_compiler.py` | `RuleCompiler`: compiles a rule for its value, for its effects, or as definitions, and keeps it |
 | `service/rule_runner.py` | `RuleRunner`: a value rule's value in a state, or the state an effects rule leaves |
-| `mapper/state_namespace_mapper.py` | `StateNamespaceMapper`: a state as the names a rule reads, those names back to a state, and how a rule reads a variable (`cell[2, 3]`) |
+| `mapper/state_namespace_mapper.py` | `StateNamespaceMapper`: a state as the names a rule reads, those names back to a state, and how a rule reads a variable (`cell[2, 3]`); a base whose indices are all whole numbers is a `Grid` (`world/model/grid.py`), so a rule can also ask `cell.where('X')` or `cell.ray((1, 1), (0, 1))` |
 | `mapper/call_operand_mapper.py` | `CallOperandMapper`: the arguments of a rule that is a single call, such as `all_different(a, b, cell[1, 1])` |
 
 ## What a rule sees

@@ -11,7 +11,7 @@ applies it. Policies are given what their player sees, and the search considers 
 
 | File | What it is |
 |---|---|
-| `model/observation.py` | `Observation(hidden, completions, definitions=None)`: two value rules reading a state and the parameter `player`, and the script they see |
+| `model/observation.py` | `Observation(hidden, completions, definitions=None)`: two rules reading a state and the parameter `player`, and the script they see when they are source; each is `PythonRule` source or the project's own function (`HiddenRule`, `CompletionsRule`, see `rule/README.md`) |
 | `constant/observation_constant.py` | `HIDDEN` (`"<hidden>"`), the value a hidden variable shows, and `PLAYER` (`"player"`), the rules' parameter |
 | `service/state_observer.py` | `StateObserver`: what a player sees of a state, and the states that could be true given what they see |
 | `builder/state_observer_builder.py` | `StateObserverBuilder`: wires a state observer with its rule compiler and rule runner |

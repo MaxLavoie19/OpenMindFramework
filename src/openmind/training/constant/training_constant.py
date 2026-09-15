@@ -11,7 +11,10 @@ DEFAULT_VALUE_HELD_OUT_GAMES = 25
 OUTCOME_TARGET = "outcome"
 #: Every position valued at the search's mean payoff there for the player to act.
 SEARCH_TARGET = "search"
-VALUE_TARGETS = (OUTCOME_TARGET, SEARCH_TARGET)
+#: Every position, for each player, valued at the targets of the signals a round follows: its rules are the weighted
+#: aggregation's (see `training/README.md`).
+SIGNALS_TARGET = "signals"
+VALUE_TARGETS = (OUTCOME_TARGET, SEARCH_TARGET, SIGNALS_TARGET)
 
 #: A value training loop's defaults: rounds, self-play games per round, MCTS iterations, rollout actions played before a
 #: position is valued with the previous round's rules, and games against each opponent after every round.

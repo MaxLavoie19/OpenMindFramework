@@ -84,6 +84,31 @@ def test_a_call_that_cant_be_dropped_raises_once_over_the_memory_cap_twice(tmp_p
     assert raised.value.index == 0 and raised.value.diagnosis is not None and raised.value.diagnosis.is_file()
 
 
+@pytest.mark.parametrize("workers", [1, 2])
+def test_a_stream_chooses_each_call_s_arguments_when_it_starts_and_sees_every_result_as_it_ends(workers: int) -> None:
+    finished: list[int] = []
+    seen_when_starting: list[int] = []
+
+    def arguments_for(index: int) -> tuple[int, int]:
+        seen_when_starting.append(len(finished))
+        return (index + 1, 2)
+
+    def on_result(index: int, result: int) -> None:
+        finished.append(index)
+
+    results = TaskRunner(workers).stream(pow, 5, arguments_for, on_result)
+
+    assert results == [1, 4, 9, 16, 25]
+    assert sorted(finished) == [0, 1, 2, 3, 4]
+    assert seen_when_starting[:workers] == [0] * workers and seen_when_starting[-1] >= 1
+
+
+def test_a_stream_of_no_call_gives_nothing_and_a_negative_count_raises() -> None:
+    assert TaskRunner(2).stream(pow, 0, lambda index: (1, 1), lambda index, result: None) == []
+    with pytest.raises(ValueError, match="0 calls or more"):
+        TaskRunner(2).stream(pow, -1, lambda index: (1, 1), lambda index, result: None)
+
+
 def test_a_worker_ends_itself_once_its_parent_is_gone() -> None:
     parents = iter([100, 100, 1])
     ended: list[int] = []

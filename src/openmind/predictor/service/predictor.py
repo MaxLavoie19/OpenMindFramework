@@ -3,8 +3,7 @@ import logging
 from openmind.predictor.model.outcome_distribution import OutcomeDistribution
 from openmind.predictor.model.transition import Transition
 from openmind.predictor.model.transition_model import TransitionModel
-from openmind.rule.service.rule_compiler import RuleCompiler
-from openmind.rule.service.rule_runner import RuleRunner
+from openmind.rule.service.rule_caller import RuleCaller
 from openmind.world.constant.players_constant import PLAYER
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
@@ -16,14 +15,11 @@ logger = logging.getLogger(__name__)
 
 class Predictor:
     """Gives the outcome probability distribution of an action in a state, from a domain's transitions: each branch's
-    effects script runs on the state, with the action's parameters and the model's definitions. Actions taken at once
+    effects run on the state, with the action's parameters and, for a script, the model's definitions. Actions taken at once
     run one after another, each seeing its player as `player`, then the model's resolution runs."""
 
-    def __init__(
-        self, rule_compiler: RuleCompiler, rule_runner: RuleRunner, action_text_mapper: ActionTextMapper
-    ) -> None:
-        self._rule_compiler = rule_compiler
-        self._rule_runner = rule_runner
+    def __init__(self, rule_caller: RuleCaller, action_text_mapper: ActionTextMapper) -> None:
+        self._rule_caller = rule_caller
         self._action_text_mapper = action_text_mapper
 
     def predict(self, model: TransitionModel, state: State, action: Action) -> OutcomeDistribution:
@@ -31,8 +27,7 @@ class Predictor:
         parameters = dict(action.parameters)
         outcomes: list[tuple[State, float]] = []
         for branch in transition.branches:
-            effects = self._rule_compiler.compile_effects(branch.effects, model.definitions)
-            outcome = self._rule_runner.apply(effects, state, parameters)
+            outcome = self._rule_caller.apply(branch.effects, state, parameters, model.definitions)
             self._log_changes(state, outcome)
             outcomes.append((outcome, branch.probability))
         if logger.isEnabledFor(logging.DEBUG):
@@ -86,8 +81,7 @@ class Predictor:
         branched: list[tuple[State, float]] = []
         for current, probability in outcomes:
             for branch in branches:
-                effects = self._rule_compiler.compile_effects(branch.effects, model.definitions)
-                outcome = self._rule_runner.apply(effects, current, parameters)  # type: ignore[arg-type]
+                outcome = self._rule_caller.apply(branch.effects, current, parameters, model.definitions)  # type: ignore[arg-type]
                 self._log_changes(current, outcome)
                 branched.append((outcome, probability * branch.probability))
         return branched

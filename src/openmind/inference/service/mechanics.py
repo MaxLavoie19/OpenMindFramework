@@ -1,3 +1,5 @@
+from collections import Counter
+
 from openmind.agent.model.domain import Domain
 from openmind.csp.service.solver import Solver
 from openmind.inference.constant.inference_constant import DEFAULT_PROCESS_MEMORY, MEMORY_CHECK_INTERVAL
@@ -6,7 +8,9 @@ from openmind.inference.service.position_view import Moves, PositionView
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.predictor.service.predictor import Predictor
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.world.model.grid import Grid
 from openmind.world.model.state import State
+from openmind.world.model.value import Value
 
 
 class Mechanics:
@@ -92,6 +96,117 @@ class Mechanics:
             self._remember(key, moves)
         return moves  # type: ignore[return-value]
 
+    def changes(self, domain: Domain, state: State, player: str) -> dict[tuple[str, object], float]:
+        """For each variable of an indexed base, by base and index as rules read them, how many of the player's actions,
+        as if it were their turn, change it, each outcome weighted by its probability; variables no action changes are
+        left out. Worked out once for the state and player, from the moves."""
+        key = ("changes", self._pin(domain), state, player)
+        changes = self._cache.get(key)
+        if changes is None:
+            cells = self._state_namespace_mapper.cells(state)
+            found: dict[tuple[str, object], float] = {}
+            for outcomes in self.moves(domain, state, player):
+                for view, probability in outcomes:
+                    for cell in self._changed_cells(state, view.state, cells):
+                        found[cell] = found.get(cell, 0.0) + probability
+            changes = found
+            self._remember(key, changes)
+        return changes  # type: ignore[return-value]
+
+    def _changed_cells(
+        self, before: State, after: State, cells: tuple[tuple[str, object] | None, ...]
+    ) -> list[tuple[str, object]]:
+        """The indexed variables whose value differs after; by the rules' names when the outcome's variables aren't the
+        state's own, in the same order."""
+        if len(before.variables) != len(after.variables):
+            return self._changed_by_names(before, after)
+        changed: list[tuple[str, object]] = []
+        for (name, value), (after_name, after_value), cell in zip(before.variables, after.variables, cells, strict=True):
+            if name != after_name:
+                return self._changed_by_names(before, after)
+            if cell is not None and value != after_value:
+                changed.append(cell)
+        return changed
+
+    def _changed_by_names(self, before: State, after: State) -> list[tuple[str, object]]:
+        first, second = self.variables(before), self.variables(after)
+        return [
+            (base, index)
+            for base, cells in first.items()
+            if isinstance(cells, dict)
+            for index, value in cells.items()
+            if not (isinstance(second.get(base), dict) and index in second[base] and second[base][index] == value)  # type: ignore[index, operator]
+        ]
+
+    def empties(self, domain: Domain) -> dict[str, Value]:
+        """For each grid of the domain, the value most of its cells hold in the initial position: its empty value."""
+        key = ("empties", self._pin(domain))
+        empties = self._cache.get(key)
+        if empties is None:
+            empties = {
+                base: Counter(cells.values()).most_common(1)[0][0]
+                for base, cells in self.variables(domain.initial_state).items()
+                if isinstance(cells, Grid) and cells
+            }
+            self._remember(key, empties)
+        return empties  # type: ignore[return-value]
+
+    def with_value(self, state: State, base: str, at: object, value: Value) -> State:
+        """The state with the variable of `base` at index `at` set to the value; a variable it doesn't have raises
+        KeyError. Worked out once for the state, variable and value."""
+        key = ("with_value", state, base, at, value)
+        edited = self._cache.get(key)
+        if edited is None:
+            cells = self._state_namespace_mapper.cells(state)
+            variables = list(state.variables)
+            for index, cell in enumerate(cells):
+                if cell == (base, at):
+                    variables[index] = (variables[index][0], value)
+                    break
+            else:
+                raise KeyError(f"The position has no variable {base}[{at!r}]")
+            edited = State(tuple(variables))
+            self._remember(key, edited)
+        return edited  # type: ignore[return-value]
+
+    def cleared(self, domain: Domain, state: State, at: object) -> State:
+        """The state with every grid's cell at `at` set to that grid's empty value."""
+        empties = self.empties(domain)
+        cells = self._state_namespace_mapper.cells(state)
+        variables = [
+            (name, empties[cell[0]] if cell is not None and cell[1] == at and cell[0] in empties else value)
+            for (name, value), cell in zip(state.variables, cells, strict=True)
+        ]
+        return State(tuple(variables))
+
+    def copied(self, state: State, source: object, target: object) -> State:
+        """The state with every grid's value at `source` also placed at `target`."""
+        cells = self._state_namespace_mapper.cells(state)
+        held = {
+            cell[0]: value for (_, value), cell in zip(state.variables, cells, strict=True) if cell is not None and cell[1] == source
+        }
+        variables = [
+            (name, held[cell[0]] if cell is not None and cell[1] == target and cell[0] in held else value)
+            for (name, value), cell in zip(state.variables, cells, strict=True)
+        ]
+        return State(tuple(variables))
+
+    def alone(self, domain: Domain, state: State, at: object) -> State:
+        """The state with every grid's cells set to that grid's empty value, except at `at`. Worked out once for the
+        state and cell."""
+        key = ("alone", self._pin(domain), state, at)
+        edited = self._cache.get(key)
+        if edited is None:
+            empties = self.empties(domain)
+            cells = self._state_namespace_mapper.cells(state)
+            variables = [
+                (name, empties[cell[0]] if cell is not None and cell[1] != at and cell[0] in empties else value)
+                for (name, value), cell in zip(state.variables, cells, strict=True)
+            ]
+            edited = State(tuple(variables))
+            self._remember(key, edited)
+        return edited  # type: ignore[return-value]
+
     def with_turn(self, domain: Domain, state: State, player: str) -> State:
         """The state with the player to act replaced."""
         return State(
@@ -100,8 +215,10 @@ class Mechanics:
 
     def _pin(self, domain: Domain) -> int:
         """An identity for the domain that stays valid: the domain is kept alive as long as the mechanics."""
-        self._domains.setdefault(id(domain), domain)
-        return id(domain)
+        key = id(domain)
+        if key not in self._domains:
+            self._domains[key] = domain
+        return key
 
     def _remember(self, key: tuple[object, ...], value: object) -> None:
         self._remembered += 1

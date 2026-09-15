@@ -64,12 +64,12 @@ hypotheses that hold become rules.
 | `service/rule_explainer.py` | `RuleExplainer.explain(value_base, domain, language_model=None, cache_directory=None)`: every rule's literal reading, and the model's sentence, asked once per rule and cached |
 | `repository/explanation_cache_repository.py` | `ExplanationCacheRepository`: the sentences by rule source, with their readings, in `<directory>/<domain>/<model>.json` |
 | `mapper/value_base_explanation_mapper.py` | `ValueBaseExplanationMapper.to_markdown(value_base, explanations)`: a heading, then a table of Weight, Explanation, Literal reading, Rule |
-| `model/value_generation_result.py` | `ValueGenerationResult(value_base, fits, chosen, candidates)`: the candidates are the sources of the expressions the search kept |
+| `model/value_generation_result.py` | `ValueGenerationResult(value_base, fits, chosen, candidates, strengths=())`: the candidates are the sources of the expressions the search kept; `strengths`, each value rule's term with its weight in the chosen fit on standardized values, largest first |
 | `model/value_fit.py` | `ValueFit(price, terms_kept, steps, settled, training_loss, held_out_loss)`: one price of a sweep |
 | `constant/value_constant.py` | Default value settings: prices 0.1, 0.03, 0.01, 0.003 and 0.001, 1,000 steps, tolerance 1e-6; the search budget's defaults are in `inference/constant/inference_constant.py` |
 | `service/term_evaluator.py` | `TermEvaluator`: a term's values on position rows as numbers; several terms at once in the task runner's workers, the rows split in slices |
 | `service/sparse_fitter.py` | `SparseFitter`: a logistic fit with an L1 price on its weights, optionally multiplied per weight by a cost, by accelerated proximal gradient |
-| `service/value_generator.py` | `ValueGenerator`: searches expressions with the inference engine, fits them at every price, each priced per clause, and returns the value base of the fit best on held-out rows |
+| `service/value_generator.py` | `ValueGenerator`: searches expressions with the inference engine, fits them at every price, each priced per clause, and returns the value base of the fit best on held-out rows; `generate_for_targets(domain, training, held_out, targets, settings, seeds)` does it for several targets at once, such as several signals: one search keeps what any target supports, each target, scaled by its own lowest and highest value, gets its own sweep and result, and a target that never varies has nothing to fit; its logs then start with the target's name |
 | `service/rule_valuer.py` | `RuleValuer`: a `PositionValuer`; values each player's position with a value base and explains what each rule adds |
 | `mapper/value_rule_text_mapper.py` | `ValueRuleTextMapper`: a value rule as readable text, `+0.42 × wins(me)` |
 | `mapper/value_base_json_mapper.py` | `ValueBaseJsonMapper`: a value base as JSON text and back, each term as its Python source |
@@ -191,9 +191,12 @@ says where rows come from. Seeds, such as the expressions a deduction induced, a
    `settings.candidates` candidates, at the middle
    price of the sweep (the lower middle for an even count). Its kept expressions, read as rules on `here`, are the
    candidate terms, such as `here.worst(other, lambda v2: v2.best(me, lambda v1: v1.payoff[me] == 1.0))`.
-3. **Fits.** Columns are standardized on the training rows. For each price, from the highest down, starting from the
+3. **Fits.** Columns are standardized on the training rows, a column with blanks (a term giving `None`) scaled without
+   centering and its blanks read as 0 (`ExpressionSearch.scaling`); held-out columns take the training rows' scaling.
+   For each price, from the highest down, starting from the
    previous price's weights, `SparseFitter` minimizes the mean logistic loss of the scaled payoffs plus price × the sum
-   of each weight's absolute value times its term's clauses, the bias unpriced. It takes accelerated proximal gradient
+   of each weight's absolute value times its term's clauses times the share of training rows where the term isn't
+   blank, the bias unpriced. It takes accelerated proximal gradient
    steps (FISTA) of `4 × rows / ‖columns with a bias column‖²`, a step the logistic loss's curvature can't make
    overshoot; each step shrinks every weight toward 0 by step × price × clauses and lands it on 0 when it would cross, so
    the terms that don't pay their price drop out. A fit stops after `max_steps`, or once no weight moves by more than
@@ -206,9 +209,10 @@ says where rows come from. Seeds, such as the expressions a deduction induced, a
 
 `RuleValuer.value(state)` gives each player, in the order of the players' names,
 `low + (high - low) × logistic(bias + Σ weight × term)`, every term read with `me` being that player. The value stays
-strictly between the lowest and highest payoffs, so a finished game's own payoffs always rank beyond it. A term raising
+strictly between the lowest and highest payoffs, so a finished game's own payoffs always rank beyond it. A term giving
+`None` is blank, what it reads not being there at that moment, and adds nothing. A term raising
 `KeyError`, `NameError`, `TypeError`, `AttributeError`, `ValueError` or an arithmetic error, or giving something other
-than a finite number, leaves the position unvalued
+than a finite number or `None`, leaves the position unvalued
 (`None`), and a search plays that rollout to the end. `explain(state, player)` gives each rule with what it adds to the
 player's score: its weight times its term.
 
