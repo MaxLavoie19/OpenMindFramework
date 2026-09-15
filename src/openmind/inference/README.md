@@ -20,7 +20,7 @@ reading `here`.
 | `service/position_deducer.py` | `PositionDeducer.deduce(domain, state, budget)`: proves a position's best action from the domain's own rules alone, one ply deeper at a time |
 | `service/deduction_inducer.py` | `DeductionInducer.seeds(domain, deduction, vocabulary, highest)`: candidate expressions scoped to what a proven deduction touched |
 | `model/expression.py` | `Expression(template, clauses, plies, pattern=None)`: Python source reading its position where `{view}` stands, what the fit prices, how many actions it looks ahead, and its pattern when it counts one |
-| `model/aggregate.py` | `Aggregate(base, pair, kind, body, body_clauses, body_plies=0)`: a body read at every index `i`, or every pair of different indices `i` and `j`, of a base, then counted where it holds, summed, or taken at its lowest or highest; `body_plies`, how many actions the body looks ahead |
+| `model/aggregate.py` | `Aggregate(base, pair, kind, body, body_clauses, body_plies=0, readings=(), operations=())`; `readings` and `operations` are the body's own parts, in the order they were added, so `body` is their fold and a candidate can be read from shared readings; a body built another way, such as one comparing a body with itself at `j`, records none: a body read at every index `i`, or every pair of different indices `i` and `j`, of a base, then counted where it holds, summed, or taken at its lowest or highest; `body_plies`, how many actions the body looks ahead |
 | `model/pattern.py` | `Pattern(anchor, conditions)`: conditions around an index, counted over every index of the anchor base |
 | `model/pattern_condition.py` | `PatternCondition(base, steps, relation, value=None, other_condition=None)`: a base read at the index shifted by steps, `==` or `!=` a value or another condition's variable |
 | `model/vocabulary.py` | `Vocabulary(players, to_act, values_by_variable, values_by_base, indices_by_base, offsets_by_arity)` |
@@ -136,7 +136,9 @@ spread, 500 at least. Each generation:
    residual, is above price × clauses × the share of rows where it isn't blank, that is when the fit would give it a
    weight. It is kept when, on every training row, it still is, it varies, its values are finite where not blank, and no
    kept expression has the same values. Thresholds and combinations are computed from their parents' kept values, a row
-   blank in a parent staying blank; the others are evaluated as rules by `TermEvaluator`, in its workers. A candidate
+   blank in a parent staying blank; an aggregate whose body recorded its parts is folded from its readings, each read
+   once per position and reused by every candidate that reads it (`ReadingCache`, see `rbs/README.md`), while an
+   aggregate over pairs of indices and a body built another way keep their source; the others are evaluated as rules by `TermEvaluator`, in its workers. A candidate
    raising an error or giving something other than a finite number or `None` on a row is dropped.
 4. When the kept values and the fit's two copies of them would pass the memory budget (8 bytes per row per expression,
    three times), the expressions without weight and with the smallest gradients are evicted first.

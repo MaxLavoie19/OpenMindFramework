@@ -104,7 +104,8 @@ class ExpressionGenerator:
             if self._numeric(values):
                 for kind in AGGREGATES:
                     if kind != COUNT:
-                        aggregate = Aggregate(base, False, kind, f"{VIEW}.{base}[{AGGREGATE_INDEX}]", 1)
+                        reading = f"{VIEW}.{base}[{AGGREGATE_INDEX}]"
+                        aggregate = Aggregate(base, False, kind, reading, 1, readings=(reading,))
                         self._add(expressions, Expression(self._aggregate_template(aggregate), 2, 0, aggregate=aggregate))
                 continue
             indices = vocabulary.indices_by_base[base]
@@ -120,7 +121,16 @@ class ExpressionGenerator:
                             *((self._changed(base, player, AGGREGATE_INDEX), 1) for player in (ME, OTHER)),
                         )
                         for reading, plies in readings:
-                            aggregate = Aggregate(base, False, COUNT, self._body("and", held, reading), 2, plies)
+                            aggregate = Aggregate(
+                                base,
+                                False,
+                                COUNT,
+                                self._body("and", held, reading),
+                                2,
+                                plies,
+                                readings=(held, reading),
+                                operations=("and",),
+                            )
                             self._add(expressions, Expression(self._aggregate_template(aggregate), 3, plies, aggregate=aggregate))
         for player in (ME, OTHER):
             self._add(expressions, Expression(f"{VIEW}.mobility({player})", 1, 0))
@@ -181,13 +191,13 @@ class ExpressionGenerator:
         group = [base for base, others in vocabulary.indices_by_base.items() if others == indices]
         whole = self._whole(indices)
         body, clauses, body_plies = aggregate.body, aggregate.body_clauses, aggregate.body_plies
-        bodies: list[tuple[str, int, bool, int]] = []
+        bodies: list[tuple[str, int, bool, int, tuple[str, ...], tuple[str, ...]]] = []
         for pair in (aggregate.pair, True):
             variables = (AGGREGATE_INDEX, AGGREGATE_OTHER_INDEX) if pair else (AGGREGATE_INDEX,)
             if pair and not aggregate.pair:
                 other = self._at_other_index(body)
                 bodies.extend(
-                    (template, clauses * 2 + 1, True, body_plies)
+                    (template, clauses * 2 + 1, True, body_plies, (), ())
                     for template in (
                         f"({body}) - ({other})",
                         f"abs(({body}) - ({other}))",
@@ -231,11 +241,23 @@ class ExpressionGenerator:
                 continue
             for reading, plies in readings:
                 for operation in BODY_OPERATIONS:
-                    bodies.append((self._body(operation, body, reading), clauses + 1, pair, max(body_plies, plies)))
+                    grown = (*aggregate.readings, reading) if aggregate.readings else ()
+                    bodies.append(
+                        (
+                            self._body(operation, body, reading),
+                            clauses + 1,
+                            pair,
+                            max(body_plies, plies),
+                            grown,
+                            (*aggregate.operations, operation) if grown else (),
+                        )
+                    )
         children: dict[str, Expression] = {}
-        for template, grown_clauses, pair, grown_plies in bodies:
+        for template, grown_clauses, pair, grown_plies, parts, operations in bodies:
             for kind in AGGREGATES:
-                grown = Aggregate(aggregate.base, pair, kind, template, grown_clauses, grown_plies)
+                grown = Aggregate(
+                    aggregate.base, pair, kind, template, grown_clauses, grown_plies, readings=parts, operations=operations
+                )
                 self._add(children, Expression(self._aggregate_template(grown), grown_clauses + 1, grown_plies, aggregate=grown))
         return tuple(children.values())
 

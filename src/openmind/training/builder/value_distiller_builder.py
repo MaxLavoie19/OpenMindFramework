@@ -5,10 +5,12 @@ from openmind.inference.service.deduction_inducer import DeductionInducer
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.parallel.model.memory_cap import MemoryCap
+from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.builder.value_generator_builder import ValueGeneratorBuilder
+from openmind.rbs.service.reading_cache import ReadingCache
 from openmind.rbs.service.term_evaluator import TermEvaluator
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rule.service.rule_compiler import RuleCompiler
@@ -59,7 +61,11 @@ class ValueDistillerBuilder:
             TaskRunner(self._workers, self._memory_cap),
         )
         term_evaluator = TermEvaluator(
-            rule_compiler, rule_runner, consequence_library, TaskRunner(self._workers, self._memory_cap)
+            rule_compiler,
+            rule_runner,
+            consequence_library,
+            TaskRunner(self._workers, self._memory_cap),
+            ReadingCache(rule_compiler, rule_runner, consequence_library, MemoryMeter()),
         )
         return ValueDistiller(
             SelfPlay(solver, predictor, state_reader, TaskRunner(self._workers, self._memory_cap)),

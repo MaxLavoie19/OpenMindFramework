@@ -4,9 +4,15 @@ from collections.abc import Sequence
 import numpy as np
 
 from openmind.agent.model.domain import Domain
+from openmind.inference.constant.inference_constant import COUNT, HIGHEST, LOWEST, SUM
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
+from openmind.rbs.service.reading_cache import ReadingCache
+
+#: What an aggregate is folded from: its base, its kind, whether it reads pairs of indices, its readings and the
+#: operations joining them.
+type AggregateParts = tuple[str, str, bool, tuple[str, ...], tuple[str, ...]]
 from openmind.rule.model.python_rule import PythonRule
 from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner
@@ -23,20 +29,96 @@ class TermEvaluator:
         rule_runner: RuleRunner,
         consequence_library: ConsequenceLibrary,
         task_runner: TaskRunner,
+        reading_cache: ReadingCache | None = None,
     ) -> None:
         self._rule_compiler = rule_compiler
         self._rule_runner = rule_runner
         self._consequence_library = consequence_library
         self._task_runner = task_runner
+        self._reading_cache = reading_cache
 
     def limit_memory(self, memory_bytes: int) -> None:
-        """Every process evaluating terms, this one or a worker, clears its views once it holds more than an even share
-        of that many bytes between the task runner's workers."""
-        self._consequence_library.limit_memory(memory_bytes // self._task_runner.workers)
+        """Every process evaluating terms, this one or a worker, clears its views and its readings once it holds more
+        than an even share of that many bytes between the task runner's workers."""
+        share = memory_bytes // self._task_runner.workers
+        self._consequence_library.limit_memory(share)
+        if self._reading_cache is not None:
+            self._reading_cache.limit_memory(share)
 
     def clear_memory(self) -> None:
-        """Forgets what this process's consequence library kept."""
+        """Forgets what this process's consequence library and readings kept."""
         self._consequence_library.clear_memory()
+        if self._reading_cache is not None:
+            self._reading_cache.clear()
+
+    def aggregate_columns(
+        self, domain: Domain, rows: Sequence[PositionRow], parts: Sequence[AggregateParts]
+    ) -> list[np.ndarray | None]:
+        """What each aggregate gives on every row, folded from its readings instead of run as one expression: a reading
+        is read once per position and reused by every aggregate that reads it. Parts are `(base, kind, pair, readings,
+        operations)`; an aggregate over pairs of indices, or one whose parts weren't recorded, gives None, since a
+        reading kept per cell can't answer it. Without a reading cache, every column is None."""
+        if self._reading_cache is None:
+            return [None] * len(parts)
+        return [self._folded(domain, rows, part) for part in parts]
+
+    def _folded(self, domain: Domain, rows: Sequence[PositionRow], parts: AggregateParts) -> np.ndarray | None:
+        base, kind, pair, readings, operations = parts
+        if pair or not readings or len(operations) != len(readings) - 1:
+            return None
+        cache = self._reading_cache
+        column = np.empty(len(rows))
+        for index, row in enumerate(rows):
+            cells: list[float] | None = None
+            for at, reading in enumerate(readings):
+                values = cache.values(domain, row, base, reading)  # type: ignore[union-attr]
+                if any(value is None for value in values):
+                    return None
+                if cells is None:
+                    cells = list(values)  # type: ignore[arg-type]
+                    continue
+                if len(values) != len(cells):
+                    return None
+                cells = [self._combined(operations[at - 1], held, value) for held, value in zip(cells, values, strict=True)]  # type: ignore[arg-type]
+            column[index] = self._aggregated(kind, cells or [])
+        return column
+
+    def _combined(self, operation: str, held: float, value: float) -> float:
+        """A body grown by an operation and a reading, as `ExpressionGenerator._body` writes it."""
+        match operation:
+            case "+":
+                return held + value
+            case "-":
+                return held - value
+            case "*":
+                return held * value
+            case "/":
+                return held / max(1.0, value)
+            case "abs":
+                return abs(held - value)
+            case ">=":
+                return float(held >= value)
+            case "<=":
+                return float(held <= value)
+            case "==":
+                return float(held == value)
+            case "and":
+                return value if held else held
+            case "or":
+                return held if held else value
+        raise ValueError(f"Unknown body operation {operation!r}")
+
+    def _aggregated(self, kind: str, cells: Sequence[float]) -> float:
+        """The body's values over the base's indices, as `ExpressionGenerator._aggregate_template` writes them."""
+        if kind == COUNT:
+            return float(sum(1 for value in cells if value))
+        if kind == SUM:
+            return math.fsum(cells)
+        if kind == LOWEST:
+            return float(min(cells, default=0))
+        if kind == HIGHEST:
+            return float(max(cells, default=0))
+        raise ValueError(f"Unknown aggregate kind {kind!r}")
 
     def column(self, domain: Domain, rows: Sequence[PositionRow], term: PythonRule) -> np.ndarray | None:
         """The term's value on every row, a boolean counting as 0 or 1, and NaN on a row where the term gives None: what

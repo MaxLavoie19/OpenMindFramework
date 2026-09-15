@@ -1,5 +1,16 @@
 # To do
 
+## Next, in order
+
+1. **Share the readings.** A generation's candidates repeat each other's readings; evaluate a reading once per position
+   and cell and fold the rest, instead of running every candidate's whole source. The largest speed gain left.
+2. **Relaxed domains** (below): fewer constraints, to learn mate geometry and what not to compromise.
+3. **A `.pgn` file per round,** beside the game records already in the logs.
+4. **Deploy to cinamon and restart the training:** the chess run there still uses older code, and its dashboard has no
+   drawn and decisive counts.
+5. **Doxastic logic and the knowledge base:** track truth with the evidence for and against a claim, rather than labels,
+   so a player can hold poor evidence for `p` and solid evidence for `not p`.
+
 ## Games that erode the simplicity of the games so far
 
 So far OpenMind has dealt with discrete-time, deterministic, complete-information, zero-sum games. Each game below

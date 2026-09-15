@@ -26,7 +26,7 @@ from openmind.parallel.model.call_over_memory import CallOverMemory
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.sparse_fitter import SparseFitter
-from openmind.rbs.service.term_evaluator import TermEvaluator
+from openmind.rbs.service.term_evaluator import AggregateParts, TermEvaluator
 from openmind.rule.model.python_rule import PythonRule
 
 logger = logging.getLogger(__name__)
@@ -290,33 +290,48 @@ class ExpressionSearch:
         rules = [candidate[0] for candidate in batch if candidate[1] is None]
         if not rules:
             return found, passed
-        sources = [self._expression_generator.source(expression) for expression in rules]
-        screened_columns = self._term_evaluator.columns(domain, screen_rows, sources)
-        passing: list[tuple[Expression, PythonRule, np.ndarray]] = []
-        for expression, source, column in zip(rules, sources, screened_columns, strict=True):
+        screened_columns = self._columns(domain, screen_rows, rules)
+        passing: list[tuple[Expression, np.ndarray]] = []
+        for expression, column in zip(rules, screened_columns, strict=True):
             if column is None:
                 continue
             gradient = self._gradient(column, *screen_residual)
             if gradient > self._price(price, expression, column):
-                passing.append((expression, source, column))
+                passing.append((expression, column))
             elif gradient > 0.0:
                 passed.append((expression, gradient))
         if not passing:
             return found, passed
-        passing_sources = [source for _, source, _ in passing]
-        trains = (
-            [column for _, _, column in passing]
-            if everything
-            else self._term_evaluator.columns(domain, training, passing_sources)
-        )
-        helds = self._term_evaluator.columns(domain, held_out, passing_sources)
-        for (expression, _, column), train, held in zip(passing, trains, helds, strict=True):
+        candidates = [expression for expression, _ in passing]
+        trains = [column for _, column in passing] if everything else self._columns(domain, training, candidates)
+        helds = self._columns(domain, held_out, candidates)
+        for (expression, column), train, held in zip(passing, trains, helds, strict=True):
             if train is not None and held is not None and self._usable(train):
                 if self._gradient(train, *residual) > self._price(price, expression, train):
                     found.append((expression, (train, held)))
                     continue
             passed.append((expression, self._gradient(column, *screen_residual)))
         return found, passed
+
+    def _columns(
+        self, domain: Domain, rows: Sequence[PositionRow], expressions: Sequence[Expression]
+    ) -> list[np.ndarray | None]:
+        """Each expression's values on the rows: an aggregate whose body recorded its readings is folded from them, every
+        reading read once per position however many candidates share it; anything else is run from its source."""
+        folded = self._term_evaluator.aggregate_columns(domain, rows, [self._parts(expression) for expression in expressions])
+        left = [expression for expression, column in zip(expressions, folded, strict=True) if column is None]
+        if not left:
+            return folded
+        sources = [self._expression_generator.source(expression) for expression in left]
+        ran = iter(self._term_evaluator.columns(domain, rows, sources))
+        return [column if column is not None else next(ran) for column in folded]
+
+    def _parts(self, expression: Expression) -> AggregateParts:
+        """What an aggregate is folded from; parts no fold can take for anything else."""
+        aggregate = expression.aggregate
+        if aggregate is None:
+            return ("", "", True, (), ())
+        return (aggregate.base, aggregate.kind, aggregate.pair, aggregate.readings, aggregate.operations)
 
     def _expand(
         self,

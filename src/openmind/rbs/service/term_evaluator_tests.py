@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 
+from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.parallel.service.task_runner import TaskRunner
+from openmind.rbs.service.reading_cache import ReadingCache
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.consequence_library_tests import position, strip_domain
@@ -23,12 +25,10 @@ ROWS = (
 
 
 def new_evaluator(workers: int = 1) -> TermEvaluator:
-    return TermEvaluator(
-        RuleCompiler(),
-        RuleRunner(StateNamespaceMapper(VariableNameMapper())),
-        ConsequenceLibraryBuilder().build(),
-        TaskRunner(workers),
-    )
+    compiler = RuleCompiler()
+    runner = RuleRunner(StateNamespaceMapper(VariableNameMapper()))
+    library = ConsequenceLibraryBuilder().build()
+    return TermEvaluator(compiler, runner, library, TaskRunner(workers), ReadingCache(compiler, runner, library, MemoryMeter()))
 
 
 def test_a_term_reads_the_state_and_the_names_with_me_being_the_row_player() -> None:
