@@ -5,6 +5,7 @@ import pytest
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.agent.service.random_policy import RandomPolicy
 from openmind.csp.factory.csp_factory import create_solver
+from openmind.timing.model.clock import Clock
 from openmind.world.model.state import State
 
 pytestmark = pytest.mark.log_level("INFO")
@@ -33,3 +34,10 @@ def test_no_legal_action_raises() -> None:
 
     with pytest.raises(ValueError, match="No legal action"):
         RandomPolicy(create_solver(), random.Random(1)).choose(domain, finished)
+
+
+def test_a_clock_changes_nothing() -> None:
+    domain = create_tictactoe_domain()
+    first, second = RandomPolicy(create_solver(), random.Random(7)), RandomPolicy(create_solver(), random.Random(7))
+
+    assert first.choose(domain, domain.initial_state) == second.choose(domain, domain.initial_state, clock=Clock(1.0), steps_played=4)

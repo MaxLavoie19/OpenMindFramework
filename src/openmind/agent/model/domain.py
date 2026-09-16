@@ -13,8 +13,10 @@ class Domain:
     """A domain within the agent: where it starts, which actions are legal, what they lead to, who plays, what each
     player sees of a state (None: every player sees everything), and, for the logs, why a finished game ended and its
     record: `ending`, a rule reading a finished game's last state, and `record`, a rule reading the initial state and the
-    parameter `actions`, both seeing the transitions' definitions when they are source (None: not said). Every rule is
-    Python source or one of the project's own functions."""
+    parameter `actions`, both seeing the transitions' definitions when they are source (None: not said); and `timeout`,
+    an effects rule giving the state after a player's clock ran out, the player given as `flagged`, which sets the
+    payoffs (None: the domain can't be played on a clock). Every rule is Python source or one of the project's own
+    functions."""
 
     name: str
     initial_state: State
@@ -24,3 +26,4 @@ class Domain:
     observation: Observation | None = None
     ending: Rule | None = None
     record: Rule | None = None
+    timeout: Rule | None = None

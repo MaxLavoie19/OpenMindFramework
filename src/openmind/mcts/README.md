@@ -12,12 +12,12 @@ rules, can value the positions its rollouts reach instead of playing them to the
 
 | File | What it is |
 |---|---|
-| `model/search_settings.py` | `SearchSettings(iterations, exploration, seed, rollout_limit=None, unfinished_payoff=None, regret_exploration=0.1)`: how long and how widely to search; `seed=None` is unseeded; a rollout limit stops rollouts after that many actions; `regret_exploration` is the share of uniform choice mixed into regret matching where players act at once |
+| `model/search_settings.py` | `SearchSettings(iterations, exploration, seed, rollout_limit=None, unfinished_payoff=None, regret_exploration=0.1, seconds=None)`: how long and how widely to search; the search stops at its iterations or its seconds, whichever comes first, and needs at least one of them; `seed=None` is unseeded; a rollout limit stops rollouts after that many actions; `regret_exploration` is the share of uniform choice mixed into regret matching where players act at once |
 | `constant/mcts_constant.py` | `DEFAULT_REGRET_EXPLORATION` (0.1) |
 | `model/simultaneous_node.py` | `SimultaneousNode`: a state in the tree where players act at once, with each player's legal actions, regrets, summed strategies, visits and payoffs, and the strategies predicted for other players at the root; mutable |
 | `model/action_statistics.py` | `ActionStatistics(action, visits, mean_payoff)`: a root action's visits and mean payoff for the player acting at the root (0.0 when never visited) |
 | `model/action_sample.py` | `ActionSample(state, player, action, visits, mean_payoff)`: an action expanded anywhere in the tree, with its visits and mean payoff for the player to act |
-| `model/search_result.py` | `SearchResult(player, statistics, chosen, samples, hypotheses=())`: every root action's statistics, the action chosen (the most visited, or a semi-determinized search's highest expected payoff), a sample for every expanded action, and a semi-determinized search's hypotheses |
+| `model/search_result.py` | `SearchResult(player, statistics, chosen, samples, hypotheses=(), strategy=(), iterations=0, seconds=0.0)`: every root action's statistics, the action chosen (the most visited, or a semi-determinized search's highest expected payoff), a sample for every expanded action, a semi-determinized search's hypotheses, and the iterations completed in the seconds taken; the seconds don't take part in comparing results |
 | `model/hypothesis.py` | `Hypothesis(label, completions)`: a prediction about what a player can't see, such as another player's hidden move, and the states that could be true under it with their probabilities |
 | `model/hypothesis_result.py` | `HypothesisResult(label, probability, statistics)`: one hypothesis of a semi-determinized search, its probability, and the root actions' statistics of the search made as if it were true |
 | `model/theory_of_mind.py` | `TheoryOfMind`: the interface of what a player believes about what it can't see, `hypotheses(domain, observed, player)` giving hypotheses with probabilities summing to 1, and `strategy(domain, state, player, other)` giving the strategy it predicts another player acting at once will play, or `None`; `agent/service/completion_theory.py` is the first, a doxastic module's beliefs later |
@@ -137,7 +137,9 @@ semi-determinized MCTS (Bitan and Kraus, 2017):
   says what the other player's hidden move was, for instance, and which states could be true under it; the rest can stay
   hidden.
 - One information set search runs per hypothesis, over that hypothesis's states only, with an even share of the
-  iterations (at least 1 each, the remainder to the first ones) and the seed plus the hypothesis's index.
+  iterations (at least 1 each, the remainder to the first ones) and the seed plus the hypothesis's index. With seconds,
+  each hypothesis gets the seconds still left over the hypotheses still to search, so time one leaves goes to the ones
+  after it; once the time is up, each hypothesis left gets 1 iteration. The result's iterations and seconds are totals.
 - Each root action's expected payoff is its mean payoffs weighed by the probabilities of the hypotheses whose search
   visited it; its visits are summed. The action with the highest expected payoff is chosen, ties going to the most
   visits, then to the first action. The samples of every search are kept.
@@ -153,15 +155,21 @@ Also:
 - A state with no legal action whose payoffs are not all numbers raises `ValueError`.
 - The same seed gives the same result.
 - The nodes are mutable models, used only inside `TreeSearch`.
+- **Time.** `TreeSearch` reads time from the `TimeSource` it is built with, wall time (`WallTimeSource`) unless given
+  another. A search with `seconds` checks the time between iterations and stops once they have passed, or at its
+  iterations if those come first; it never stops an iteration halfway and always completes at least one. No
+  iterations and no seconds, iterations below 1, or seconds of 0 or less raise `ValueError`.
 
 ## Logs
 
 Logger `openmind.mcts.service.tree_search`:
 
-- `INFO Searching <iterations> iterations for <player>`
+- `INFO Searching <limits> for <player>`, the limits written `<n> iterations`, `for <s> seconds` or
+  `up to <n> iterations or <s> seconds`
 - `INFO <player> sees <n> states that could be true`, with an observation
 - `INFO <action>: <visits> visits, mean payoff <mean> for <player>`, once per root action
 - `INFO Most visited: <action>`
+- `INFO Searched <n> iterations in <s> seconds for <player>`, after the iterations, before the root actions
 - `DEBUG Iteration <n>: <actions from the root>, rollout of <n> actions, payoffs <player>=<payoff> ...`, with
   `, then valued` or `, then stopped at the rollout limit` after the rollout's length when a valuer or the limit gave
   the payoffs
@@ -171,6 +179,7 @@ The usage example above logs these INFO lines, and this DEBUG line for iteration
 ```
 INFO  Searching 500 iterations for X
 DEBUG Iteration 17: place(col=2, row=1) > place(col=2, row=2), rollout of 7 actions, payoffs X=0.5 O=0.5
+INFO  Searched 500 iterations in <seconds, as long as it took> seconds for X
 INFO  place(col=1, row=1): 65 visits, mean payoff 0.7 for X
 INFO  place(col=2, row=1): 61 visits, mean payoff 0.6885245901639344 for X
 INFO  place(col=3, row=1): 41 visits, mean payoff 0.5975609756097561 for X
@@ -187,7 +196,8 @@ At DEBUG, every rollout step also logs the solver's candidates and the predictor
 
 Where players act at once, the same logger writes instead:
 
-- `INFO Searching <iterations> iterations for <player>, acting at once with <players>`
+- `INFO Searching <limits> for <player>, acting at once with <players>`
+- `INFO Searched <n> iterations in <s> seconds for <player>`
 - `INFO <player> is predicted to play <action>=<probability> ...`, per predicted player
 - `INFO <action>: <visits> visits, mean payoff <mean>, average strategy <probability> for <player>`, once per root action
 - `INFO Sampled from the average strategy: <action>`
@@ -195,9 +205,12 @@ Where players act at once, the same logger writes instead:
 
 Logger `openmind.mcts.service.semi_determinized_search`, around each hypothesis's search lines:
 
-- `INFO <player> weighs <n> hypotheses: <label> at <probability>; ...; <iterations>, ... iterations`, a label of
-  variables written `name='value', ...`
+- `INFO <player> weighs <n> hypotheses: <label> at <probability>; ...; <shares>`, a label of variables written
+  `name='value', ...`, the shares written `<iterations>, ... iterations`, `<s> seconds shared as they go`, or both joined
+  by `and`
 - `INFO Searching as if <label>`, before each hypothesis's search
+- `INFO <player> has <s> seconds of the <s> left for this hypothesis`, with seconds
+- `INFO <player>'s time is up, so this hypothesis gets 1 iteration`, with seconds, once they have passed
 - `INFO Expected payoffs for <player>: <action>=<expected payoff> ...; chose <action>`
 
 ## Notes

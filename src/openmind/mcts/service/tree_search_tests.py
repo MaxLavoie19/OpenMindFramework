@@ -20,6 +20,8 @@ from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
 from openmind.predictor.model.transition_model import TransitionModel
 from openmind.rule.model.python_rule import PythonRule
+from openmind.timing.model.time_source import TimeSource
+from openmind.timing.service.manual_time_source import ManualTimeSource
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
@@ -41,9 +43,22 @@ class Favour:
         return tuple(1.0 if action.name == self._name else 0.0 for action in actions)
 
 
+class Ticking:
+    """A time source moving on by `step` seconds after each reading, so a search's time runs with the readings it makes."""
+
+    def __init__(self, step: float = 1.0) -> None:
+        self._source = ManualTimeSource()
+        self._step = step
+
+    def now(self) -> float:
+        now = self._source.now()
+        self._source.advance(self._step)
+        return now
+
+
 def search(
     game: Game,
-    iterations: int,
+    iterations: int | None,
     exploration: float = math.sqrt(2),
     seed: int | None = 1,
     guidance: Guidance | None = None,
@@ -52,11 +67,15 @@ def search(
     unfinished_payoff: float | None = None,
     observation: Observation | None = None,
     completions: tuple[tuple[State, float], ...] | None = None,
+    seconds: float | None = None,
+    time_source: TimeSource | None = None,
 ) -> SearchResult:
-    tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
+    tree_search = TreeSearch(
+        create_solver(), create_predictor(), StateReader(), ActionTextMapper(), time_source=ManualTimeSource() if time_source is None else time_source
+    )
     problem, transitions, state = game
     players = Players(("me",), "turn", ("payoff",))
-    settings = SearchSettings(iterations, exploration, seed, rollout_limit, unfinished_payoff)
+    settings = SearchSettings(iterations, exploration, seed, rollout_limit, unfinished_payoff, seconds=seconds)
     return tree_search.search(problem, transitions, players, state, settings, guidance, valuation, observation, completions)
 
 
@@ -162,6 +181,7 @@ def test_logs_the_search_summary(caplog: pytest.LogCaptureFixture) -> None:
 
     assert [record.getMessage() for record in caplog.records if record.name == "openmind.mcts.service.tree_search"] == [
         "Searching 2 iterations for me",
+        "Searched 2 iterations in 0.000 seconds for me",
         "lose(): 1 visits, mean payoff 0.0 for me",
         "win(): 1 visits, mean payoff 1.0 for me",
         "Most visited: lose()",
@@ -343,14 +363,18 @@ def throw(shape: str) -> Action:
 
 
 def rock_paper_scissors_search(
-    iterations: int,
+    iterations: int | None,
     predicted: dict[str, tuple[tuple[Action, float], ...]] | None = None,
     player: str | None = "A",
     seed: int = 1,
+    seconds: float | None = None,
+    time_source: TimeSource | None = None,
 ) -> SearchResult:
     domain = create_rock_paper_scissors_domain()
-    tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
-    settings = SearchSettings(iterations, math.sqrt(2), seed)
+    tree_search = TreeSearch(
+        create_solver(), create_predictor(), StateReader(), ActionTextMapper(), time_source=ManualTimeSource() if time_source is None else time_source
+    )
+    settings = SearchSettings(iterations, math.sqrt(2), seed, seconds=seconds)
     return tree_search.search(
         domain.problem, domain.transitions, domain.players, domain.initial_state, settings, player=player, predicted=predicted
     )
@@ -410,3 +434,55 @@ def test_a_rollout_limit_is_at_least_0_and_comes_with_an_unfinished_payoff(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         search(win_or_lose(), iterations=1, rollout_limit=rollout_limit, unfinished_payoff=unfinished_payoff)
+
+
+@pytest.mark.parametrize(
+    ("iterations", "seconds", "done"),
+    [(None, 5.0, 5), (50, 5.0, 5), (3, 100.0, 3), (None, 0.5, 1), (50, 0.5, 1)],
+    ids=["seconds alone", "seconds first", "iterations first", "time up after one", "time up before the iterations"],
+)
+def test_a_search_stops_at_its_seconds_or_its_iterations_whichever_comes_first(
+    iterations: int | None, seconds: float, done: int
+) -> None:
+    result = search(win_or_lose(), iterations, seconds=seconds, time_source=Ticking())
+
+    assert result.iterations == done
+    assert sum(item.visits for item in result.statistics) == done
+
+
+@pytest.mark.parametrize(
+    ("iterations", "seconds", "done"),
+    [(None, 5.0, 5), (50, 5.0, 5), (3, 100.0, 3), (None, 0.5, 1), (50, 0.5, 1)],
+    ids=["seconds alone", "seconds first", "iterations first", "time up after one", "time up before the iterations"],
+)
+def test_a_search_where_players_act_at_once_stops_at_its_seconds_or_its_iterations_whichever_comes_first(
+    iterations: int | None, seconds: float, done: int
+) -> None:
+    result = rock_paper_scissors_search(iterations, seconds=seconds, time_source=Ticking())
+
+    assert result.iterations == done
+    assert sum(item.visits for item in result.statistics) == done
+
+
+def test_a_search_on_time_logs_its_limits_and_what_it_did_in_them(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+
+    result = search(win_or_lose(), 3, seconds=100.0, time_source=Ticking(0.25))
+    search(win_or_lose(), None, seconds=0.5, time_source=Ticking(0.25))
+
+    assert result.seconds == 0.75
+    assert "Searching up to 3 iterations or 100 seconds for me" in caplog.messages
+    assert "Searched 3 iterations in 0.750 seconds for me" in caplog.messages
+    assert "Searching for 0.5 seconds for me" in caplog.messages
+    assert "Searched 2 iterations in 0.750 seconds for me" in caplog.messages
+
+
+@pytest.mark.parametrize(
+    ("iterations", "seconds", "message"),
+    [(None, None, "iterations, seconds or both"), (0, None, "at least 1 iteration"), (None, 0.0, "more than 0 seconds")],
+)
+def test_a_search_needs_at_least_one_iteration_or_some_seconds(
+    iterations: int | None, seconds: float | None, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        search(win_or_lose(), iterations, seconds=seconds)

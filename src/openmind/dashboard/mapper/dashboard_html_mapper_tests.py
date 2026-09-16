@@ -1,9 +1,11 @@
+from dataclasses import replace
 from pathlib import Path
 
 from openmind.dashboard.mapper.dashboard_html_mapper import DashboardHtmlMapper
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
 from openmind.dashboard.model.log_progress import LogProgress
 from openmind.dashboard.model.machine_status import MachineStatus
+from openmind.dashboard.model.model_score import ModelScore
 from openmind.dashboard.model.process_status import ProcessStatus
 from openmind.dashboard.model.report_summary import ReportSummary
 from openmind.dashboard.model.round_row import RoundRow
@@ -68,3 +70,16 @@ def test_a_page_without_report_log_or_process_says_so() -> None:
     page = DashboardHtmlMapper().to_html(empty, 30)
 
     assert "not running" in page and "No round saved yet." in page and "No training process." in page
+
+
+def test_the_page_shows_every_model_s_games_under_a_header() -> None:
+    models = (ModelScore("deduced, losing color doubled", "0123456789abcdef", 20, 5, 13, 2, "2026-09-16 14:52:53"),)
+    page = DashboardHtmlMapper().to_html(replace(snapshot(), models=models), 30)
+
+    assert "<h2>Models</h2>" in page
+    assert "<th>model</th><th>id</th><th>games</th><th>wins</th><th>draws</th><th>losses</th><th>score</th><th>last game</th>" in page
+    assert "<td>deduced, losing color doubled</td><td>0123456789abcdef</td><td>20</td><td>5</td><td>13</td><td>2</td><td>0.575</td><td>2026-09-16 14:52:53</td>" in page
+
+
+def test_a_page_without_models_has_no_models_table() -> None:
+    assert "<h2>Models</h2>" not in DashboardHtmlMapper().to_html(snapshot(), 30)

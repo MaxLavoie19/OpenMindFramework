@@ -3,6 +3,7 @@ import math
 import numpy as np
 
 from openmind.agent.model.domain import Domain
+from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.model.value_base import ValueBase
 from openmind.rbs.model.value_rule import ValueRule
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
@@ -43,6 +44,10 @@ class RuleValuer:
             score = base.bias + math.fsum(contribution for _, contribution in contributions)
             values.append(base.low + (base.high - base.low) * self._logistic(score))
         return tuple(values)
+
+    def describe(self) -> str:
+        """The value base it values with, as value bases are saved."""
+        return ValueBaseJsonMapper().to_json(self._value_base)
 
     def explain(self, state: State, player: str) -> tuple[tuple[ValueRule, float], ...] | None:
         """Each rule with what it adds to the player's score, its weight times its term, or None when a term can't be

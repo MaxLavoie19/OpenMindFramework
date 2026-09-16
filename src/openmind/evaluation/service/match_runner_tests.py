@@ -8,18 +8,25 @@ import pytest
 from openmind.agent.factory.rock_paper_scissors_factory import create_rock_paper_scissors_domain
 from openmind.agent.model.domain import Domain
 from openmind.agent.service.random_policy import RandomPolicy
+from openmind.agent.service.timekeeper import Timekeeper
+from openmind.agent.service.timekeeper_tests import TIMEOUT, alternating_steps
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.problem import Problem
+from openmind.evaluation.model.match_game import MatchGame
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.observation.model.observation import Observation
 from openmind.parallel.service.task_runner import TaskRunner
+from openmind.mcts.service.tree_search_tests import Ticking
 from openmind.predictor.factory.predictor_factory import create_predictor
+from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
 from openmind.predictor.model.transition_model import TransitionModel
 from openmind.rule.model.python_rule import PythonRule
+from openmind.timing.model.clock import Clock
+from openmind.timing.model.time_control import TimeControl
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -158,3 +165,96 @@ def test_a_domain_without_two_players_raises() -> None:
         new_match_runner().series(
             first_mover_decides(("A",)), lambda seed: Always("win"), lambda seed: Always("win"), "always win", 1, random.Random(1)
         )
+
+
+class Stepping:
+    """A policy stepping every time, remembering the steps it's told it has played and the clocks it's given."""
+
+    def __init__(self) -> None:
+        self.told: list[tuple[int, Clock | None]] = []
+
+    def choose(
+        self, domain: Domain, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
+    ) -> Action:
+        self.told.append((steps_played, clock))
+        return Action("step", ())
+
+
+def clocked_match_runner() -> MatchRunner:
+    """A match runner whose referee reads a time source moving on by a second a reading: every choice takes a second."""
+    return MatchRunner(
+        create_solver(), create_predictor(), StateReader(), TaskRunner(1), timekeeper=Timekeeper(create_rule_caller(), Ticking())
+    )
+
+
+def test_on_a_clock_each_policy_is_given_its_clock_and_its_own_steps_played() -> None:
+    first, second = Stepping(), Stepping()
+
+    game = clocked_match_runner().play_game(
+        alternating_steps(TIMEOUT), lambda seed: first, lambda seed: second, 0, 1, 1, TimeControl(1.5, 1.0)
+    )
+
+    payoffs, flagged = game.payoffs, game.flagged
+    assert payoffs == (0.5, 0.5) and flagged is None
+    assert first.told == [(0, Clock(1.5, 1.0)), (1, Clock(1.5, 1.0))]
+    assert second.told == [(0, Clock(1.5, 1.0)), (1, Clock(1.5, 1.0))]
+
+
+def test_wins_and_losses_on_time_count_from_the_evaluated_side() -> None:
+    results = clocked_match_runner().series(
+        alternating_steps(TIMEOUT), lambda seed: Stepping(), lambda seed: Stepping(), "stepping", 2, random.Random(1), TimeControl(1.5)
+    )
+
+    # A runs out of time on its second move: game 1 the evaluated policy is A and loses, game 2 it is B and wins
+    assert results == MatchResults("stepping", 2, 1, 0, 1, TimeControl(1.5), 1, 1)
+
+
+def test_players_acting_at_once_are_each_charged_on_their_own_clock(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.evaluation.service.match_runner")
+    domain = replace(create_rock_paper_scissors_domain(), timeout=TIMEOUT)
+
+    def random_policy(seed: int) -> RandomPolicy:
+        return RandomPolicy(create_solver(), random.Random(seed))
+
+    game = clocked_match_runner().play_game(domain, random_policy, random_policy, 0, 1, 1, TimeControl(1.5))
+
+    assert game.flagged is None
+    assert any("finished in 1 plies on 0.025+0, clocks A=0.50 B=0.50, the evaluated policy" in message for message in caplog.messages)
+
+
+def test_players_acting_at_once_whose_time_runs_out_end_the_game_by_the_timeout_rule() -> None:
+    domain = replace(create_rock_paper_scissors_domain(), timeout=TIMEOUT)
+
+    def random_policy(seed: int) -> RandomPolicy:
+        return RandomPolicy(create_solver(), random.Random(seed))
+
+    game = clocked_match_runner().play_game(domain, random_policy, random_policy, 0, 1, 1, TimeControl(0.5))
+
+    assert game.flagged == "A"
+
+
+def test_a_series_on_a_clock_needs_a_timeout_rule() -> None:
+    with pytest.raises(ValueError, match="no timeout rule"):
+        clocked_match_runner().series(
+            first_mover_decides(), lambda seed: Always("win"), lambda seed: Always("win"), "always win", 1, random.Random(1), TimeControl(60.0)
+        )
+
+
+def test_each_game_is_given_as_it_ends_with_the_evaluated_policy_s_seat() -> None:
+    given: list[tuple[int, int, MatchGame]] = []
+
+    new_match_runner().series(
+        first_mover_decides(),
+        lambda seed: Always("win"),
+        lambda seed: Always("lose"),
+        "always lose",
+        3,
+        random.Random(1),
+        on_game=lambda index, seat, game: given.append((index, seat, game)),
+    )
+
+    assert [(index, seat, game.payoffs, game.plies) for index, seat, game in given] == [
+        (0, 0, (1.0, 0.0), 1),
+        (1, 1, (0.0, 1.0), 1),
+        (2, 0, (1.0, 0.0), 1),
+    ]

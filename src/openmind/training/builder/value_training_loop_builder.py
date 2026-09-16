@@ -1,5 +1,6 @@
 from typing import Self
 
+from openmind.agent.service.game_memory import GameMemory
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.inference.service.expression_generator import ExpressionGenerator
@@ -28,6 +29,7 @@ class ValueTrainingLoopBuilder:
     def __init__(self) -> None:
         self._workers = 1
         self._memory_cap: MemoryCap | None = None
+        self._game_memory: GameMemory | None = None
 
     def with_workers(self, workers: int) -> Self:
         self._workers = workers
@@ -37,11 +39,21 @@ class ValueTrainingLoopBuilder:
         self._memory_cap = memory_cap
         return self
 
+    def with_game_memory(self, game_memory: GameMemory | None) -> Self:
+        """Where every game, self-play and evaluation alike, is remembered as it ends; None, the default, remembers
+        none."""
+        self._game_memory = game_memory
+        return self
+
     def build(self) -> ValueTrainingLoop:
         names = VariableNameMapper()
         mechanics = Mechanics(SolverBuilder().build(), PredictorBuilder().build(), StateNamespaceMapper(names), MemoryMeter())
         return ValueTrainingLoop(
-            ValueDistillerBuilder().with_workers(self._workers).with_memory_cap(self._memory_cap).build(),
+            ValueDistillerBuilder()
+            .with_workers(self._workers)
+            .with_memory_cap(self._memory_cap)
+            .with_game_memory(self._game_memory)
+            .build(),
             MatchRunner(
                 SolverBuilder().build(),
                 PredictorBuilder().build(),
@@ -52,4 +64,5 @@ class ValueTrainingLoopBuilder:
             RuleRunner(StateNamespaceMapper(VariableNameMapper())),
             ConsequenceLibraryBuilder().build(),
             SignalPreparer(HeuristicDeducer(ExpressionGenerator(names), mechanics)),
+            self._game_memory,
         )

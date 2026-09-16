@@ -3,6 +3,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from openmind.agent.service.game_memory import GameMemory
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF
 from openmind.agent.factory.domain_factory import create_domain
 from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
@@ -323,7 +325,7 @@ def main(argv: list[str] | None = None) -> None:
                 arguments.goal_limit,
                 arguments.signal_library or "a new signal library",
             )
-        report = create_value_training_loop(arguments.workers, memory_cap).train(domain, start, settings, save, library)
+        report = create_value_training_loop(arguments.workers, memory_cap, GameMemory(create_knowledge_base(domain.name))).train(domain, start, settings, save, library)
         print(TrainingReportTextMapper().to_text(report))
         for number, path in round_files.items():
             print(f"Saved round {number} values {path}")

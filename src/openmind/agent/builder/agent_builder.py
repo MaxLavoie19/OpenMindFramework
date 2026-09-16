@@ -1,6 +1,8 @@
+import json
 from typing import Self
 
-from openmind.agent.constant.agent_constant import GUIDED_ROLLOUTS, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
+from openmind.agent.constant.agent_constant import GUIDED_ROLLOUTS, NOT_REBUILDABLE, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
+from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.agent import Agent
 from openmind.agent.service.completion_theory import CompletionTheory
 from openmind.agent.service.deduction_fallback import DeductionFallback
@@ -18,6 +20,7 @@ from openmind.mcts.service.tree_search import TreeSearch
 from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
 from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.timing.model.time_budget_estimator import TimeBudgetEstimator
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.service.state_reader import StateReader
 
@@ -39,6 +42,7 @@ class AgentBuilder:
         self._deduction: DeductionBudget | None = None
         self._semi_determinized = False
         self._theory: TheoryOfMind | None = None
+        self._estimator: TimeBudgetEstimator | None = None
 
     def with_iterations(self, iterations: int) -> Self:
         self._iterations = iterations
@@ -90,11 +94,45 @@ class AgentBuilder:
         self._theory = theory
         return self
 
+    def with_time_budget_estimator(self, estimator: TimeBudgetEstimator | None) -> Self:
+        """How the agent budgets a step's time when it's given a clock; with one, iterations become a cap and may be left
+        out, the agent then searching on time alone. None: the agent can't play on a clock."""
+        self._estimator = estimator
+        return self
+
+    def describe(self, name: str) -> ModelDescription:
+        """The agent this builder builds, under that name, as JSON text: every setting but the seed, which changes from
+        game to game, and every model it plays with as the model describes itself; a model that can't is written as its
+        class, marked as not rebuildable."""
+        deduction = self._deduction
+        text = json.dumps(
+            {
+                "iterations": self._iterations,
+                "exploration": self._exploration,
+                "guidance": _described(self._rater),
+                "guided_rollouts": self._guided_rollouts,
+                "valuation": _described(self._valuer),
+                "rollout_actions": self._rollout_actions,
+                "rollout_limit": self._rollout_limit,
+                "unfinished_payoff": self._unfinished_payoff,
+                "deduction": None
+                if deduction is None
+                else {"plies": deduction.plies, "seconds": deduction.seconds, "highest": deduction.highest},
+                "theory_of_mind": _described(self._theory) if self._semi_determinized else None,
+                "semi_determinized": self._semi_determinized,
+                "time_budget_estimator": _described(self._estimator),
+            },
+            sort_keys=True,
+        )
+        return ModelDescription(name, text)
+
     def build(self) -> Agent:
         iterations, exploration = self._iterations, self._exploration
-        if iterations is None or exploration is None:
-            raise ValueError("Agent needs iterations and exploration")
-        if iterations < 1:
+        if exploration is None:
+            raise ValueError("Agent needs exploration")
+        if iterations is None and self._estimator is None:
+            raise ValueError("Agent needs iterations, a time budget estimator or both")
+        if iterations is not None and iterations < 1:
             raise ValueError(f"Agent needs at least 1 iteration, not {iterations}")
         if self._rollout_actions < 0:
             raise ValueError(f"Rollout actions can't be negative, not {self._rollout_actions}")
@@ -127,8 +165,22 @@ class AgentBuilder:
         valuation = LeafValuation(self._valuer, self._rollout_actions) if self._valuer is not None else None
         settings = SearchSettings(iterations, exploration, self._seed, self._rollout_limit, self._unfinished_payoff)
         if not self._semi_determinized:
-            return Agent(tree_search, settings, guidance, valuation, fallback)
+            return Agent(tree_search, settings, guidance, valuation, fallback, estimator=self._estimator)
         state_observer = create_state_observer()
         theory = self._theory or CompletionTheory(state_observer, create_rule_caller())
         semi_determinized = SemiDeterminizedSearch(tree_search, state_observer, state_reader, action_text_mapper)
-        return Agent(tree_search, settings, guidance, valuation, fallback, semi_determinized, theory)
+        return Agent(
+            tree_search, settings, guidance, valuation, fallback, semi_determinized, theory, estimator=self._estimator
+        )
+
+
+def _described(part: object | None) -> object:
+    """A part as it describes itself, read back as JSON; its class, marked as not rebuildable, when it can't; None
+    without one."""
+    if part is None:
+        return None
+    describe = getattr(part, "describe", None)
+    if callable(describe):
+        return json.loads(describe())
+    kind = type(part)
+    return {"class": f"{kind.__module__}.{kind.__qualname__}", NOT_REBUILDABLE: True}

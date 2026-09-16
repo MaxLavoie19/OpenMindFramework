@@ -22,6 +22,8 @@ the process file system and the system log.
 | `constant/dashboard_constant.py` | Default port (8765) and reload (30 seconds); how many recent lines (15) and earlyoom kills (10) the page shows; the loggers followed; how training processes are recognized |
 | `service/incremental_line_reader.py` | `IncrementalLineReader.new_lines(path)`: the complete lines written since the previous call; a file that got shorter or was replaced is read from its start |
 | `service/log_progress_reader.py` | `LogProgressReader.progress(directory)` and `.played()`: the newest log's round, the round's self-play games and how many were drawn or decisive, games against opponents, searched and deduced moves, and the latest notable lines |
+| `model/model_score.py` | `ModelScore(name, id, games, wins, draws, losses, last_game)`: what a model's games came to; `score` is points per game |
+| `service/model_score_reader.py` | `ModelScoreReader.scores(directory, domain)`: every model the knowledge base remembers with its games, the latest to play first |
 | `service/report_reader.py` | `ReportReader.summary(directory)`: the newest report's rounds and latest rules |
 | `service/machine_reader.py` | `MachineReader.status(proc, syslog)`: memory and swap, the training's processes, earlyoom's latest kills |
 | `service/dashboard_service.py` | `DashboardService.snapshot(settings)`: a snapshot from the three readers, which keep their places between snapshots |
@@ -47,6 +49,10 @@ the process file system and the system log.
   read whole at every snapshot: reports are small. A round handed over before its games shows none against each
   opponent. With the signals target, a table shows the signals the latest round followed, one column each for
   agreements, disagreements, accuracy, reliability, games between arms, wins, draws, losses and score.
+- **Models.** The domain's knowledge base under `data/knowledge/<domain>/` (the settings' `knowledge_directory`), read
+  whole at every snapshot: every model remembered, with the sides it played, its wins, draws and losses as `GameMemory`
+  remembered them at the end of each game, its score and its latest game, the latest to play first. No table without a
+  knowledge base.
 - **Machine.** `meminfo` gives memory and swap; every process's command line, parent, start and resident memory give the
   training's processes: the loop script (`bash ...continue_training...`), the training entrypoint, and the workers
   whose parent is a training. The system log is read a piece at a time for earlyoom's `sending SIG...` lines, the

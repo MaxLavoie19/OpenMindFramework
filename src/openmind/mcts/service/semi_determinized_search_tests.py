@@ -10,10 +10,12 @@ from openmind.mcts.model.hypothesis import Hypothesis
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.semi_determinized_search import SemiDeterminizedSearch
 from openmind.mcts.service.tree_search import TreeSearch
-from openmind.mcts.service.tree_search_tests import guessing_game, hidden_coin
+from openmind.mcts.service.tree_search_tests import Ticking, guessing_game, hidden_coin
 from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.timing.model.time_source import TimeSource
+from openmind.timing.service.manual_time_source import ManualTimeSource
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
@@ -50,9 +52,15 @@ def coin_domain(secret: str, heads: float) -> Domain:
     return Domain("coin", state, problem, transitions, Players(("me",), "turn", ("payoff",)), hidden_coin(heads))
 
 
-def new_search() -> SemiDeterminizedSearch:
+def new_search(time_source: TimeSource | None = None) -> SemiDeterminizedSearch:
     return SemiDeterminizedSearch(
-        TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper()),
+        TreeSearch(
+            create_solver(),
+            create_predictor(),
+            StateReader(),
+            ActionTextMapper(),
+            time_source=ManualTimeSource() if time_source is None else time_source,
+        ),
         create_state_observer(),
         StateReader(),
         ActionTextMapper(),
@@ -128,3 +136,29 @@ def test_a_domain_without_an_observation_raises() -> None:
 
     with pytest.raises(ValueError, match="needs a domain with an observation"):
         new_search().search(domain, state, SETTINGS, Believes(0.5))
+
+
+def test_time_one_hypothesis_leaves_goes_to_the_hypotheses_after_it(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    domain = coin_domain("tails", 0.5)
+    settings = SearchSettings(4, math.sqrt(2), 1, seconds=100.0)
+
+    result = new_search(Ticking()).search(domain, domain.initial_state, settings, Believes(0.5))
+
+    assert "me weighs 2 hypotheses: coin='heads' at 0.5; coin='tails' at 0.5; 2, 2 iterations and 100 seconds shared as they go" in caplog.messages
+    assert "me has 49.500 seconds of the 99.000 left for this hypothesis" in caplog.messages
+    assert "me has 95.000 seconds of the 95.000 left for this hypothesis" in caplog.messages
+    assert result.iterations == 4
+    assert result.seconds == 9.0
+
+
+def test_once_the_time_is_up_each_hypothesis_left_gets_one_iteration(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    domain = coin_domain("tails", 0.5)
+    settings = SearchSettings(None, math.sqrt(2), 1, seconds=1.0)
+
+    result = new_search(Ticking()).search(domain, domain.initial_state, settings, Believes(0.8))
+
+    assert caplog.messages.count("me's time is up, so this hypothesis gets 1 iteration") == 2
+    assert result.iterations == 2
+    assert sum(item.visits for item in result.statistics) == 2

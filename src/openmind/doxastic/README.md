@@ -87,12 +87,13 @@ base.contested()                                     # the claims held both ways
 
 ## Where it applies
 
-Nothing feeds it yet: this is the core alone. The sources it was built for, each its own step:
+Games feed it: `agent/service/game_memory.py` remembers every finished game as it ends, self-play, arms and matches, as
+`played` records — each model once, word for word, the game, and each player's outcome — and the training, the
+evaluator and the dashboard's models table read from there. The other sources it was built for, each its own step:
 
 - the training's signals and proofs — a signal's agreements and disagreements as `counted` records, a deduction's
   proofs as `proved`, a relaxed domain's as `relaxed`;
 - what a player sees, from `StateObserver`, as `seen`;
-- what self-play played and what came of it, as `played`;
 - what another player said, in games where a claim can be a lie and in rhetoric, as `told`.
 
 ## Notes

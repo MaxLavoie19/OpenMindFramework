@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from openmind.agent.builder.agent_builder import AgentBuilder
@@ -6,8 +8,20 @@ from openmind.agent.factory.rock_paper_scissors_factory import create_rock_paper
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.mcts.model.action_statistics import ActionStatistics
+from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
+from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
+from openmind.rbs.model.value_base import ValueBase
+from openmind.rbs.model.value_rule import ValueRule
+from openmind.rbs.service.rule_valuer import RuleValuer
+from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.rule.service.rule_runner import RuleRunner
 from openmind.mcts.service.semi_determinized_search_tests import Believes, coin_domain
+from openmind.timing.model.clock import Clock
+from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
 from openmind.world.builder.state_builder import StateBuilder
+from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
@@ -173,8 +187,19 @@ def test_build_rejects_negative_rollout_actions() -> None:
 
 
 def test_build_rejects_missing_settings() -> None:
-    with pytest.raises(ValueError, match="iterations"):
+    with pytest.raises(ValueError, match="iterations, a time budget estimator or both"):
         AgentBuilder().with_exploration(1.4).build()
+    with pytest.raises(ValueError, match="exploration"):
+        AgentBuilder().with_iterations(10).build()
+
+
+def test_build_with_a_time_budget_estimator_gives_an_agent_searching_on_time_alone() -> None:
+    domain = create_tictactoe_domain()
+    agent = AgentBuilder().with_exploration(1.4).with_seed(1).with_time_budget_estimator(PlainTimeBudgetEstimator(30)).build()
+
+    result = agent.search(domain, domain.initial_state, clock=Clock(0.3))
+
+    assert result.iterations >= 1
 
 
 def test_build_rejects_fewer_than_one_iteration() -> None:
@@ -225,3 +250,34 @@ def test_an_agent_acting_at_once_searches_for_its_player_against_the_strategy_it
 
     assert result.player == "A" and dict(result.strategy)[throw("paper")] > 0.5
     assert agent.choose(domain, domain.initial_state, "B") in (throw("rock"), throw("paper"), throw("scissors"))
+
+
+def test_a_description_is_the_same_for_the_same_settings_whatever_the_seed_and_changes_with_any_setting() -> None:
+    def builder() -> AgentBuilder:
+        return AgentBuilder().with_iterations(100).with_exploration(1.4).with_rollout_limit(100, 0.5)
+
+    same = builder().with_seed(1).describe("arm"), builder().with_seed(2).describe("arm")
+    other = builder().with_iterations(101).describe("arm")
+
+    assert same[0] == same[1] and same[0].id == same[1].id
+    assert other.id != same[0].id
+    assert json.loads(same[0].text)["rollout_limit"] == 100
+
+
+def test_a_rule_valuer_is_described_by_its_value_base_and_a_part_that_can_t_describe_itself_is_marked() -> None:
+    domain = create_tictactoe_domain()
+    base = ValueBase("tictactoe", 0.1, 0.0, 1.0, (ValueRule(PythonRule("1.0"), 0.5),))
+    valuer = RuleValuer(base, domain, RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build())
+    estimator = PlainTimeBudgetEstimator(30)
+
+    text = json.loads(
+        AgentBuilder().with_iterations(10).with_exploration(1.4).with_valuation(valuer).with_guidance(FavourCenter()).with_time_budget_estimator(estimator).describe("rules").text
+    )
+    changed = AgentBuilder().with_iterations(10).with_exploration(1.4).with_valuation(
+        RuleValuer(ValueBase("tictactoe", 0.2, 0.0, 1.0, base.rules), domain, RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build())
+    )
+
+    assert ValueBaseJsonMapper().from_json(json.dumps(text["valuation"])) == base
+    assert text["guidance"] == {"class": "openmind.agent.builder.agent_builder_tests.FavourCenter", "not rebuildable": True}
+    assert text["time_budget_estimator"] == {"rule": "plain", "expected_steps": 30}
+    assert changed.describe("rules").id != AgentBuilder().with_iterations(10).with_exploration(1.4).with_valuation(valuer).describe("rules").id

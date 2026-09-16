@@ -1,7 +1,7 @@
 import logging
 import math
 import random
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 
 from openmind.csp.model.problem import Problem
 from openmind.csp.service.joint_solver import JointSolver
@@ -20,6 +20,9 @@ from openmind.observation.model.observation import Observation
 from openmind.observation.service.state_observer import StateObserver
 from openmind.predictor.model.transition_model import TransitionModel
 from openmind.predictor.service.predictor import Predictor
+from openmind.timing.model.deadline import Deadline
+from openmind.timing.model.time_source import TimeSource
+from openmind.timing.service.wall_time_source import WallTimeSource
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
@@ -50,6 +53,7 @@ class TreeSearch:
         action_text_mapper: ActionTextMapper,
         state_observer: StateObserver | None = None,
         joint_solver: JointSolver | None = None,
+        time_source: TimeSource | None = None,
     ) -> None:
         self._solver = solver
         self._predictor = predictor
@@ -57,6 +61,12 @@ class TreeSearch:
         self._action_text_mapper = action_text_mapper
         self._state_observer = create_state_observer() if state_observer is None else state_observer
         self._joint_solver = JointSolver(solver, state_reader) if joint_solver is None else joint_solver
+        self._time_source = WallTimeSource() if time_source is None else time_source
+
+    @property
+    def time_source(self) -> TimeSource:
+        """Where the search's seconds are read from."""
+        return self._time_source
 
     def search(
         self,
@@ -76,6 +86,12 @@ class TreeSearch:
         completions, such as those of one hypothesis; completions without an observation raise ValueError. In a state
         where players act at once, `player` names the searching player, and `predicted` gives other players to act the
         strategies they play at the root instead of regret matching, as (action, probability) pairs."""
+        if settings.iterations is None and settings.seconds is None:
+            raise ValueError("A search needs iterations, seconds or both")
+        if settings.iterations is not None and settings.iterations < 1:
+            raise ValueError(f"A search needs at least 1 iteration, not {settings.iterations}")
+        if settings.seconds is not None and settings.seconds <= 0.0:
+            raise ValueError(f"A search needs more than 0 seconds, not {settings.seconds}")
         if completions is not None and (observation is None or not completions):
             raise ValueError("Completions need an observation and at least one state")
         if settings.rollout_limit is not None:
@@ -100,11 +116,16 @@ class TreeSearch:
         if root.player is None:
             raise ValueError("No legal action to search from")
         player = players.names[root.player]
-        logger.info("Searching %d iterations for %s", settings.iterations, player)
+        logger.info("Searching %s for %s", _limits(settings), player)
         if view is not None:
             logger.info("%s sees %d states that could be true", player, len(view[2]))
-        for iteration in range(1, settings.iterations + 1):
-            self._iterate(iteration, root, problem, transitions, players, settings, guidance, valuation, rng, view)
+        iterations, seconds = self._run(
+            settings,
+            player,
+            lambda iteration: self._iterate(
+                iteration, root, problem, transitions, players, settings, guidance, valuation, rng, view
+            ),
+        )
         statistics = tuple(self._statistics(root, root.player, action) for action in root.actions)
         chosen = max(statistics, key=lambda item: item.visits).action
         for item in statistics:
@@ -116,7 +137,26 @@ class TreeSearch:
                 player,
             )
         logger.info("Most visited: %s", self._action_text_mapper.to_text(chosen))
-        return SearchResult(player, statistics, chosen, tuple(self._samples(root, view is not None)))
+        return SearchResult(
+            player, statistics, chosen, tuple(self._samples(root, view is not None)), iterations=iterations, seconds=seconds
+        )
+
+    def _run(self, settings: SearchSettings, player: str, iterate: Callable[[int], None]) -> tuple[int, float]:
+        """Runs iterations until the settings' iterations are done or their seconds have passed, whichever comes first,
+        checking the time between iterations and completing at least one; the iterations done and the seconds taken."""
+        started = self._time_source.now()
+        deadline = None if settings.seconds is None else Deadline(started + settings.seconds, self._time_source)
+        iterations = 0
+        while True:
+            iterations += 1
+            iterate(iterations)
+            if settings.iterations is not None and iterations >= settings.iterations:
+                break
+            if deadline is not None and deadline.passed():
+                break
+        seconds = self._time_source.now() - started
+        logger.info("Searched %d iterations in %.3f seconds for %s", iterations, seconds, player)
+        return iterations, seconds
 
     def _iterate(
         self,
@@ -375,7 +415,7 @@ class TreeSearch:
             raise ValueError(f"A search where {', '.join(acting)} act at once needs one of them as the searching player, not {player!r}")
         seat = root.players.index(players.names.index(player))  # type: ignore[arg-type]
         root.predicted = self._predicted(root, players, seat, predicted)
-        logger.info("Searching %d iterations for %s, acting at once with %s", settings.iterations, player, ", ".join(
+        logger.info("Searching %s for %s, acting at once with %s", _limits(settings), player, ", ".join(
             name for name in acting if name != player
         ))
         for position, strategy in root.predicted.items():
@@ -387,8 +427,11 @@ class TreeSearch:
                     for action, probability in zip(root.actions[position], strategy, strict=True)
                 ),
             )
-        for iteration in range(1, settings.iterations + 1):
-            self._iterate_at_once(iteration, root, problem, transitions, players, settings, valuation, rng)
+        iterations, seconds = self._run(
+            settings,
+            player,  # type: ignore[arg-type]
+            lambda iteration: self._iterate_at_once(iteration, root, problem, transitions, players, settings, valuation, rng),
+        )
         actions, counts, sums = root.actions[seat], root.counts[seat], root.strategy_sums[seat]
         statistics = tuple(
             ActionStatistics(action, counts[index], root.payoff_sums[seat][index] / counts[index] if counts[index] else 0.0)
@@ -409,7 +452,16 @@ class TreeSearch:
                 player,
             )
         logger.info("Sampled from the average strategy: %s", self._action_text_mapper.to_text(chosen))
-        return SearchResult(player, statistics, chosen, tuple(self._samples_at_once(root)), (), strategy)  # type: ignore[arg-type]
+        return SearchResult(
+            player,  # type: ignore[arg-type]
+            statistics,
+            chosen,
+            tuple(self._samples_at_once(root)),
+            (),
+            strategy,
+            iterations,
+            seconds,
+        )
 
     def _predicted(
         self,
@@ -592,3 +644,13 @@ class TreeSearch:
                         yield ActionSample(node.state, index, action, count, node.payoff_sums[position][choice] / count)
             for chance in node.children.values():
                 pending.extend(chance.children.values())  # type: ignore[arg-type]
+
+
+def _limits(settings: SearchSettings) -> str:
+    """What stops a search, as its log line says it: `100 iterations`, `for 2.5 seconds`, or `up to 100 iterations or
+    2.5 seconds`."""
+    if settings.seconds is None:
+        return f"{settings.iterations} iterations"
+    if settings.iterations is None:
+        return f"for {settings.seconds:g} seconds"
+    return f"up to {settings.iterations} iterations or {settings.seconds:g} seconds"

@@ -14,7 +14,9 @@ with; when it does, they are measured here too.
 | File | What it is |
 |---|---|
 | `model/evaluation_settings.py` | `EvaluationSettings(games, iterations, positions, budgets, seed, reference_iterations=None, guided_rollouts=True, rollout_actions=0, rollout_limit=None, unfinished_payoff=None)`; `positions` 0 skips agreement, `None` takes every position; `reference_iterations` replaces exact search with long unguided searches; `guided_rollouts` false makes the guided agent rate only its tree's nodes; `rollout_actions` is how many rollout actions a valuing agent plays before valuing; `rollout_limit` and `unfinished_payoff` stop the rollouts of every agent the evaluation builds, reference searches aside |
-| `model/match_results.py` | `MatchResults(opponent, games, wins, draws, losses)`: a series against one opponent, from the evaluated agent's side |
+| `model/match_game.py` | `MatchGame(payoffs, flagged, plies, ending, actions, policy_seed, outcome_seed, seconds=(), clocks=())`: one game of a match, as `MatchRunner.play_game` gives it |
+| `mapper/match_game_summary_mapper.py` | `MatchGameSummaryMapper`: a match's game as a `GameSummary`, the evaluated model in its seat; a match's steps have no budget |
+| `model/match_results.py` | `MatchResults(opponent, games, wins, draws, losses, time_control=None, wins_on_time=0, losses_on_time=0)`: a series against one opponent, from the evaluated agent's side; on a clock, its time control and how many wins and losses came from a player's time running out |
 | `model/agreement.py` | `Agreement(iterations, positions, optimal, optimal_visit_share, mean_regret, seconds_per_choice)`: how an agent searching with a number of iterations did on the sampled positions |
 | `model/rater_agreement.py` | `RaterAgreement(positions, distinguishing, optimal, mean_regret)`: how a rater alone did on the sampled positions |
 | `model/guidance_test.py` | `GuidanceTest(iterations, positions, low_value_share_difference, low_value_share_p, regret_difference, regret_p, optimal_only_guided, optimal_only_unguided, optimal_choice_p)`: the guided agent against the unguided one at a budget, paired by position |
@@ -23,7 +25,7 @@ with; when it does, they are measured here too.
 | `service/value_measurer.py` | `ValueMeasurer`: a valuer's error on each position and its choice one step ahead |
 | `service/exact_search.py` | `ExactSearch`: every legal action's value, the optimal actions and each player's value in a state, by searching every reachable state; the positions with a legal action; a domain with an observation raises `ValueError`, since perfect play with hidden information needs mixed strategies |
 | `service/reference_search.py` | `ReferenceSearch`: distinct positions from uniformly random games, and every legal action's value from a long unguided search, for domains exact search can't reach |
-| `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers; in a domain with an observation, a policy is given only what its player sees; a game that took its worker over the memory cap in a fresh worker too isn't counted; where players act at once, every player to act chooses, given its player's name, and the actions are taken together with `Predictor.predict_joint` |
+| `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers; in a domain with an observation, a policy is given only what its player sees; a game that took its worker over the memory cap in a fresh worker too isn't counted; where players act at once, every player to act chooses, given its player's name, and the actions are taken together with `Predictor.predict_joint`. `series` and `play_game` take `time_control`: each choice is then timed and charged to its player's clock, given to the policy with the steps that player has played, where players act at once each on its own player's clock; a player whose time runs out doesn't play that move, and the domain's timeout rule ends the game, applied for each player whose time ran out, in the players' order. `play_game` gives a `MatchGame`, and `series` hands each one to `on_game(index, seat, game)` as it ends, the evaluated policy's seat given; with a game memory (`EvaluatorBuilder.with_game_memory`), the evaluator remembers every match game that way. A policy gives only its action, so a match's steps have no budget |
 | `service/choice_measurer.py` | `ChoiceMeasurer`: searches positions with an agent built once and measures each choice against the action values; the optimal actions within a tolerance |
 | `model/choice_measure.py` | `ChoiceMeasure(optimal, optimal_visit_share, regret, seconds)`: one position's choice |
 | `model/action_values.py` | `ActionValues`: every legal action of a position with its value |
@@ -143,9 +145,12 @@ can't reach, add `reference_iterations=2000` to the settings. `ReportTextMapper(
   - `DEBUG Rater alone: top-rated <actions>; optimal: <actions>; ratings <action>=<rating>, ...; state: <name = value, ...>`
 - `openmind.evaluation.service.match_runner`:
   - `INFO Game with seeds <policy seed> and <outcome seed> finished in <plies> plies, the evaluated policy playing <player>: payoffs <player>=<payoff> ...`,
-    logged by the worker as soon as the game ends, with ` by <ending>` after the plies when the domain says why games end
+    logged by the worker as soon as the game ends, with ` by <ending>` after the plies when the domain says why games end,
+    ` by <player>'s flag` when a player's time ran out, and on a clock ` on <time control>, clocks <player>=<seconds left> ...`
   - `INFO Game with seeds <policy seed> and <outcome seed> record: <record>`, when the domain records games, such as a
     chess game's PGN; games where players act at once aren't recorded yet
+  - `DEBUG Step <n>: <player> took <seconds> seconds, <seconds> left`, for every choice on a clock, <n> counting that
+    player's steps
   - `DEBUG Game <n> against <opponent>: evaluated agent plays <player>, payoffs <player>=<payoff> ...`
 - `openmind.evaluation.service.exact_search`:
   - `INFO <domain> has <n> positions with a legal action`

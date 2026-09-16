@@ -1,9 +1,13 @@
 import logging
+from pathlib import Path
 
 import pytest
 
 from openmind.agent.builder.agent_builder import AgentBuilder
+from openmind.agent.constant.agent_constant import GAME_KEYWORD
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
+from openmind.agent.service.game_memory import GameMemory
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.training.factory.training_factory import create_value_distiller
@@ -78,3 +82,39 @@ def test_pondering_deduces_the_positions_missed_most_before_fitting(caplog: pyte
     assert result.pondering is not None and result.pondering.positions == 2
     assert 0 <= result.pondering.proven <= 2
     assert any(message.startswith("Pondering: 2 positions, ") for message in caplog.messages)
+
+
+def test_with_a_game_memory_every_arms_game_is_remembered_with_the_arms_models_and_scores_come_from_it(tmp_path: Path) -> None:
+    memory = GameMemory(create_knowledge_base("tictactoe", tmp_path))
+    settings = ValueDistillationSettings(4, 2, 20, 1, "signals", VALUES, None, SignalSettings(arms=2))
+    builders = {arm: AgentBuilder().with_exploration(1.4) for arm in ("win", "uniform", "weighted")}
+    distiller = create_value_distiller(game_memory=memory)
+
+    result = distiller.distill(create_tictactoe_domain(), AgentBuilder().with_exploration(1.4), settings, None, None, builders, 3)
+
+    base = create_knowledge_base("tictactoe", tmp_path)
+    games = base.recall(keyword=GAME_KEYWORD)
+    assert len(games) == 4 + 2
+    assert {record.provenance.game for record in games} == {
+        *(f"round 3 arms game {number}" for number in range(1, 5)),
+        *(f"round 3 held-out arms game {number}" for number in range(1, 3)),
+    }
+    assert {model.name for model in memory.models()} <= set(builders)
+    assert result.library is not None
+    counted = memory.scores(builders)
+    assert sum(games for games, _, _, _ in counted.values()) == 2 * (4 + 2)
+    assert distiller._scores(result.library, builders) == {
+        name: (games, wins + draws / 2) for name, (games, wins, draws, _) in counted.items()
+    }
+
+
+def test_with_a_game_memory_every_self_play_game_is_remembered_under_the_agent_s_name(tmp_path: Path) -> None:
+    memory = GameMemory(create_knowledge_base("tictactoe", tmp_path))
+    settings = ValueDistillationSettings(games=3, held_out_games=2, iterations=20, seed=1, target="outcome", values=VALUES)
+
+    create_value_distiller(game_memory=memory).distill(
+        create_tictactoe_domain(), AgentBuilder().with_exploration(1.4), settings, round_number=2, model_name="round 1"
+    )
+
+    assert [model.name for model in memory.models()] == ["round 1"]
+    assert memory.scores(("round 1",))["round 1"][0] == 2 * (3 + 2)

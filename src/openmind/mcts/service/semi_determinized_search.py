@@ -13,6 +13,7 @@ from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.model.theory_of_mind import TheoryOfMind
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.observation.service.state_observer import StateObserver
+from openmind.timing.model.deadline import Deadline
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
@@ -22,9 +23,10 @@ logger = logging.getLogger(__name__)
 
 class SemiDeterminizedSearch:
     """Semi-determinized MCTS (Bitan and Kraus, 2017): the player to act asks its theory of mind for hypotheses about
-    what it can't see, searches once as if each were true, with information set MCTS over that hypothesis's states and
-    an even share of the iterations, and weighs each action's mean payoffs by the hypotheses' probabilities. The action
-    chosen has the highest expected payoff; a better theory of mind makes better choices."""
+    what it can't see, searches once as if each were true, with information set MCTS over that hypothesis's states, an
+    even share of the iterations and an even share of the seconds still left, and weighs each action's mean payoffs by
+    the hypotheses' probabilities. The action chosen has the highest expected payoff; a better theory of mind makes
+    better choices."""
 
     def __init__(
         self,
@@ -63,23 +65,40 @@ class SemiDeterminizedSearch:
         if not math.isclose(total, 1.0):
             raise ValueError(f"The hypotheses for {player} have probabilities summing to {total}, not 1")
         count = len(hypotheses)
-        shares = [max(1, settings.iterations // count + (index < settings.iterations % count)) for index in range(count)]
+        iterations = settings.iterations
+        shares: list[int | None] = (
+            [None] * count
+            if iterations is None
+            else [max(1, iterations // count + (index < iterations % count)) for index in range(count)]
+        )
         logger.info(
-            "%s weighs %d hypotheses: %s; %s iterations",
+            "%s weighs %d hypotheses: %s; %s",
             player,
             count,
             "; ".join(f"{_label_text(hypothesis.label)} at {probability}" for hypothesis, probability in hypotheses),
-            ", ".join(map(str, shares)),
+            _shares_text(shares, settings.seconds),
         )
+        source = self._tree_search.time_source
+        started = source.now()
+        deadline = None if settings.seconds is None else Deadline(started + settings.seconds, source)
         searched: list[tuple[HypothesisResult, SearchResult]] = []
         for index, ((hypothesis, probability), share) in enumerate(zip(hypotheses, shares, strict=True)):
+            shared = replace(settings, iterations=share, seed=None if settings.seed is None else settings.seed + index)
             logger.info("Searching as if %s", _label_text(hypothesis.label))
+            if deadline is not None:
+                left = deadline.remaining()
+                if left > 0.0:
+                    shared = replace(shared, seconds=left / (count - index))
+                    logger.info("%s has %.3f seconds of the %.3f left for this hypothesis", player, shared.seconds, left)
+                else:
+                    shared = replace(shared, iterations=1, seconds=None)
+                    logger.info("%s's time is up, so this hypothesis gets 1 iteration", player)
             result = self._tree_search.search(
                 domain.problem,
                 domain.transitions,
                 domain.players,
                 state,
-                replace(settings, iterations=share, seed=None if settings.seed is None else settings.seed + index),
+                shared,
                 guidance,
                 valuation,
                 observation,
@@ -101,6 +120,8 @@ class SemiDeterminizedSearch:
             chosen,
             tuple(sample for _, result in searched for sample in result.samples),
             tuple(hypothesis for hypothesis, _ in searched),
+            iterations=sum(result.iterations for _, result in searched),
+            seconds=source.now() - started,
         )
 
     def _expected(self, searched: list[tuple[HypothesisResult, SearchResult]]) -> tuple[ActionStatistics, ...]:
@@ -128,3 +149,11 @@ def _label_text(label: Hashable) -> str:
     if isinstance(label, tuple) and all(isinstance(pair, tuple) and len(pair) == 2 for pair in label):
         return ", ".join(f"{name}={value!r}" for name, value in label)
     return repr(label)
+
+
+def _shares_text(shares: list[int | None], seconds: float | None) -> str:
+    """The hypotheses' shares as the log line says them: `20, 20 iterations`, `4 seconds shared as they go`, or both."""
+    parts = [] if shares[0] is None else [f"{', '.join(map(str, shares))} iterations"]
+    if seconds is not None:
+        parts.append(f"{seconds:g} seconds shared as they go")
+    return " and ".join(parts)

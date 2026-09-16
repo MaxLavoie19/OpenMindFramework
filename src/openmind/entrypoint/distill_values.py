@@ -4,6 +4,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
+from openmind.agent.service.game_memory import GameMemory
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
@@ -162,7 +164,7 @@ def main(argv: list[str] | None = None) -> None:
                 arguments.rollout_limit,
                 arguments.unfinished_payoff,
             )
-        result = create_value_distiller(arguments.workers, memory_cap).distill(domain, agent_builder, settings)
+        result = create_value_distiller(arguments.workers, memory_cap, GameMemory(create_knowledge_base(domain.name))).distill(domain, agent_builder, settings)
         path = ValueBaseRepository(ValueBaseJsonMapper()).save(
             result.value_base, Path(arguments.values_directory), datetime.now()
         )

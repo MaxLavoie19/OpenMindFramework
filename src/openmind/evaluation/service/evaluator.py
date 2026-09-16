@@ -9,16 +9,21 @@ import numpy as np
 from scipy.stats import binomtest, wilcoxon
 
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.constant.agent_constant import EXPLORATION
+from openmind.agent.constant.agent_constant import EXPLORATION, MATCH_GAME, RANDOM_POLICY_TEXT
 from openmind.agent.model.domain import Domain
+from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.model.policy_factory import PolicyFactory
+from openmind.agent.service.game_memory import GameMemory
+from openmind.agent.service.game_recorder import GameRecorder
 from openmind.evaluation.constant.evaluation_constant import RANDOM_OPPONENT, REFERENCE_TOLERANCE, UNTRAINED_OPPONENT
 from openmind.evaluation.factory.baseline_policy_factory import create_built_agent, create_random_policy
+from openmind.evaluation.mapper.match_game_summary_mapper import MatchGameSummaryMapper
 from openmind.evaluation.model.action_values import ActionValues
 from openmind.evaluation.model.agreement import Agreement
 from openmind.evaluation.model.evaluation_report import EvaluationReport
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.model.guidance_test import GuidanceTest
+from openmind.evaluation.model.match_game import MatchGame
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.evaluation.model.rater_agreement import RaterAgreement
 from openmind.evaluation.model.value_measure import ValueMeasure
@@ -30,6 +35,7 @@ from openmind.evaluation.service.value_measurer import ValueMeasurer
 from openmind.mcts.model.action_rater import ActionRater
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.parallel.service.task_runner import TaskRunner
+from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.state_text_mapper import StateTextMapper
 from openmind.world.model.state import State
@@ -57,7 +63,11 @@ class Evaluator:
         task_runner: TaskRunner,
         state_text_mapper: StateTextMapper,
         action_text_mapper: ActionTextMapper,
+        game_memory: GameMemory | None = None,
+        game_recorder: GameRecorder | None = None,
     ) -> None:
+        self._game_memory = game_memory
+        self._game_recorder = GameRecorder(create_rule_caller()) if game_recorder is None else game_recorder
         self._match_runner = match_runner
         self._exact_search = exact_search
         self._reference_search = reference_search
@@ -93,13 +103,15 @@ class Evaluator:
             .with_seed(settings.seed)
             .with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
         )
-        opponents: tuple[tuple[str, PolicyFactory], ...] = (
-            (RANDOM_OPPONENT, create_random_policy),
-            (UNTRAINED_OPPONENT, partial(create_built_agent, untrained)),
+        opponents: tuple[tuple[str, PolicyFactory, ModelDescription], ...] = (
+            (RANDOM_OPPONENT, create_random_policy, ModelDescription(RANDOM_OPPONENT, RANDOM_POLICY_TEXT)),
+            (UNTRAINED_OPPONENT, partial(create_built_agent, untrained), untrained.describe(UNTRAINED_OPPONENT)),
         )
         evaluated = partial(create_built_agent, agent_builder)
+        evaluated_model = agent_builder.describe(values_file or rules_file or "evaluated agent")
         baselines = tuple(
-            self._series(domain, evaluated, name, opponent, settings.games, rng) for name, opponent in opponents
+            self._series(domain, evaluated, name, opponent, settings.games, rng, evaluated_model, model)
+            for name, opponent, model in opponents
         )
         every_action_optimal = 0
         agreement: list[Agreement] = []
@@ -195,8 +207,22 @@ class Evaluator:
         opponent: PolicyFactory,
         games: int,
         rng: random.Random,
+        evaluated_model: ModelDescription,
+        opponent_model: ModelDescription,
     ) -> MatchResults:
-        results = self._match_runner.series(domain, evaluated, opponent, name, games, rng)
+        memory = self._game_memory
+        on_game = None
+        if memory is not None:
+            mapper = MatchGameSummaryMapper()
+
+            def remember(index: int, seat: int, game: MatchGame) -> None:
+                record = self._game_recorder.record(domain, game.actions) if game.actions else None
+                memory.remember(
+                    mapper.to_summary(domain, game, MATCH_GAME, None, index + 1, seat, evaluated_model, opponent_model, record, None)
+                )
+
+            on_game = remember
+        results = self._match_runner.series(domain, evaluated, opponent, name, games, rng, on_game=on_game)
         logger.info(
             "Against %s: %d games, %d wins, %d draws, %d losses",
             name,

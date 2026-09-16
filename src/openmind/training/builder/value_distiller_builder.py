@@ -1,5 +1,6 @@
 from typing import Self
 
+from openmind.agent.service.game_memory import GameMemory
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.inference.service.deduction_inducer import DeductionInducer
 from openmind.inference.service.expression_generator import ExpressionGenerator
@@ -36,6 +37,7 @@ class ValueDistillerBuilder:
     def __init__(self) -> None:
         self._workers = 1
         self._memory_cap: MemoryCap | None = None
+        self._game_memory: GameMemory | None = None
 
     def with_workers(self, workers: int) -> Self:
         self._workers = workers
@@ -43,6 +45,11 @@ class ValueDistillerBuilder:
 
     def with_memory_cap(self, memory_cap: MemoryCap | None) -> Self:
         self._memory_cap = memory_cap
+        return self
+
+    def with_game_memory(self, game_memory: GameMemory | None) -> Self:
+        """Where every game is remembered as it ends; None, the default, remembers none."""
+        self._game_memory = game_memory
         return self
 
     def build(self) -> ValueDistiller:
@@ -81,4 +88,5 @@ class ValueDistillerBuilder:
             SignalTargeter(term_evaluator),
             SignalLibraryUpdater(),
             ArmSelector(),
+            self._game_memory,
         )

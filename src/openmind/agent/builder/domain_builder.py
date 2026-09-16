@@ -26,6 +26,7 @@ class DomainBuilder:
         self._observation: Observation | None = None
         self._ending: Rule | None = None
         self._record: Rule | None = None
+        self._timeout: Rule | None = None
 
     def with_name(self, name: str) -> Self:
         self._name = name
@@ -78,6 +79,13 @@ class DomainBuilder:
         self._record = record
         return self
 
+    def with_timeout(self, timeout: Rule | None) -> Self:
+        """The effects rule giving the state after a player's clock ran out, reading `flagged`, the player's name; None, the
+        default, can't be played on a clock."""
+        self._caller.check(timeout)
+        self._timeout = timeout
+        return self
+
     def build(self) -> Domain:
         name, initial_state, problem, transitions, players = (
             self._name,
@@ -96,4 +104,4 @@ class DomainBuilder:
             )
             missing = ", ".join(part for part, value in parts if value is None)
             raise ValueError(f"Domain is missing: {missing}")
-        return Domain(name, initial_state, problem, transitions, players, self._observation, self._ending, self._record)
+        return Domain(name, initial_state, problem, transitions, players, self._observation, self._ending, self._record, self._timeout)

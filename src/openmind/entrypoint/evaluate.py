@@ -3,6 +3,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from openmind.agent.service.game_memory import GameMemory
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
@@ -160,7 +162,7 @@ def main(argv: list[str] | None = None) -> None:
             values_file = str(arguments.values)
             logger.info("Evaluating with values %s", values_file)
         logger.info("Running games and searches in %d worker processes", arguments.workers)
-        report = create_evaluator(arguments.workers).evaluate(
+        report = create_evaluator(arguments.workers, GameMemory(create_knowledge_base(domain.name))).evaluate(
             domain, agent_builder, settings, rules_file, rater, values_file, valuer
         )
         path = ReportRepository(ReportJsonMapper()).save(report, Path(arguments.report_directory))

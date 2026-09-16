@@ -72,6 +72,7 @@ class DashboardHtmlMapper:
             self._rounds(snapshot),
             self._rules(snapshot),
             self._arms(snapshot),
+            self._models(snapshot),
             self._recent(snapshot),
             "</body></html>",
         ]
@@ -268,6 +269,31 @@ class DashboardHtmlMapper:
         )
         header = ("signal", "agreements", "disagreements", "accuracy", "reliability", "games", "wins", "draws", "losses", "score")
         return f"<h2>Latest round's signals</h2>{explanation}{self._table(header, rows)}"
+
+    def _models(self, snapshot: DashboardSnapshot) -> str:
+        if not snapshot.models:
+            return ""
+        rows = [
+            (
+                model.name,
+                model.id,
+                str(model.games),
+                str(model.wins),
+                str(model.draws),
+                str(model.losses),
+                "none" if model.score is None else f"{model.score:.3f}",
+                model.last_game,
+            )
+            for model in snapshot.models
+        ]
+        explanation = (
+            "<div class='muted'>Every model that has played, as the knowledge base remembers it, saved as each game ended. "
+            "A model is its settings and rules word for word; the id comes from that text, so a model whose rules changed "
+            "has a new id. Games count the sides a model played; score is points per game, a win 1 and a draw 0.5. "
+            "The latest to play first.</div>"
+        )
+        header = ("model", "id", "games", "wins", "draws", "losses", "score", "last game")
+        return f"<h2>Models</h2>{explanation}{self._table(header, rows)}"
 
     def _recent(self, snapshot: DashboardSnapshot) -> str:
         if snapshot.progress is None or not snapshot.progress.recent:

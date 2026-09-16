@@ -1,11 +1,14 @@
 import logging
 import math
 import random
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 
 from openmind.agent.builder.agent_builder import AgentBuilder
+from openmind.agent.constant.agent_constant import ARMS_GAME, HELD_OUT_ARMS_GAME, HELD_OUT_SELF_PLAY_GAME, SELF_PLAY_GAME
 from openmind.agent.model.domain import Domain
+from openmind.agent.model.model_description import ModelDescription
+from openmind.agent.service.game_memory import GameMemory
 from openmind.inference.model.expression import Expression
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.rbs.model.position_row import PositionRow
@@ -18,6 +21,7 @@ from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner
 from openmind.training.constant.signal_constant import UNIFORM, WEIGHTED, WIN
 from openmind.training.constant.training_constant import SEARCH_TARGET, SIGNALS_TARGET
+from openmind.training.mapper.played_game_summary_mapper import PlayedGameSummaryMapper
 from openmind.training.mapper.position_row_mapper import PositionRowMapper
 from openmind.training.model.played_game import PlayedGame
 from openmind.training.model.pondering import Pondering
@@ -44,7 +48,8 @@ class ValueDistiller:
     """Distills value rules from self-play: turns the positions of training and held-out games into rows valued at the
     target, ponders the training positions the previous rules missed most when the settings say so, fits value rules on
     the training rows, trying the seeds pondering induced first, chooses among the fits on the held-out rows, and
-    measures the chosen rules on the held-out rows."""
+    measures the chosen rules on the held-out rows. With a game memory, every game is remembered as it ends, with the
+    model each player played, and arms' scores are counted from what it remembers."""
 
     def __init__(
         self,
@@ -61,8 +66,12 @@ class ValueDistiller:
         signal_targeter: SignalTargeter,
         signal_library_updater: SignalLibraryUpdater,
         arm_selector: ArmSelector,
+        game_memory: GameMemory | None = None,
+        played_game_summary_mapper: PlayedGameSummaryMapper | None = None,
     ) -> None:
         self._arm_selector = arm_selector
+        self._game_memory = game_memory
+        self._summaries = PlayedGameSummaryMapper() if played_game_summary_mapper is None else played_game_summary_mapper
         self._self_play = self_play
         self._value_generator = value_generator
         self._position_row_mapper = position_row_mapper
@@ -84,12 +93,15 @@ class ValueDistiller:
         value_base: ValueBase | None = None,
         library: SignalLibrary | None = None,
         arm_builders: Mapping[str, AgentBuilder] | None = None,
+        round_number: int | None = None,
+        model_name: str = SELF_PLAY_GAME,
     ) -> ValueDistillationResult:
         """Sets the builder's iterations; the builder needs its exploration set. Pondering measures misses against the
         given value base, the previous round's rules, or the mean target without one. With the signals target, the
         signals are recorded in the given library, a new one without it, and the result holds the library updated; given
         two arm builders or more, by signal name, self-play games are between arms, each game's pair chosen by UCB when a
-        worker starts it, and every game's result goes to its arms' records."""
+        worker starts it, and every game's result goes to its arms' records. `round_number` and `model_name`, what the
+        self-play agent is called, name the games a game memory remembers."""
         rng = random.Random(settings.seed)
         agent_builder.with_iterations(settings.iterations)
         if settings.target == SIGNALS_TARGET and arm_builders is not None and len(arm_builders) >= 2:
@@ -97,17 +109,52 @@ class ValueDistiller:
             library = library or SignalLibrary(domain.name)
             for builder in arm_builders.values():
                 builder.with_iterations(settings.iterations)
+            arms = {name: builder.describe(name) for name, builder in arm_builders.items()}
             training_games = self._self_play.play_arms(
-                domain, arm_builders, settings.games, self._scores(library), self._arm_selector, exploration, rng, keep_samples=False
+                domain,
+                arm_builders,
+                settings.games,
+                self._scores(library, arm_builders),
+                self._arm_selector,
+                exploration,
+                rng,
+                keep_samples=False,
+                on_game=self._remembering(domain, ARMS_GAME, round_number, lambda game: tuple(arms[arm] for arm in game.arms)),
             )
             library = self._signal_library_updater.score(library, training_games)
             held_out_games = self._self_play.play_arms(
-                domain, arm_builders, settings.held_out_games, self._scores(library), self._arm_selector, exploration, rng, keep_samples=False
+                domain,
+                arm_builders,
+                settings.held_out_games,
+                self._scores(library, arm_builders),
+                self._arm_selector,
+                exploration,
+                rng,
+                keep_samples=False,
+                on_game=self._remembering(
+                    domain, HELD_OUT_ARMS_GAME, round_number, lambda game: tuple(arms[arm] for arm in game.arms)
+                ),
             )
             library = self._signal_library_updater.score(library, held_out_games)
             return self._distill_signals(domain, settings, value_base, library, training_games, held_out_games)
-        training_games = self._self_play.play(domain, agent_builder, settings.games, rng, keep_samples=False)
-        held_out_games = self._self_play.play(domain, agent_builder, settings.held_out_games, rng, keep_samples=False)
+        model = agent_builder.describe(model_name)
+        players = len(domain.players.names)
+        training_games = self._self_play.play(
+            domain,
+            agent_builder,
+            settings.games,
+            rng,
+            keep_samples=False,
+            on_game=self._remembering(domain, SELF_PLAY_GAME, round_number, lambda game: (model,) * players),
+        )
+        held_out_games = self._self_play.play(
+            domain,
+            agent_builder,
+            settings.held_out_games,
+            rng,
+            keep_samples=False,
+            on_game=self._remembering(domain, HELD_OUT_SELF_PLAY_GAME, round_number, lambda game: (model,) * players),
+        )
         if settings.target == SIGNALS_TARGET:
             return self._distill_signals(domain, settings, value_base, library, training_games, held_out_games)
         training = self._position_row_mapper.to_rows(domain, training_games, settings.target)
@@ -259,9 +306,33 @@ class ValueDistiller:
         )
         return best
 
-    def _scores(self, library: SignalLibrary) -> dict[str, tuple[int, float]]:
-        """Every arm's games and points so far, by signal name."""
+    def _scores(self, library: SignalLibrary, arms: Mapping[str, AgentBuilder]) -> dict[str, tuple[int, float]]:
+        """Every arm's games and points so far, by signal name: counted from the game memory's outcomes when there is
+        one, from the library's records otherwise."""
+        if self._game_memory is not None:
+            return {
+                name: (games, wins + draws / 2) for name, (games, wins, draws, _) in self._game_memory.scores(arms).items()
+            }
         return {record.signal.name: (record.games, record.wins + record.draws / 2) for record in library.records}
+
+    def _remembering(
+        self,
+        domain: Domain,
+        kind: str,
+        round_number: int | None,
+        models: Callable[[PlayedGame], tuple[ModelDescription, ...]],
+    ) -> Callable[[int, PlayedGame], None] | None:
+        """What remembers each game as it ends, the models each player played given by `models`; None without a game
+        memory."""
+        memory = self._game_memory
+        if memory is None:
+            return None
+
+        def remember(index: int, game: PlayedGame) -> None:
+            record = next(iter(self._self_play.records(domain, (game,))), None)
+            memory.remember(self._summaries.to_summary(domain, game, kind, round_number, index + 1, models(game), record))
+
+        return remember
 
     def _score(self, record: SignalRecord) -> float:
         return (record.wins + record.draws / 2) / record.games
