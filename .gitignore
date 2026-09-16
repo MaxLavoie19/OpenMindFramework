@@ -7,8 +7,10 @@ build/
 dist/
 data/log/
 data/evaluation/
+data/pgn/
 data/rbs/
 data/selection/
+data/signals/
 data/sudoku/
 data/training/
 data/values/

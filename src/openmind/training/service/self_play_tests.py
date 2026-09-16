@@ -1,8 +1,11 @@
 import logging
 import random
 import re
+from dataclasses import replace
 
 import pytest
+
+from openmind.rule.model.python_rule import PythonRule
 
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
@@ -22,6 +25,22 @@ GAME_LINE = re.compile(
 
 def new_self_play(workers: int = 1) -> SelfPlay:
     return SelfPlay(create_solver(), create_predictor(), StateReader(), TaskRunner(workers))
+
+
+def test_records_give_what_the_domain_records_of_each_game() -> None:
+    plain = create_tictactoe_domain()
+    recording = replace(
+        plain,
+        record=PythonRule("' '.join(f\"{dict(action.parameters)['row']}{dict(action.parameters)['col']}\" for action in actions)"),
+    )
+    self_play = new_self_play()
+    games = self_play.play(plain, AgentBuilder().with_iterations(10).with_exploration(1.4), 2, random.Random(1))
+
+    records = self_play.records(recording, games)
+
+    assert len(records) == 2
+    assert [len(record.split()) for record in records] == [len(game.actions) for game in games]
+    assert self_play.records(plain, games) == ()
 
 
 def test_play_keeps_every_game_with_its_searches_positions_and_payoffs(caplog: pytest.LogCaptureFixture) -> None:

@@ -13,7 +13,8 @@ class ValueDistillationResult:
     """The value base, every price's fit and the chosen one, the candidate terms, how many rows the rules were fitted on
     and held out, the mean absolute difference between the rules' values and the held-out rows' targets (None without a
     held-out row the rules could value), what pondering gave (None without pondering), and, with the signals target,
-    the signal library updated and the records of the signals followed, in the order followed."""
+    the signal library updated and the records of the signals followed, in the order followed; `records` holds what the
+    domain records of the round's games, in the order played, for the round's own file."""
 
     value_base: ValueBase
     fits: tuple[ValueFit, ...]
@@ -25,3 +26,4 @@ class ValueDistillationResult:
     pondering: PonderingSummary | None = None
     library: SignalLibrary | None = None
     arms: tuple[SignalRecord, ...] = ()
+    records: tuple[str, ...] = ()

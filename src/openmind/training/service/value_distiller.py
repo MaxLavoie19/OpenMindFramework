@@ -150,6 +150,7 @@ class ValueDistiller:
             len(held_out),
             held_out_error,
             summary,
+            records=self._self_play.records(domain, training_games),
         )
 
     def _distill_signals(
@@ -238,6 +239,7 @@ class ValueDistiller:
             summary,
             library,
             arms,
+            self._self_play.records(domain, training_games),
         )
 
     def _round_signal(self, library: SignalLibrary, generations: Mapping[str, ValueGenerationResult]) -> str:

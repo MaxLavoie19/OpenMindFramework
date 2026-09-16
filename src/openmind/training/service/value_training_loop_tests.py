@@ -81,6 +81,20 @@ def test_with_the_signals_target_a_library_without_value_bases_is_prepared_and_o
     assert not any(message.startswith("Prepared ") for message in caplog.messages)
 
 
+def test_a_round_carries_what_the_domain_records_of_its_games() -> None:
+    recording = replace(
+        create_tictactoe_domain(),
+        record=PythonRule("' '.join(f\"{dict(action.parameters)['row']}{dict(action.parameters)['col']}\" for action in actions)"),
+    )
+    settings = replace(SETTINGS, rounds=1, evaluation_games=0)
+
+    (round_one,) = create_value_training_loop().train(recording, None, settings).rounds
+
+    assert len(round_one.records) == settings.distillation.games
+    assert all(record and "\n" not in record for record in round_one.records)
+    assert not create_value_training_loop().train(create_tictactoe_domain(), None, settings).rounds[0].records
+
+
 def test_each_round_self_plays_with_the_previous_round_s_rules_and_plays_its_opponents(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

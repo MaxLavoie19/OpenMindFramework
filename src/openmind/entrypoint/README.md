@@ -366,6 +366,7 @@ It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.js
 | `--goal-limit N` | `2` | with `--target signals`: how many moves ahead the deduced goal distance looks for a win when signals are prepared before round 1; below 1 is rejected |
 | `--signal-library PATH` | a new one | with `--target signals`: the signal library round 1 starts from, such as an earlier run's; a library for another domain, or one given without `--target signals`, is rejected |
 | `--signals-directory DIR` | `data/signals` | where the signal library is saved after every round, as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` named after the training's start |
+| `--pgn-directory DIR` | `data/pgn` | where each round's game records are saved, as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>/round-<k>.pgn`, one record per line with a blank line between games; nothing is written for a domain that doesn't record its games |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log |
 | `--log-directory DIR` | `data/log/train-values` | where logs are saved |
 | `--values-directory DIR` | `data/values` | where each round's value base is saved |

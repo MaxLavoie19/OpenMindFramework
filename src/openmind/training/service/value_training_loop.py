@@ -133,6 +133,7 @@ class ValueTrainingLoop:
                     result.pondering,
                     result.arms,
                     result.library,
+                    result.records,
                 )
                 logger.info("Round %d fitted: handing it over before its games", number)
                 on_round(TrainingReport(domain.name, created_at, settings, (*rounds, fitted), False))
@@ -169,6 +170,7 @@ class ValueTrainingLoop:
                     result.pondering,
                     result.arms,
                     result.library,
+                    result.records,
                 )
             )
             previous, previous_name = result.value_base, f"round {number}"

@@ -176,6 +176,11 @@ def main(argv: list[str] | None = None) -> None:
         help="where the signal library is saved after every round, with --target signals (default: data/signals)",
     )
     parser.add_argument(
+        "--pgn-directory",
+        default="data/pgn",
+        help="where each round's game records are saved, for a domain that records its games (default: data/pgn)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING"),
@@ -289,6 +294,12 @@ def main(argv: list[str] | None = None) -> None:
                         explanation_mapper.to_markdown(item.value_base, explanations), run / f"round-{item.number}.md"
                     )
                     logger.info("Exported round %d rules %s", item.number, exported)
+                    if item.records:
+                        games = Path(arguments.pgn_directory) / report.domain / f"{report.created_at:%Y-%m-%d_%H-%M-%S}"
+                        games.mkdir(parents=True, exist_ok=True)
+                        played = games / f"round-{item.number}.pgn"
+                        played.write_text("\n\n".join(item.records) + "\n", encoding="utf-8")
+                        logger.info("Saved round %d games %s", item.number, played)
             report_files.append(reports.save(report, Path(arguments.report_directory)))
             logger.info("Saved training report %s", report_files[-1])
             latest = report.rounds[-1].library if report.rounds else None

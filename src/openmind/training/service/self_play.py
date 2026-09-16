@@ -189,6 +189,12 @@ class SelfPlay:
         ending = self._game_recorder.ending(domain, state)
         return "" if ending is None else f" by {ending}"
 
+    def records(self, domain: Domain, games: Sequence[PlayedGame]) -> tuple[str, ...]:
+        """Each game's record, in the games' order; a game the domain doesn't record, or whose record rule gives nothing,
+        is left out."""
+        found = (self._game_recorder.record(domain, game.actions) for game in games)
+        return tuple(record for record in found if record is not None)
+
     def _log_record(self, domain: Domain, game: PlayedGame, game_name: str) -> None:
         record = self._game_recorder.record(domain, game.actions)
         if record is not None:

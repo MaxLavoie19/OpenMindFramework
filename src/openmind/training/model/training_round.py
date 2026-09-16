@@ -14,7 +14,8 @@ class TrainingRound:
     one, the rows it fitted on and held out, the error on held-out rows, its games against the random policy and
     untrained MCTS, its games against the previous round's agent (None in round 1 without start rules, or without
     evaluation games), how long the round took, what its pondering gave (None without pondering), and, with the signals
-    target, the records of the signals it followed and the signal library as it left it (None without)."""
+    target, the records of the signals it followed and the signal library as it left it (None without); `records` holds
+    what the domain records of the round's games, in the order played."""
 
     number: int
     value_base: ValueBase
@@ -29,3 +30,4 @@ class TrainingRound:
     pondering: PonderingSummary | None = None
     arms: tuple[SignalRecord, ...] = ()
     library: SignalLibrary | None = None
+    records: tuple[str, ...] = ()
