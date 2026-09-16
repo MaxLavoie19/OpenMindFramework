@@ -146,3 +146,19 @@ def test_a_newer_log_starts_the_rounds_over(tmp_path: Path) -> None:
 
     (only,) = reader.played()
     assert (only.number, only.games) == (2, 3)
+
+
+def test_the_notable_lines_keep_the_date_and_time_they_were_produced_at(tmp_path: Path) -> None:
+    write(
+        tmp_path / "run.log",
+        [
+            "2026-09-16 19:03:08,700 INFO  openmind.training.service.value_training_loop Round 1 of 100000: self-play without value rules",
+            "2026-09-16 19:03:09,012 INFO  openmind.parallel.service.memory_guard Cut the caches back to 567692 entries of 667879",
+        ],
+    )
+
+    progress = LogProgressReader(IncrementalLineReader()).progress(tmp_path)
+
+    assert progress is not None
+    assert progress.round == 1
+    assert progress.recent[0] == "2026-09-16 19:03:08 INFO value_training_loop: Round 1 of 100000: self-play without value rules"

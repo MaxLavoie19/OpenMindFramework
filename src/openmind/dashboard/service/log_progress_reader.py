@@ -17,7 +17,7 @@ from openmind.dashboard.service.incremental_line_reader import IncrementalLineRe
 
 #: A log line as training logs write it: when it was produced, its level, padded, its logger's name and its message.
 #: The time is optional, so logs written before lines carried one are still read.
-LINE = re.compile(r"^(?:[\d-]{10} [\d:,]{12} )?(?P<level>[A-Z]+) +(?P<logger>\S+) (?P<message>.*)$")
+LINE = re.compile(r"^(?:(?P<time>[\d-]{10} [\d:]{8}),\d{3} )?(?P<level>[A-Z]+) +(?P<logger>\S+) (?P<message>.*)$")
 ROUND_START = re.compile(r"^Round (?P<round>\d+) of (?P<rounds>\d+): (?P<note>.*)$")
 #: The payoffs a finished self-play game's line ends with: `payoffs white=0.5 black=0.5`.
 PAYOFFS = re.compile(r"payoffs (?P<payoffs>(?:\S+=\S+)(?: \S+=\S+)*)$")
@@ -136,4 +136,5 @@ class LogProgressReader:
             self._round, self._rounds, self._note = int(start["round"]), int(start["rounds"]), start["note"]
             self._games = self._matches = self._searched = self._deduced = self._draws = self._decisive = 0
         if level in ("INFO", "WARNING") and logger in NOTABLE_LOGGERS:
-            self._recent.append(f"{level} {logger.rsplit('.', 1)[-1]}: {message}")
+            produced = "" if line["time"] is None else f"{line['time']} "
+            self._recent.append(f"{produced}{level} {logger.rsplit('.', 1)[-1]}: {message}")
