@@ -46,6 +46,8 @@ MIN_SCREENING_ROWS = 500
 CANDIDATE_BATCH = 200
 #: The name a search gives the only target it is given as an array.
 SINGLE_TARGET = "target"
+#: The action a relaxed domain adds when every player may pass: it only hands the turn over.
+PASS = "pass"
 
 
 #: How long a search runs by default, in seconds.
