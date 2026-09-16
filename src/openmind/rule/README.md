@@ -31,7 +31,7 @@ A saved rule is code: loading a rule base runs what it contains, so it needs the
 | `constant/rule_constant.py` | The three kinds (`value`, `effects`, `definitions`), the compiled function's name and `all_different` |
 | `service/rule_compiler.py` | `RuleCompiler`: compiles a rule for its value, for its effects, or as definitions, and keeps it |
 | `service/rule_runner.py` | `RuleRunner`: a value rule's value in a state, or the state an effects rule leaves |
-| `mapper/state_namespace_mapper.py` | `StateNamespaceMapper`: a state as the names a rule reads, those names back to a state, and how a rule reads a variable (`cell[2, 3]`); a base whose indices are all whole numbers is a `Grid` (`world/model/grid.py`), so a rule can also ask `cell.where('X')` or `cell.ray((1, 1), (0, 1))` |
+| `mapper/state_namespace_mapper.py` | `StateNamespaceMapper`: a state as the names a rule reads, those names back to a state, and how a rule reads a variable (`cell[2, 3]`); a base whose indices are all whole numbers is a `Grid` (`world/model/grid.py`), so a rule can also ask `cell.where('X')` or `cell.ray((1, 1), (0, 1))`. `to_namespace_after(before, namespace, state)` lays out a state reached from another by copying that one's names and writing only what differs, which is how a look-ahead reads the positions its moves lead to |
 | `mapper/call_operand_mapper.py` | `CallOperandMapper`: the arguments of a rule that is a single call, such as `all_different(a, b, cell[1, 1])` |
 
 ## What a rule sees

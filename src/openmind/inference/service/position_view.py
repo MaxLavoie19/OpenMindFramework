@@ -34,15 +34,16 @@ class PositionView:
     A look-ahead's result is kept on the view, by the reading's code, the views it closes over, and the `me`, `other`
     and `here` it reads."""
 
-    __slots__ = ("_mechanics", "_domain", "_state", "_variables", "_memo", "_changes")
+    __slots__ = ("_mechanics", "_domain", "_state", "_variables", "_memo", "_changes", "_after")
 
-    def __init__(self, mechanics: "Mechanics", domain: Domain, state: State) -> None:
+    def __init__(self, mechanics: "Mechanics", domain: Domain, state: State, after: "PositionView | None" = None) -> None:
         self._mechanics = mechanics
         self._domain = domain
         self._state = state
         self._variables: dict[str, object] | None = None
         self._memo: dict[tuple[object, ...], float] = {}
         self._changes: dict[str, dict[tuple[str, object], float]] = {}
+        self._after = after
 
     @property
     def state(self) -> State:
@@ -53,11 +54,27 @@ class PositionView:
             raise AttributeError(name)
         variables = self._variables
         if variables is None:
-            variables = self._variables = self._mechanics.variables(self._state)
+            variables = self._namespace()
         try:
             return variables[name]
         except KeyError:
             raise AttributeError(f"The position has no variable {name!r}") from None
+
+    def _namespace(self) -> dict[str, object]:
+        """The position's variables as rules read them, worked out once.
+
+        A view a move led to is mostly the position it came from: a handful of variables differ. Rather than lay the
+        whole state out again, it copies that position's namespace and writes what the move changed — the position it
+        came from lays itself out once, however many moves lead away from it."""
+        variables = self._variables
+        if variables is None:
+            came_from = self._after
+            if came_from is None:
+                variables = self._mechanics.variables(self._state)
+            else:
+                variables = self._mechanics.variables_after(came_from.state, came_from._namespace(), self._state)
+            self._variables = variables
+        return variables
 
     def offset(self, base: str, at: object, *steps: int) -> object:
         if len(steps) == 2 and type(at) is tuple and len(at) == 2 and type(at[0]) is int and type(at[1]) is int:

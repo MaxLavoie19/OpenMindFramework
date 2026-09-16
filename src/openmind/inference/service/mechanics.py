@@ -65,18 +65,24 @@ class Mechanics:
         """Forgets every view and move this process kept."""
         self._cache.clear()
 
-    def view(self, domain: Domain, state: State) -> PositionView:
-        """The same view every time the state comes back, until the cache is cleared."""
+    def view(self, domain: Domain, state: State, after: PositionView | None = None) -> PositionView:
+        """The same view every time the state comes back, until the cache is cleared. `after` is the position a move
+        led here from, when there is one: the view lays itself out from that position's rather than from nothing."""
         key = ("view", self._pin(domain), state)
         view = self._cache.get(key)
         if view is None:
-            view = PositionView(self, domain, state)
+            view = PositionView(self, domain, state, after)
             self._remember(key, view)
         return view  # type: ignore[return-value]
 
     def variables(self, state: State) -> dict[str, object]:
         """The state's variables as rules read them: `turn`, `cell[2, 3]`."""
         return self._state_namespace_mapper.to_namespace(state)
+
+    def variables_after(self, before: State, namespace: dict[str, object], state: State) -> dict[str, object]:
+        """The state's variables as rules read them, from those of the state a move led here from: only what differs is
+        written, the rest copied."""
+        return self._state_namespace_mapper.to_namespace_after(before, namespace, state)
 
     def moves(self, domain: Domain, state: State, player: str) -> Moves:
         """For each action the player could take if it were their turn, its outcomes with a probability above 0, each
@@ -85,9 +91,10 @@ class Mechanics:
         moves = self._cache.get(key)
         if moves is None:
             turned = self.with_turn(domain, state, player)
+            came_from = self.view(domain, turned)
             moves = tuple(
                 tuple(
-                    (self.view(domain, outcome), probability)
+                    (self.view(domain, outcome, came_from), probability)
                     for outcome, probability in self._predictor.predict(domain.transitions, turned, action).outcomes
                     if probability > 0
                 )

@@ -44,6 +44,35 @@ class StateNamespaceMapper:
                 indexed[key] = value  # type: ignore[index]
         return namespace
 
+    def to_namespace_after(self, before: State, namespace: Mapping[str, object], state: State) -> dict[str, object]:
+        """A fresh namespace for a state reached from `before`, whose namespace is given: what the two states hold alike
+        is copied, and only what differs is written. A base holding something that differs is copied before it is
+        written to, so the namespace given is left as it was. States laid out differently fall back to a fresh namespace.
+
+        A move changes a handful of a position's variables; laying the whole state out again costs far more than
+        copying, which is why a look-ahead builds its views this way."""
+        if len(before.variables) != len(state.variables):
+            return self.to_namespace(state)
+        layout, _ = self._arrangement(state)
+        copied = dict(namespace)
+        written: set[str] = set()
+        for (base, key), (name, value), (name_before, value_before) in zip(layout, state.variables, before.variables):
+            if name != name_before:
+                return self.to_namespace(state)
+            if value == value_before:
+                continue
+            if key is _PLAIN:
+                copied[base] = value
+                continue
+            if base not in written:
+                held = copied.get(base)
+                if not isinstance(held, dict):
+                    return self.to_namespace(state)
+                copied[base] = Grid(held) if isinstance(held, Grid) else dict(held)
+                written.add(base)
+            copied[base][key] = value  # type: ignore[index]
+        return copied
+
     def to_state(self, state: State, namespace: Mapping[str, object]) -> State:
         """The state's variables with their values read back from the namespace. An index a script added under a base the
         state has is a new variable, after the state's own, in the order the script added it; an index that can't be
