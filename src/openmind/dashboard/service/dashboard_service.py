@@ -23,4 +23,5 @@ class DashboardService:
             self._report_reader.summary(settings.report_directory / settings.domain),
             self._log_progress_reader.progress(settings.log_directory / settings.domain),
             self._machine_reader.status(settings.proc, settings.syslog),
+            self._log_progress_reader.played(),
         )

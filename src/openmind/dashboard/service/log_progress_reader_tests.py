@@ -92,3 +92,57 @@ def test_a_newer_log_starts_over_and_a_directory_without_logs_gives_nothing(tmp_
 
     assert progress is not None and (progress.path, progress.round, progress.games) == (newer, None, 0)
     assert LogProgressReader(IncrementalLineReader()).progress(tmp_path / "empty") is None
+
+
+ROUND_2 = [
+    "2026-09-16 01:18:31,678 INFO  openmind.training.service.value_training_loop Round 2 of 100000: self-play valuing positions with round 1's rules",
+    "2026-09-16 01:19:02,101 INFO  openmind.training.service.self_play Self-play game with seeds 21 and 22 finished in 40 plies by checkmate: 40 samples, payoffs white=1.0 black=0.0",
+    "2026-09-16 01:20:11,900 INFO  openmind.training.service.self_play Self-play game with seeds 23 and 24 finished in 60 plies by threefold repetition: 60 samples, payoffs white=0.5 black=0.5",
+    "2026-09-16 01:21:44,002 INFO  openmind.training.service.self_play Self-play game with seeds 25 and 26 finished in 80 plies by checkmate: 80 samples, payoffs white=0.0 black=1.0",
+]
+
+
+def test_a_line_is_read_whether_or_not_it_carries_the_time_it_was_produced_at(tmp_path: Path) -> None:
+    write(tmp_path / "run.log", [*ROUND_1, *ROUND_2])
+
+    progress = LogProgressReader(IncrementalLineReader()).progress(tmp_path)
+
+    assert progress is not None
+    assert (progress.round, progress.games, progress.decisive, progress.draws) == (2, 3, 2, 1)
+    assert progress.round_note == "self-play valuing positions with round 1's rules"
+
+
+def test_every_round_keeps_what_its_games_came_to_while_the_round_being_played_grows(tmp_path: Path) -> None:
+    log = tmp_path / "run.log"
+    write(log, ROUND_1)
+    reader = LogProgressReader(IncrementalLineReader())
+    reader.progress(tmp_path)
+
+    (first,) = reader.played()
+
+    assert (first.number, first.games, first.decisive, first.draws) == (1, 2, 1, 1)
+    assert (first.plies, first.shortest, first.longest, first.mean_plies) == (218, 98, 120, 109.0)
+    assert first.endings == ()  # This domain's games don't say why they ended.
+
+    write(log, ROUND_2, mode="a")
+    os.utime(log, (0, 0))
+    reader.progress(tmp_path)
+
+    first, second = reader.played()
+
+    assert (first.games, second.games) == (2, 3)  # The first round keeps what it came to.
+    assert (second.decisive, second.draws, second.mean_plies) == (2, 1, 60.0)
+    assert second.endings == (("checkmate", 2), ("threefold repetition", 1))
+    assert (second.shortest, second.longest, round(second.decisive_share, 2)) == (40, 80, 0.67)
+
+
+def test_a_newer_log_starts_the_rounds_over(tmp_path: Path) -> None:
+    write(tmp_path / "first.log", ROUND_1)
+    reader = LogProgressReader(IncrementalLineReader())
+    reader.progress(tmp_path)
+
+    write(tmp_path / "second.log", ROUND_2)
+    reader.progress(tmp_path)
+
+    (only,) = reader.played()
+    assert (only.number, only.games) == (2, 3)

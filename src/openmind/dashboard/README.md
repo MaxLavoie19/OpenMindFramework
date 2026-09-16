@@ -17,13 +17,15 @@ the process file system and the system log.
 | `model/report_summary.py` | `ReportSummary(path, created_at, complete, rounds, latest_rules, latest_arms=())`: a training report, with the signals its latest round followed as (name, agreements, disagreements, accuracy, reliability) |
 | `model/process_status.py` | `ProcessStatus(pid, role, rss_bytes, seconds, command)`: a training process: the loop script, the training, or a worker |
 | `model/machine_status.py` | `MachineStatus(memory_total, memory_available, swap_total, swap_free, processes, earlyoom)` |
-| `model/dashboard_snapshot.py` | `DashboardSnapshot(domain, taken_at, report, progress, machine)`: everything the page shows at one moment |
+| `model/round_games.py` | `RoundGames(number, games, decisive, draws, plies, shortest, longest, endings)`: what a round's self-play games came to, with `mean_plies` and `decisive_share`; the round being played holds the games finished so far |
+| `model/dashboard_snapshot.py` | `DashboardSnapshot(domain, taken_at, report, progress, machine, played)`: everything the page shows at one moment, `played` being each round's games |
 | `constant/dashboard_constant.py` | Default port (8765) and reload (30 seconds); how many recent lines (15) and earlyoom kills (10) the page shows; the loggers followed; how training processes are recognized |
 | `service/incremental_line_reader.py` | `IncrementalLineReader.new_lines(path)`: the complete lines written since the previous call; a file that got shorter or was replaced is read from its start |
-| `service/log_progress_reader.py` | `LogProgressReader.progress(directory)`: the newest log's round, the round's self-play games and how many were drawn or decisive, games against opponents, searched and deduced moves, and the latest notable lines |
+| `service/log_progress_reader.py` | `LogProgressReader.progress(directory)` and `.played()`: the newest log's round, the round's self-play games and how many were drawn or decisive, games against opponents, searched and deduced moves, and the latest notable lines |
 | `service/report_reader.py` | `ReportReader.summary(directory)`: the newest report's rounds and latest rules |
 | `service/machine_reader.py` | `MachineReader.status(proc, syslog)`: memory and swap, the training's processes, earlyoom's latest kills |
 | `service/dashboard_service.py` | `DashboardService.snapshot(settings)`: a snapshot from the three readers, which keep their places between snapshots |
+| `mapper/svg_chart_mapper.py` | `SvgChartMapper.stacked(title, columns, parts)` and `.line(title, columns, values, band)`: charts as inline SVG, no library and nothing fetched, since the page is served on a tailnet and left open for days |
 | `mapper/dashboard_html_mapper.py` | `DashboardHtmlMapper.to_html(snapshot, refresh_seconds)`: the page |
 | `factory/dashboard_factory.py` | `create_dashboard_service()` |
 
@@ -37,6 +39,10 @@ the process file system and the system log.
   ends, so the counts grow during a round; searches grow even while every game is still being played. The latest
   15 INFO and WARNING lines of the training's main loggers (training loop, distiller, ponderer, expression search,
   value generator, entrypoint, task runner) are kept. A newer log starts over.
+- **Plots.** The same streamed log gives each round its own tally — games, decisive, drawn, the plies they took with the
+  shortest and the longest, and how each ended where the domain says — kept per round rather than only for the round in
+  progress, so the page draws them round by round and the current round grows as its games finish. A log line is read
+  whether or not it carries the time it was produced at, so logs written before lines were timed still read.
 - **Rounds.** The newest `*.json` report under `<report directory>/<domain>/`, as `TrainingReportJsonMapper` writes it,
   read whole at every snapshot: reports are small. A round handed over before its games shows none against each
   opponent. With the signals target, a table shows the signals the latest round followed, one column each for
@@ -65,5 +71,5 @@ Logger `openmind.entrypoint.dashboard`, in `data/log/dashboard/<YYYY-MM-DD_HH-MM
 
 ## Notes
 
-- Tests: `service/incremental_line_reader_tests.py`, `service/log_progress_reader_tests.py`,
+- Tests: `mapper/svg_chart_mapper_tests.py`, `service/incremental_line_reader_tests.py`, `service/log_progress_reader_tests.py`,
   `service/report_reader_tests.py`, `service/machine_reader_tests.py`, `mapper/dashboard_html_mapper_tests.py`.

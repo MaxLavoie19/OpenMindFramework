@@ -31,3 +31,11 @@ WORKER_MARK = "multiprocessing.spawn"
 
 #: The roles a training process can have on the page.
 LOOP, TRAINING, WORKER = "loop", "training", "worker"
+
+#: How a chart is drawn: the box it is drawn in, the room left around it for its labels, the colours its parts take in
+#: order, and the colour of the band a line chart draws between a low and a high.
+CHART_WIDTH = 480
+CHART_HEIGHT = 160
+CHART_PAD = 18
+CHART_COLOURS = ("#2f6fb3", "#b3782f", "#3f8f5a", "#8f3f6f", "#6f6f6f", "#b33f3f")
+CHART_BAND = "#2f6fb31f"

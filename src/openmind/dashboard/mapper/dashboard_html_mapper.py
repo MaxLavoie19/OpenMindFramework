@@ -1,6 +1,7 @@
 import html
 from collections.abc import Sequence
 
+from openmind.dashboard.mapper.svg_chart_mapper import SvgChartMapper
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
 
 GIGABYTE = 1024**3
@@ -19,6 +20,14 @@ th { background: #eee; }
 pre { background: #fff; border: 1px solid #ddd; padding: .6rem; overflow-x: auto; font-size: .8rem; }
 .warn { color: #a33; }
 .legend { font-size: .85rem; margin: .4rem 0; padding-left: 1.2rem; } .legend b { font-weight: 600; }
+.charts { display: flex; flex-wrap: wrap; gap: .75rem; }
+.chart { margin: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .5rem .6rem; width: 30rem; max-width: 100%; }
+.chart figcaption { font-size: .85rem; font-weight: 600; margin-bottom: .2rem; }
+.chart svg { width: 100%; height: auto; }
+.chart .legend { font-weight: 400; padding: 0; margin-left: .5rem; }
+.chart .key { margin-right: .6rem; white-space: nowrap; }
+.chart .key i { display: inline-block; width: .6rem; height: .6rem; margin-right: .25rem; border-radius: 2px; }
+.chart text { font-size: 10px; fill: #666; }
 """
 
 #: What each column of the rounds table means, in the table's order.
@@ -45,6 +54,9 @@ class DashboardHtmlMapper:
     processes, every finished round, the latest value rules, the latest notable log lines, and earlyoom's latest
     kills."""
 
+    def __init__(self, svg_chart_mapper: SvgChartMapper | None = None) -> None:
+        self._charts = SvgChartMapper() if svg_chart_mapper is None else svg_chart_mapper
+
     def to_html(self, snapshot: DashboardSnapshot, refresh_seconds: int) -> str:
         domain = html.escape(snapshot.domain)
         parts = [
@@ -56,6 +68,7 @@ class DashboardHtmlMapper:
             f"<div class='muted'>Snapshot {html.escape(snapshot.taken_at)}, reloading every {refresh_seconds} seconds</div>",
             self._progress(snapshot),
             self._machine(snapshot),
+            self._plots(snapshot),
             self._rounds(snapshot),
             self._rules(snapshot),
             self._arms(snapshot),
@@ -118,6 +131,67 @@ class DashboardHtmlMapper:
             else "<h2>earlyoom's latest kills</h2><p>None seen since the dashboard started.</p>"
         )
         return f"<h2>Machine</h2><div class='cards'>{cards}</div><details><summary>Processes</summary>{table}</details>{kills}"
+
+    def _plots(self, snapshot: DashboardSnapshot) -> str:
+        """The training's numbers round by round, drawn: how its games ended, how long they were, what it fitted and
+        how long each round took. The round being played counts the games it has finished so far, so the plots grow
+        while it runs. Nothing to draw before the first game ends."""
+        played = snapshot.played
+        rounds = snapshot.report.rounds if snapshot.report is not None else ()
+        if not played and not rounds:
+            return ""
+        charts = [*self._game_plots(played), *self._fit_plots(rounds)]
+        if not charts:
+            return ""
+        return f"<h2>Round by round</h2><div class='charts'>{''.join(charts)}</div>"
+
+    def _game_plots(self, played: Sequence[object]) -> list[str]:
+        if not played:
+            return []
+        columns = [f"round {games.number}" for games in played]  # type: ignore[attr-defined]
+        charts = [
+            self._charts.stacked(
+                "Games a round: decisive and drawn",
+                columns,
+                (
+                    ("decisive", [games.decisive for games in played]),  # type: ignore[attr-defined]
+                    ("drawn", [games.draws for games in played]),  # type: ignore[attr-defined]
+                ),
+            ),
+            self._charts.line(
+                "Plies a game: the mean, between the shortest and the longest",
+                columns,
+                [games.mean_plies for games in played],  # type: ignore[attr-defined]
+                [(games.shortest or 0, games.longest or 0) for games in played],  # type: ignore[attr-defined]
+            ),
+        ]
+        endings = sorted({ending for games in played for ending, _ in games.endings})  # type: ignore[attr-defined]
+        if endings:
+            charts.append(
+                self._charts.stacked(
+                    "How games ended",
+                    columns,
+                    [(ending, [dict(games.endings).get(ending, 0) for games in played]) for ending in endings],  # type: ignore[attr-defined]
+                )
+            )
+        return charts
+
+    def _fit_plots(self, rounds: Sequence[object]) -> list[str]:
+        if not rounds:
+            return []
+        columns = [f"round {item.number}" for item in rounds]  # type: ignore[attr-defined]
+        charts = [
+            self._charts.stacked(
+                "Value rules fitted", columns, (("rules", [item.rules for item in rounds]),)  # type: ignore[attr-defined]
+            ),
+            self._charts.stacked(
+                "Minutes a round", columns, (("minutes", [item.seconds / 60 for item in rounds]),)  # type: ignore[attr-defined]
+            ),
+        ]
+        errors = [item.held_out_error for item in rounds]  # type: ignore[attr-defined]
+        if any(error is not None for error in errors):
+            charts.append(self._charts.line("Held-out error", columns, [error or 0.0 for error in errors]))
+        return charts
 
     def _rounds(self, snapshot: DashboardSnapshot) -> str:
         report = snapshot.report
