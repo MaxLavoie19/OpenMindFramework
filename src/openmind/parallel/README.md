@@ -12,15 +12,16 @@ workers.
 | File | What it is |
 |---|---|
 | `service/task_runner.py` | `TaskRunner(workers, memory_cap=None)`: `map(function, *argument_lists, droppable=False)` calls the function with the items at each index, in worker processes when it has more than one worker, and gives the results in order; `stream(function, count, arguments_for, on_result, droppable=False)` does the same, choosing each call's arguments only when a worker takes it and handing back each result as it ends; `split(items)` cuts a list into slices for the workers |
-| `service/memory_guard.py` | `MemoryGuard`: one per process; clears the caches registered with it when the process holds more than its limit, hands freed memory back to the system, and in a worker under a cap watches the memory and ends the worker with a diagnosis |
+| `service/memory_guard.py` | `MemoryGuard`: one per process; cuts the caches registered with it back, oldest first, when the process holds more than its limit, empties them when a worker's call ends, hands freed memory back to the system, and in a worker under a cap watches the memory and ends the worker with a diagnosis |
+| `service/memory_evictor.py` | `evict_oldest(cache, keep)`: drops a cache's oldest entries down to so many |
 | `service/memory_meter.py` | `MemoryMeter`: how many bytes this process holds, from `/proc/self/statm`, or its peak where `/proc` is missing |
 | `factory/memory_guard_factory.py` | `process_memory_guard()`: this process's guard, the same for every cache in the process |
 | `model/memory_cap.py` | `MemoryCap(worker_bytes, diagnosis_directory, grace_seconds=5.0)`: what each worker holds at most, where diagnoses go, and how long a worker may stay over once it asked its caches to clear |
-| `model/clearable.py` | `Clearable`: what a cache offers its guard, `memory_entries()` and `clear_memory()` |
+| `model/clearable.py` | `Clearable`: what a cache offers its guard, `memory_entries()`, `evict_memory(entries)` and `clear_memory()` |
 | `model/dropped_call.py` | `DroppedCall(index, diagnosis)`: what a droppable call gives when it stayed over the cap in a fresh worker too |
 | `model/call_over_memory.py` | `CallOverMemory(index, diagnosis)`: raised for such a call that can't be dropped |
 | `model/worker_ended.py` | `WorkerEnded`: raised when a call ends a fresh worker too for another reason |
-| `constant/parallel_constant.py` | `DEFAULT_WORKERS` (half the logical CPUs), `SLICES_PER_WORKER` (4), `START_METHOD` (`spawn`), `PARENT_CHECK_SECONDS` (5), `STOP_SECONDS` (5); `HALF_THE_MEMORY` and `DEFAULT_PROCESS_MEMORY` (that half shared between the logical CPUs), `MEMORY_CHECK_INTERVAL` (1,000 entries), `MEMORY_WATCH_SECONDS` (1), `MEMORY_GRACE_SECONDS` (5), `MEMORY_LOG_SECONDS` (60), `MEMORY_EXIT_CODE` (86), `DIAGNOSIS_CALLS` (50), `DIAGNOSIS_TYPES` (20), `DEFAULT_RERUN_LINES` (20) |
+| `constant/parallel_constant.py` | `DEFAULT_WORKERS` (half the logical CPUs), `SLICES_PER_WORKER` (4), `START_METHOD` (`spawn`), `PARENT_CHECK_SECONDS` (5), `STOP_SECONDS` (5); `HALF_THE_MEMORY` and `DEFAULT_PROCESS_MEMORY` (that half shared between the logical CPUs), `MEMORY_CHECK_INTERVAL` (1,000 entries), `MEMORY_WATCH_SECONDS` (1), `MEMORY_GRACE_SECONDS` (5), `MEMORY_SETTLE_SHARE` (0.85), `MEMORY_REGROWTH_SHARE` (0.02), `MEMORY_LOG_SECONDS` (60), `MEMORY_EXIT_CODE` (86), `DIAGNOSIS_CALLS` (50), `DEFAULT_RERUN_LINES` (20) |
 
 ## How work runs
 
@@ -46,14 +47,21 @@ workers.
 
 ## Memory
 
-- **Caches.** The solver, the rule runner, the consequence library and the mechanics register their caches with their
-  process's `MemoryGuard` and tell it before keeping an entry. Every `MEMORY_CHECK_INTERVAL` entries the guard reads the
-  process's memory, and above its limit it clears every registered cache and hands freed memory back to the system
-  (`malloc_trim`). There is no entry count: memory decides. A process's limit is `DEFAULT_PROCESS_MEMORY` until it is
-  given one; `openmind-train-values` and `openmind-distill-values` give theirs the expression search's `--memory`.
-- **After each call,** a worker collects its garbage and hands freed memory back to the system, since Python keeps
-  freed memory otherwise.
-- **The cap.** Under a `MemoryCap`, each worker's limit is the cap, and a thread reads the worker's memory every
+- **Caches.** The solver, the rule runner, the consequence library, the mechanics, the reading cache, a project's own
+  caches such as chess's boards, register with their process's `MemoryGuard` and tell it before keeping an entry. Every
+  `MEMORY_CHECK_INTERVAL` entries the guard reads the process's memory, and above its limit every cache keeps
+  `MEMORY_SETTLE_SHARE` of its entries and drops its oldest (`evict_memory`, through `service/memory_evictor.py`). It
+  cuts again only once the memory has climbed more than `MEMORY_REGROWTH_SHARE` of the limit past where it stood at the
+  last cut: a process that has churned through millions of small objects keeps most of what it frees, so emptying the
+  caches barely moves its memory, and cutting at every reading would take them to nothing. A process's limit is
+  `DEFAULT_PROCESS_MEMORY` until it is given one; `openmind-train-values` and `openmind-distill-values` give theirs the
+  expression search's `--memory`.
+- **After each call,** a worker empties every cache, collects its garbage and hands freed memory back to the system
+  (`malloc_trim`). A call's own services die with it; what outlives a call is a cache the process holds for its whole
+  life, and it carried every position of every game a chess worker had played into the next: about 170 MB a call until
+  the cap ended the worker mid-game. Emptied when a call ends, a worker levels off at what one call needs.
+- **The cap.** Under a `MemoryCap`, each worker's limit is `MEMORY_SETTLE_SHARE` of the cap, so its caches are cut back
+  before it reaches the line where it would be ended, and a thread reads the worker's memory every
   `MEMORY_WATCH_SECONDS`. Over the cap, it asks the caches to clear at their next entry: the thread can't safely empty a
   cache another thread is using. Still over the cap after the cap's grace, the worker writes a diagnosis, tells this
   process, and ends itself with `MEMORY_EXIT_CODE`.

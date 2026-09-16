@@ -161,6 +161,36 @@ def test_a_cache_no_longer_used_goes_away_with_its_service() -> None:
     assert guard.held_entries() == 0
 
 
+def test_a_worker_empties_every_cache_when_a_call_ends_so_nothing_carries_into_the_next(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    guard = MemoryGuard(Meter(500))  # type: ignore[arg-type]
+    held_for_the_process, held_for_the_call = Cache(76_030), Cache(2_722)
+    guard.register(held_for_the_process)
+    guard.register(held_for_the_call)
+
+    guard.release()
+
+    assert (held_for_the_process.entries, held_for_the_call.entries, guard.held_entries()) == (0, 0, 0)
+    assert caplog.messages == []  # Every call ends this way: nothing to say about it.
+
+
+def test_a_cut_starts_afresh_once_a_call_has_ended() -> None:
+    meter = Meter(1_200)
+    guard = MemoryGuard(meter)  # type: ignore[arg-type]
+    guard.limit(1_000)
+    cache = Cache(1_000)
+    guard.register(cache)
+    settled(guard)  # Cut to 850 at 1200 bytes.
+
+    guard.release()
+    cache.entries = 1_000  # The next call fills the cache again, the memory standing where it did.
+    settled(guard)
+
+    assert cache.entries == 850  # Cut again, though the memory didn't climb past the previous cut.
+
+
 def test_a_worker_cuts_its_caches_back_before_it_reaches_the_cap_that_would_end_it(tmp_path: Path) -> None:
     guard = MemoryGuard(Meter(100))  # type: ignore[arg-type]
 

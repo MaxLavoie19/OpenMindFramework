@@ -183,7 +183,18 @@ class MemoryGuard:
             self._logged_at, self._clears = now, 0
 
     def release(self) -> None:
-        """Collects garbage and hands freed memory back to the system, as a worker does after each call."""
+        """Empties every cache, collects garbage and hands freed memory back to the system, as a worker does after each
+        call.
+
+        A call's own services arrive with its arguments and go with it, caches and all; what outlives a call is a cache
+        the process holds for its whole life, such as a module's, and that one carries every position of every game the
+        worker has played into the next game, which almost never reaches them again. Chess's boards did: a worker grew
+        about 45 MB of live objects and 170 MB of memory a call until its cap ended it, mid-game. Emptied when a call
+        ends, what they freed is taken up again by the next call, and a worker levels off at what one call needs.
+        Quietly, since it happens after every call; the next cut starts afresh."""
+        for cache in list(self._caches):
+            cache.clear_memory()
+        self._cut_at = None
         gc.collect()
         _trim()
 
