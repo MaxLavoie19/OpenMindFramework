@@ -58,10 +58,13 @@ workers.
   cache another thread is using. Still over the cap after the cap's grace, the worker writes a diagnosis, tells this
   process, and ends itself with `MEMORY_EXIT_CODE`.
 - **The diagnosis,** `<diagnosis directory>/<YYYY-MM-DD_HH-MM-SS>-worker-<pid>.txt`, has the memory when the worker was
-  first seen over the cap and at the end, the caches last cleared with their copies and entries, the most numerous
-  objects the garbage collector tracks, the call being run and the latest calls with the memory held after each. The
-  call itself is pickled beside it as `.pickle`, to run again alone with `openmind-rerun-call` (see
-  `entrypoint/README.md`).
+  first seen over the cap and at the end, the caches last cleared with their copies and entries, the call being run and
+  the latest calls with the memory held after each. The call itself is pickled beside it as `.pickle`, to run again
+  alone with `openmind-rerun-call` (see `entrypoint/README.md`). It no longer counts the objects alive: it is written
+  from the watch's own thread, and walking the garbage collector's objects from there hands out references to whatever
+  the worker is building at that instant, so a tuple half filled by a generator failed in the worker with
+  `SystemError: bad argument to internal function` — which ended two chess trainings where the memory alone would only
+  have had the worker replaced.
 
 ## Workers that end
 

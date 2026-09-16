@@ -6,7 +6,7 @@ import pickle
 import threading
 import time
 import weakref
-from collections import Counter, deque
+from collections import deque
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +14,6 @@ from pathlib import Path
 from openmind.parallel.constant.parallel_constant import (
     DEFAULT_PROCESS_MEMORY,
     DIAGNOSIS_CALLS,
-    DIAGNOSIS_TYPES,
     MEMORY_CHECK_INTERVAL,
     MEMORY_EXIT_CODE,
     MEMORY_LOG_SECONDS,
@@ -276,13 +275,13 @@ class MemoryGuard:
                     _table(("cache", "copies", "entries"), [(name, str(count), str(entries)) for name, count, entries in caches]),
                 )
             )
+        # No census of the objects alive: this runs in the watch's own thread, and walking the garbage collector's objects
+        # from there hands out references to whatever the worker is building at that instant — a tuple half filled by a
+        # generator then fails in the worker with "SystemError: bad argument to internal function", and that error, not
+        # the memory, is what the training sees. Running the pickled call again under tracemalloc says far more anyway.
         lines.append("")
-        live = Counter(f"{type(item).__module__}.{type(item).__qualname__}" for item in gc.get_objects())
         lines.extend(
             (
-                "Its most numerous objects tracked by the garbage collector at the end:",
-                _table(("type", "objects"), [(name, str(count)) for name, count in live.most_common(DIAGNOSIS_TYPES)]),
-                "",
                 f"Its latest {len(self._calls)} calls before this one:",
                 _table(("call", "function", "bytes held after"), [(str(i), name, str(held)) for i, name, held in self._calls]),
                 "",

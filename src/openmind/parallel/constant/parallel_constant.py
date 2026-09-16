@@ -43,8 +43,7 @@ MEMORY_REGROWTH_SHARE = 0.02
 MEMORY_LOG_SECONDS = 60.0
 #: The exit code of a worker that ended itself for staying over its memory cap.
 MEMORY_EXIT_CODE = 86
-#: How many of a worker's latest calls, and of its most numerous object types, a memory diagnosis lists.
+#: How many of a worker's latest calls a memory diagnosis lists.
 DIAGNOSIS_CALLS = 50
-DIAGNOSIS_TYPES = 20
 #: How many source lines `openmind-rerun-call` shows by default, those holding the most memory first.
 DEFAULT_RERUN_LINES = 20
