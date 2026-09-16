@@ -46,6 +46,7 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
 | `training` | Self-play, distillation of models from search, selection of the rules that play no worse than all of them, distillation of value rules, and a loop training value rules round after round | iterations 6, 10, 11 and 13 |
 | `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded; each process's caches cleared by memory, and workers capped, ended with a diagnosis and replaced when they stay over | iteration 10, 2026-09-15 |
 | `dashboard` | A page following a value training while it runs: the round's progress, every round, the latest rules, the machine's memory and earlyoom's kills | 2026-09-15 |
+| `doxastic` | What the agent remembers, word for word with where it came from, looked up by subject, name, keyword, claim, teller or source; and where each claim stands, the evidence for it and the evidence against it kept apart | 2026-09-15 |
 | `testing` | Test support shared with problem projects: a pytest plugin saving each test's logs | iteration 12 |
 | `optimizer` | Strategic discrete actions from continuous action spaces | later |
 

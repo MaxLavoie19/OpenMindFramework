@@ -2,14 +2,17 @@
 
 ## Next, in order
 
-1. **Share the readings.** A generation's candidates repeat each other's readings; evaluate a reading once per position
-   and cell and fold the rest, instead of running every candidate's whole source. The largest speed gain left.
-2. **Relaxed domains** (below): fewer constraints, to learn mate geometry and what not to compromise.
-3. **A `.pgn` file per round,** beside the game records already in the logs.
-4. **Deploy to cinamon and restart the training:** the chess run there still uses older code, and its dashboard has no
-   drawn and decisive counts.
-5. **Doxastic logic and the knowledge base:** track truth with the evidence for and against a claim, rather than labels,
-   so a player can hold poor evidence for `p` and solid evidence for `not p`.
+The knowledge base's core is built (`doxastic/README.md`): records kept word for word with their provenance, looked up
+by subject, name, keyword, claim, teller or source, and claims weighed with the evidence for them and against them kept
+apart. Nothing feeds it yet. In order:
+
+1. **The training's own evidence:** a signal's agreements and disagreements as `counted` records, a deduction's proofs
+   as `proved`, a relaxed domain's as `relaxed`. `SignalRecord`'s reliability then comes out of the knowledge base.
+2. **What was seen and what was played:** what a player sees, from `StateObserver`, as `seen`; what self-play played and
+   what came of it, as `played`.
+3. **What was told:** claims that can be lies, in the hidden-information games below and in rhetoric, as `told`, with
+   `EvidenceWeigher` discounting a teller by how reliable they have been — where this meets ethos.
+4. **Another store behind `RecordStore`,** SQLite or otherwise, once the JSON lines are too slow to load.
 
 ## Games that erode the simplicity of the games so far
 
