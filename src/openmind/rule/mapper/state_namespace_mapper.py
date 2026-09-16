@@ -21,14 +21,16 @@ class StateNamespaceMapper:
     def __init__(self, variable_name_mapper: VariableNameMapper) -> None:
         self._variable_name_mapper = variable_name_mapper
         self._layouts: dict[tuple[str, ...], Arrangement] = {}
+        self._cells: dict[str, tuple[str, object]] = {}
 
     def __getstate__(self) -> dict[str, object]:
-        """Layouts mark plain variables with a sentinel only this process knows: a copy lays states out again."""
+        """Layouts and cells mark plain variables with a sentinel only this process knows: a copy works them out again."""
         return {"_variable_name_mapper": self._variable_name_mapper}
 
     def __setstate__(self, state: dict[str, object]) -> None:
         self.__dict__.update(state)
         self._layouts = {}
+        self._cells = {}
 
     def to_namespace(self, state: State) -> dict[str, object]:
         """A fresh namespace: changing it, or the dicts in it, doesn't change the state."""
@@ -53,14 +55,14 @@ class StateNamespaceMapper:
         copying, which is why a look-ahead builds its views this way."""
         if len(before.variables) != len(state.variables):
             return self.to_namespace(state)
-        layout, _ = self._arrangement(state)
         copied = dict(namespace)
         written: set[str] = set()
-        for (base, key), (name, value), (name_before, value_before) in zip(layout, state.variables, before.variables):
+        for (name, value), (name_before, value_before) in zip(state.variables, before.variables):
             if name != name_before:
                 return self.to_namespace(state)
             if value == value_before:
                 continue
+            base, key = self._cell(name)
             if key is _PLAIN:
                 copied[base] = value
                 continue
@@ -72,6 +74,21 @@ class StateNamespaceMapper:
                 written.add(base)
             copied[base][key] = value  # type: ignore[index]
         return copied
+
+    def _cell(self, name: str) -> tuple[str, object]:
+        """Where a variable goes in a namespace: its base, and its index as a rule reads it, or the plain marker; worked
+        out once per name, so a look-ahead writing the handful of variables a move changed never lays out the whole
+        state to find them."""
+        cell = self._cells.get(name)
+        if cell is None:
+            base, texts = self._variable_name_mapper.from_name(name)
+            if not texts:
+                cell = (base, _PLAIN)
+            else:
+                indices = tuple(self._index(text) for text in texts)
+                cell = (base, indices[0] if len(indices) == 1 else indices)
+            self._cells[name] = cell
+        return cell
 
     def to_state(self, state: State, namespace: Mapping[str, object]) -> State:
         """The state's variables with their values read back from the namespace. An index a script added under a base the
