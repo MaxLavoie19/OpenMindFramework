@@ -10,6 +10,7 @@ from openmind.agent.factory.domain_factory import create_domain
 from openmind.agent.model.domain import Domain
 from openmind.agent.service.agent import Agent
 from openmind.csp.factory.csp_factory import create_solver
+from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.observation.factory.state_observer_factory import create_state_observer
 from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
@@ -71,7 +72,7 @@ def main(argv: list[str] | None = None) -> None:
     directory = Path(arguments.log_directory) / domain.name
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(levelname)-5s %(name)s %(message)s"))
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root = logging.getLogger()
     level = root.level
     root.addHandler(handler)

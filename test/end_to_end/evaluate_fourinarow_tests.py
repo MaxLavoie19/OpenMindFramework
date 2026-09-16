@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from openmind.entrypoint.evaluate import main
+from openmind.testing.service.log_reader import said
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -26,7 +27,7 @@ def test_evaluate_without_positions_reports_the_baselines_only(tmp_path: Path) -
     ]
     assert report["agreement"] == []
     (log_file,) = (tmp_path / "log" / "tictactoe" / "fourinarow").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert "INFO  openmind.evaluation.service.evaluator Agreement with perfect play skipped: no positions" in lines
     assert lines[-1] == f"INFO  openmind.entrypoint.evaluate Saved report {report_file}"
 

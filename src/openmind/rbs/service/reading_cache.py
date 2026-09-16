@@ -5,6 +5,7 @@ import numpy as np
 from openmind.agent.model.domain import Domain
 from openmind.inference.constant.inference_constant import AGGREGATE_INDEX, HERE, MEMORY_CHECK_INTERVAL, VIEW
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
+from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
@@ -55,6 +56,9 @@ class ReadingCache:
 
     def memory_entries(self) -> int:
         return len(self._values)
+
+    def evict_memory(self, entries: int) -> None:
+        evict_oldest(self._values, entries)
 
     def clear_memory(self) -> None:
         self.clear()

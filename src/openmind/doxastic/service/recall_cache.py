@@ -4,6 +4,7 @@ import math
 from openmind.doxastic.constant.doxastic_constant import MEMORY_CHECK_INTERVAL
 from openmind.doxastic.model.record import Record
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
+from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.parallel.service.memory_meter import MemoryMeter
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,9 @@ class RecallCache:
 
     def memory_entries(self) -> int:
         return len(self._records)
+
+    def evict_memory(self, entries: int) -> None:
+        evict_oldest(self._records, entries)
 
     def clear_memory(self) -> None:
         self.clear()

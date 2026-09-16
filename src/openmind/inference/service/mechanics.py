@@ -3,6 +3,7 @@ from collections import Counter
 from openmind.agent.model.domain import Domain
 from openmind.csp.service.solver import Solver
 from openmind.inference.constant.inference_constant import DEFAULT_PROCESS_MEMORY, MEMORY_CHECK_INTERVAL
+from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.inference.service.position_view import Moves, PositionView
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
@@ -52,6 +53,9 @@ class Mechanics:
 
     def memory_entries(self) -> int:
         return len(self._cache)
+
+    def evict_memory(self, entries: int) -> None:
+        evict_oldest(self._cache, entries)
 
     def clear_memory(self) -> None:
         self.clear()

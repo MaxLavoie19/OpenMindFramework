@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from openmind.agent.factory.domain_factory import create_domain
+from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.evaluation.constant.evaluation_constant import ALL_POSITIONS
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
 from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
@@ -123,7 +124,7 @@ def main(argv: list[str] | None = None) -> None:
     directory = Path(arguments.log_directory) / domain.name
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(levelname)-5s %(name)s %(message)s"))
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root = logging.getLogger()
     level = root.level
     root.addHandler(handler)

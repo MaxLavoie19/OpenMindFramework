@@ -18,6 +18,7 @@ from openmind.parallel.constant.parallel_constant import (
     MEMORY_CHECK_INTERVAL,
     MEMORY_EXIT_CODE,
     MEMORY_LOG_SECONDS,
+    MEMORY_SETTLE_SHARE,
     MEMORY_WATCH_SECONDS,
 )
 from openmind.parallel.model.clearable import Clearable
@@ -30,15 +31,25 @@ _libc: ctypes.CDLL | None = None
 
 
 class MemoryGuard:
-    """Keeps one process's memory down by emptying the caches registered with it. A cache calls `remembered` before it
-    keeps an entry: every MEMORY_CHECK_INTERVAL entries the process's memory is read, and above the limit every
-    registered cache is cleared and freed memory is handed back to the system. Caches are held weakly, so a service that
-    is no longer used goes away with its cache.
+    """Keeps one process's memory down by cutting the caches registered with it back when it goes over its limit. A
+    cache calls `remembered` before it keeps an entry: every MEMORY_CHECK_INTERVAL entries the process's memory is read,
+    and over the limit every cache drops its oldest entries, keeping MEMORY_SETTLE_SHARE of what it held. Caches are
+    held weakly, so a service that is no longer used goes away with its cache.
+
+    Cutting back rather than emptying, because emptying doesn't do what it looks like it does: a process that has
+    churned through millions of small objects keeps most of what it frees, so emptying every cache moves the measured
+    memory very little while the working set a search keeps coming back to is gone — and is derived again, filled again,
+    and emptied again. Dropping a share of the oldest leaves that working set in place, and the next reading, which is
+    soon, cuts again if the process is still over.
+
+    A share of the entries rather than a size in bytes, since what an entry costs can't be read off a process: most of
+    what it holds is no cache of its own — a search's columns, and everything it has freed without giving back — and
+    charging that to the entries cuts the caches many times deeper than the memory calls for.
 
     In a worker under a memory cap, `watch` also reads the memory every MEMORY_WATCH_SECONDS from a thread of its own.
-    Over the cap, it asks the caches to clear at their next entry, since the thread can't safely empty a cache another
-    thread is using; still over the cap after the cap's grace, it writes a diagnosis, reports it, and ends the worker
-    with MEMORY_EXIT_CODE."""
+    Over the cap, it asks for a clear at the next entry — the last resort, giving back whatever can be given — since the
+    thread can't safely empty a cache another thread is using; still over the cap after the cap's grace, it writes a
+    diagnosis, reports it, and ends the worker with MEMORY_EXIT_CODE."""
 
     def __init__(self, memory_meter: MemoryMeter, clock: Callable[[], float] = time.monotonic) -> None:
         self._memory_meter = memory_meter
@@ -52,13 +63,21 @@ class MemoryGuard:
         self._cleared: tuple[datetime, int, int, list[tuple[str, int, int]]] | None = None
         self._call: tuple[int, Callable[..., object], Sequence[object]] | None = None
         self._calls: deque[tuple[int, str, int]] = deque(maxlen=DIAGNOSIS_CALLS)
+        self._floor: int | None = None
+        self._budget: int | None = None
+        self._evicted = 0
 
     @property
     def limit_bytes(self) -> int:
         return self._limit
 
+    @property
+    def entry_budget(self) -> int | None:
+        """How many entries the caches may hold between them, as last worked out, or None before the first reading."""
+        return self._budget
+
     def limit(self, memory_bytes: int) -> None:
-        """How many bytes the process holds before its caches are cleared."""
+        """How many bytes the process holds before its caches are cut back."""
         self._limit = memory_bytes
 
     def register(self, cache: Clearable) -> None:
@@ -67,14 +86,64 @@ class MemoryGuard:
     def remembered(self) -> None:
         """Called by a registered cache before it keeps an entry."""
         self._entries += 1
-        if self._requested or (
-            self._entries % MEMORY_CHECK_INTERVAL == 0 and self._memory_meter.resident_bytes() > self._limit
-        ):
+        if self._requested:
             self.clear()
+        elif self._entries % MEMORY_CHECK_INTERVAL == 0:
+            self.settle()
+
+    def settle(self) -> None:
+        """Cuts the caches back when the process is over its limit, dropping their oldest entries.
+
+        Emptying them instead, as this used to do, does not give the memory back: a process that has churned through
+        millions of small objects keeps most of what it frees, so the measured memory barely moves while the working set
+        a search keeps coming back to is gone — and it is derived again, filled again, and emptied again.
+
+        So the trigger is unchanged, the process being over its limit, and only what follows is different: every cache
+        keeps MEMORY_SETTLE_SHARE of what it holds and drops its oldest, and the next reading cuts again if the process
+        is still over. The floor — what the process holds with nothing cached — is kept as it is read, for the memory
+        diagnosis a worker writes when it is ended."""
+        used = self._memory_meter.resident_bytes()
+        held = self.held_entries()
+        if held == 0:
+            self._floor = used if self._floor is None else min(self._floor, used)
+            return
+        self._floor = used if self._floor is None else min(self._floor, used)
+        if used <= self._limit:
+            return
+        self._budget = budget = int(held * MEMORY_SETTLE_SHARE)
+        for cache in list(self._caches):
+            entries = cache.memory_entries()
+            if entries:
+                cache.evict_memory(int(budget * entries / held))
+        self._evicted += held - self.held_entries()
+        self._log_settled(held, used, budget)
+
+    def _log_settled(self, held: int, used: int, budget: int) -> None:
+        now = self._clock()
+        if self._logged_at is None or now - self._logged_at >= MEMORY_LOG_SECONDS:
+            logger.info(
+                "Cut the caches back to %d entries of %d: this process held %d bytes, over its limit of %d, and now "
+                "holds %d; %d entries dropped since the previous line",
+                self.held_entries(),
+                held,
+                used,
+                self._limit,
+                self._memory_meter.resident_bytes(),
+                self._evicted,
+            )
+            self._logged_at, self._evicted = now, 0
+
+    def held_entries(self) -> int:
+        """How many entries the registered caches hold between them."""
+        return sum(cache.memory_entries() for cache in list(self._caches))
 
     def clear(self) -> None:
-        """Empties every registered cache and hands freed memory back to the system."""
+        """Empties every registered cache and hands freed memory back to the system. This is the last resort — a worker
+        told to give back whatever it can — not the everyday way of staying within the budget, which is `settle`."""
         requested, self._requested = self._requested, False
+        if self.held_entries() == 0:
+            _trim()
+            return
         before = self._memory_meter.resident_bytes()
         kinds: dict[str, list[int]] = {}
         for cache in list(self._caches):
@@ -90,7 +159,7 @@ class MemoryGuard:
         now = self._clock()
         if requested or self._logged_at is None or now - self._logged_at >= MEMORY_LOG_SECONDS:
             logger.info(
-                "Cleared %d caches holding %d entries %s: this process held %d bytes, over its limit of %d, and now holds "
+                "Cleared %d caches holding %d entries %s: this process held %d bytes, its limit being %d, and now holds "
                 "%d; %d clears since the previous line",
                 sum(count for _, count, _ in caches),
                 sum(entries for _, _, entries in caches),
@@ -124,8 +193,12 @@ class MemoryGuard:
         end: Callable[[int], object] = os._exit,
         sleep: Callable[[float], object] = time.sleep,
     ) -> None:
-        """Limits the process to the cap and watches it in a daemon thread."""
-        self.limit(cap.worker_bytes)
+        """Limits the process to a share of the cap and watches it in a daemon thread.
+
+        A share of it, not all of it, because the cap is the line past which this worker is ended: the caches are cut
+        back before the process reaches it, so the watch has nothing to end. A process with no cap keeps the limit it
+        was given, and its caches are cut back only once it is over that."""
+        self.limit(int(cap.worker_bytes * MEMORY_SETTLE_SHARE))
         threading.Thread(
             target=self.watch_memory, args=(cap, report_over, end, sleep), name="memory watch", daemon=True
         ).start()

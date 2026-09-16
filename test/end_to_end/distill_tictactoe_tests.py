@@ -6,6 +6,7 @@ import pytest
 from openmind.entrypoint.distill import main
 from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
 from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
+from openmind.testing.service.log_reader import said
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -32,7 +33,7 @@ def test_distill_prints_and_saves_rules(capsys: pytest.CaptureFixture[str], tmp_
     )
     assert output.endswith(f"Saved rules {rules_file}\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    assert log_file.read_text(encoding="utf-8").splitlines()[-1] == f"INFO  openmind.entrypoint.distill Saved rules {rules_file}"
+    assert said(log_file)[-1] == f"INFO  openmind.entrypoint.distill Saved rules {rules_file}"
 
 
 def test_explore_widens_generation_and_keeps_covered_rules(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
@@ -50,7 +51,7 @@ def test_explore_widens_generation_and_keeps_covered_rules(capsys: pytest.Captur
     assert (
         "INFO  openmind.entrypoint.distill Generating with beam width 60, up to 3 conditions, min gain 0.02, "
         "false discovery rate 0.2, coverage off"
-    ) in log_file.read_text(encoding="utf-8").splitlines()
+    ) in said(log_file)
 
 
 def test_a_rollout_limit_stops_the_self_play_rollouts(tmp_path: Path) -> None:
@@ -64,7 +65,7 @@ def test_a_rollout_limit_stops_the_self_play_rollouts(tmp_path: Path) -> None:
     )
 
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert "INFO  openmind.entrypoint.distill Self-play rollouts stop after 0 actions, every player getting 0.25" in lines
     assert any(line.startswith("INFO  openmind.mcts.service.tree_search ") and "mean payoff 0.25 for " in line for line in lines)
 
@@ -85,6 +86,6 @@ def test_several_workers_distill_the_same_rules(tmp_path: Path) -> None:
 
     assert rule_bases[0] == rule_bases[1]
     (log_file,) = (tmp_path / "2" / "log" / "tictactoe").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert "INFO  openmind.entrypoint.distill Running self-play and rule generation in 2 worker processes" in lines
     assert any(line.startswith("INFO  openmind.mcts.service.tree_search Searching 20 iterations") for line in lines)

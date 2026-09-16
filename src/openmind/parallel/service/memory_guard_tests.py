@@ -26,9 +26,14 @@ class Cache:
     def __init__(self, entries: int) -> None:
         self.entries = entries
         self.clears = 0
+        self.kept: list[int] = []
 
     def memory_entries(self) -> int:
         return self.entries
+
+    def evict_memory(self, entries: int) -> None:
+        self.kept.append(entries)
+        self.entries = min(self.entries, max(entries, 0))
 
     def clear_memory(self) -> None:
         self.entries = 0
@@ -43,39 +48,93 @@ def guarded(held: int, limit: int, entries: int = 5) -> tuple[MemoryGuard, Cache
     return guard, cache
 
 
-def test_the_caches_are_cleared_when_the_memory_read_every_interval_is_over_the_limit(
+def settled(guard: MemoryGuard, times: int = 1) -> None:
+    """Remembers entries until the guard has read the memory that many times."""
+    for _ in range(times * MEMORY_CHECK_INTERVAL):
+        guard.remembered()
+
+
+def test_a_process_over_its_limit_drops_the_oldest_entries_rather_than_all_of_them(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO)
-    guard, cache = guarded(2_000, 1_000)
+    guard, cache = guarded(1_200, 1_000, entries=1_000)
 
-    for _ in range(MEMORY_CHECK_INTERVAL - 1):
-        guard.remembered()
-    before = cache.clears
-    guard.remembered()
+    settled(guard)
 
-    assert (before, cache.clears) == (0, 1)
-    assert any(message.startswith("Cleared 1 caches holding 5 entries on reading the memory") for message in caplog.messages)
+    assert (cache.entries, cache.clears) == (850, 0)  # 85% of what it held stays; the oldest 15% go.
+    assert any(
+        message.startswith("Cut the caches back to 850 entries of 1000: this process held 1200 bytes, over its limit of 1000")
+        for message in caplog.messages
+    )
 
 
-def test_the_caches_are_kept_under_the_limit() -> None:
+def test_a_process_under_its_limit_keeps_everything_it_holds() -> None:
     guard, cache = guarded(500, 1_000)
 
-    for _ in range(2 * MEMORY_CHECK_INTERVAL):
-        guard.remembered()
+    settled(guard, 2)
 
+    assert (cache.entries, cache.kept, cache.clears) == (5, [], 0)
+
+
+def test_a_process_still_over_its_limit_is_cut_back_again_at_the_next_reading() -> None:
+    """Memory a process frees isn't always given back, so one cut may not show: the next reading cuts again, and the
+    caches come down as far as the memory calls for without ever being emptied."""
+    guard, cache = guarded(1_200, 1_000, entries=1_000)
+
+    settled(guard, 3)
+
+    assert cache.entries == 613  # 1000, then 850, then 722, then 613, each cut rounded down.
     assert cache.clears == 0
 
 
-def test_a_cache_no_longer_used_goes_away_with_its_service(caplog: pytest.LogCaptureFixture) -> None:
+def test_each_cache_drops_its_share_of_what_has_to_go() -> None:
+    meter = Meter(1_200)
+    guard = MemoryGuard(meter)  # type: ignore[arg-type]
+    guard.limit(1_000)
+    small, large = Cache(400), Cache(1_600)
+    guard.register(small)
+    guard.register(large)
+
+    settled(guard)
+
+    assert guard.entry_budget == 1_700
+    assert (small.entries, large.entries) == (340, 1_360)
+
+
+def test_clearing_everything_is_left_for_when_a_worker_must_give_back_what_it_can(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO)
+    guard, cache = guarded(2_000, 1_000)
+
+    guard.clear()
+
+    assert (cache.entries, cache.clears) == (0, 1)
+    assert any(message.startswith("Cleared 1 caches holding 5 entries on reading the memory") for message in caplog.messages)
+
+
+def test_a_clear_with_nothing_held_says_nothing() -> None:
+    guard, cache = guarded(2_000, 1_000, entries=0)
+
+    guard.clear()
+
+    assert (cache.clears, guard.held_entries()) == (0, 0)
+
+
+def test_a_cache_no_longer_used_goes_away_with_its_service() -> None:
     guard, cache = guarded(2_000, 1_000)
 
     del cache
     gc.collect()
-    guard.clear()
 
-    assert any(message.startswith("Cleared 0 caches holding 0 entries") for message in caplog.messages)
+    assert guard.held_entries() == 0
+
+
+def test_a_worker_cuts_its_caches_back_before_it_reaches_the_cap_that_would_end_it(tmp_path: Path) -> None:
+    guard = MemoryGuard(Meter(100))  # type: ignore[arg-type]
+
+    guard.watch(MemoryCap(1_000, tmp_path, 1.0), lambda index, path: None, lambda code: None, lambda seconds: None)
+
+    assert guard.limit_bytes == 850
 
 
 def test_the_watch_asks_for_a_clear_then_ends_a_worker_still_over_its_cap_with_a_diagnosis(

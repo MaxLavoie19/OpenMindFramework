@@ -14,6 +14,7 @@ from openmind.rbs.model.value_rule import ValueRule
 from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
 from openmind.rbs.repository.value_base_repository import ValueBaseRepository
 from openmind.rule.model.python_rule import PythonRule
+from openmind.testing.service.log_reader import said
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -53,7 +54,7 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
     assert "\niterations  optimal  visits on optimal  mean regret  seconds per choice\n" in output
     assert output.endswith(f"Saved report {report_file}\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert "INFO  openmind.evaluation.service.exact_search tictactoe has 4520 positions with a legal action" in lines
     assert lines[-1] == f"INFO  openmind.entrypoint.evaluate Saved report {report_file}"
 
@@ -87,7 +88,7 @@ def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(
     assert "\nGuided against unguided, paired by position (guided minus unguided; Wilcoxon and McNemar p-values):\n" in output
     assert [test["iterations"] for test in report["guidance_tests"]] == [5]
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert f"INFO  openmind.entrypoint.evaluate Evaluating with rules {rules_file}" in lines
     assert any(line.startswith("INFO  openmind.evaluation.service.evaluator Rater alone: ") for line in lines)
 
@@ -120,7 +121,7 @@ def test_evaluate_with_values_values_the_agent_positions_and_records_the_values_
     assert f"\nValued by {values_file} after 1 rollout actions against unguided, on the same 3 positions " in output
     assert "\nValues alone: valued " in output
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert f"INFO  openmind.entrypoint.evaluate Evaluating with values {values_file}" in lines
 
 

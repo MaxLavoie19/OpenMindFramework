@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from openmind.entrypoint.play import main
+from openmind.testing.service.log_reader import said
 
 X_WINS = ("1", "3", "1", "2", "1")  # X: (1,1) (1,2) (1,3); O: (2,1) (2,2)
 
@@ -23,7 +24,7 @@ def play(monkeypatch: pytest.MonkeyPatch, log_directory: Path, *answers: str, op
 
 def log_lines(log_directory: Path) -> list[str]:
     (log_file,) = log_directory.glob("tictactoe/*.log")
-    return log_file.read_text(encoding="utf-8").splitlines()
+    return said(log_file)
 
 
 def test_game_x_wins_ends_with_the_final_payoffs(

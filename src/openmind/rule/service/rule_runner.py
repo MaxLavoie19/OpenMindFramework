@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from types import FunctionType
 
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
+from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.rule.constant.rule_constant import ALL_DIFFERENT
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rule.model.compiled_rule import CompiledRule
@@ -42,6 +43,9 @@ class RuleRunner:
 
     def memory_entries(self) -> int:
         return len(self._namespaces)
+
+    def evict_memory(self, entries: int) -> None:
+        evict_oldest(self._namespaces, entries)
 
     def clear_memory(self) -> None:
         self._namespaces.clear()

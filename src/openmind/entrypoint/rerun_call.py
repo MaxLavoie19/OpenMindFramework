@@ -6,6 +6,7 @@ import tracemalloc
 from datetime import datetime
 from pathlib import Path
 
+from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.parallel.constant.parallel_constant import DEFAULT_RERUN_LINES
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ def main(argv: list[str] | None = None) -> None:
     directory = Path(arguments.log_directory)
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(levelname)-5s %(name)s %(message)s"))
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root = logging.getLogger()
     level = root.level
     root.addHandler(handler)

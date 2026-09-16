@@ -5,6 +5,7 @@ from pathlib import Path
 
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF
 from openmind.agent.factory.domain_factory import create_domain
+from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.inference.constant.inference_constant import (
     DEFAULT_DEDUCTION_SECONDS,
     DEFAULT_HIGHEST_PAYOFF,
@@ -265,7 +266,7 @@ def main(argv: list[str] | None = None) -> None:
     memory_cap = _memory_cap(parser, arguments, directory)
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(levelname)-5s %(name)s %(message)s"))
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root = logging.getLogger()
     level = root.level
     root.addHandler(handler)

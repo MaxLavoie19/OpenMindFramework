@@ -14,6 +14,7 @@ from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
 from openmind.agent.repository.sudoku_puzzle_repository import SudokuPuzzleRepository
 from openmind.csp.constant.solver_constant import DEFAULT_SOLUTION_LIMIT
 from openmind.csp.factory.csp_factory import create_solver
+from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.mapper.state_text_mapper import StateTextMapper
 
@@ -62,7 +63,7 @@ def main(argv: list[str] | None = None) -> None:
         directory = Path(arguments.log_directory) / name
         directory.mkdir(parents=True, exist_ok=True)
         handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-        handler.setFormatter(logging.Formatter("%(levelname)-5s %(name)s %(message)s"))
+        handler.setFormatter(logging.Formatter(LOG_FORMAT))
         root = logging.getLogger()
         level = root.level
         root.addHandler(handler)

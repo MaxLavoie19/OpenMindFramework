@@ -14,6 +14,7 @@ from openmind.csp.model.variable import Variable
 from openmind.csp.service.backtracking_search import BacktrackingSearch
 from openmind.csp.service.constraint_checker import ConstraintChecker
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
+from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.rule.constant.rule_constant import ALL_DIFFERENT
 from openmind.rule.mapper.call_operand_mapper import CallOperandMapper
 from openmind.rule.model.called_rule import CalledRule
@@ -62,6 +63,9 @@ class Solver:
 
     def memory_entries(self) -> int:
         return len(self._cache)
+
+    def evict_memory(self, entries: int) -> None:
+        evict_oldest(self._cache, entries)
 
     def clear_memory(self) -> None:
         self._cache.clear()

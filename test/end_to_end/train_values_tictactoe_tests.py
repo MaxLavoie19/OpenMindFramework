@@ -8,6 +8,7 @@ from openmind.entrypoint.train_values import main
 from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.model.value_base import ValueBase
 from openmind.rbs.repository.value_base_repository import ValueBaseRepository
+from openmind.testing.service.log_reader import said
 from openmind.training.mapper.signal_library_json_mapper import SignalLibraryJsonMapper
 from openmind.training.repository.signal_library_repository import SignalLibraryRepository
 
@@ -71,7 +72,7 @@ def test_train_values_saves_every_round_and_the_report_and_prints_the_rounds(
     assert f"\nSaved round 2 values {run / 'round-2.json'}\n" in output
     assert output.endswith(f"Saved training report {report_file}\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert (
         "INFO  openmind.entrypoint.train_values Training in 1 worker processes, each holding at most 1073741824 bytes; "
         f"memory diagnoses in {tmp_path / 'log' / 'tictactoe' / 'memory'}"

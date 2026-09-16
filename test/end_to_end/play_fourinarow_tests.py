@@ -4,11 +4,12 @@ from pathlib import Path
 import pytest
 
 from openmind.entrypoint.play import main
+from openmind.testing.service.log_reader import said
 
 
 def log_lines(log_directory: Path) -> list[str]:
     (log_file,) = (log_directory / "tictactoe" / "fourinarow").glob("*.log")
-    return log_file.read_text(encoding="utf-8").splitlines()
+    return said(log_file)
 
 
 def test_the_agent_plays_both_sides_until_the_game_is_over(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:

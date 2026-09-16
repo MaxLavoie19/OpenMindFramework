@@ -10,6 +10,7 @@ from openmind.rbs.model.rule import Rule
 from openmind.rbs.model.rule_base import RuleBase
 from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
 from openmind.rule.model.python_rule import PythonRule
+from openmind.testing.service.log_reader import said
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -47,7 +48,7 @@ def test_select_saves_the_selected_rules_and_the_report(capsys: pytest.CaptureFi
     assert output.startswith("Selected ")
     assert output.endswith(f"Saved selected rules {selected_file}\nSaved selection report {report_file}\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert lines[-1] == f"INFO  openmind.entrypoint.select Saved selection report {report_file}"
     assert any(line.startswith("INFO  openmind.training.service.rule_selector Removed place when cell[1, 1] == 'Z'") for line in lines)
 

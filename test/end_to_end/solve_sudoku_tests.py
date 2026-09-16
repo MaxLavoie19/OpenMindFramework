@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from openmind.entrypoint.solve import main
+from openmind.testing.service.log_reader import said
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -24,7 +25,7 @@ def test_solve_prints_the_single_solution_and_saves_a_log(capsys: pytest.Capture
     assert "cell(9,9) = 9\npayoff = 1.0\nturn = 'solver'\n" in output
     assert output.splitlines()[-1].startswith("sudoku: 1 solution(s), ")
     (log_file,) = (tmp_path / "sudoku").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert lines[0] == "INFO  openmind.entrypoint.solve Solving sudoku"
     assert any(line.startswith("DEBUG openmind.csp.service.solver fill: 1 solutions, ") for line in lines)
     assert lines[-1].startswith("INFO  openmind.entrypoint.solve sudoku: 1 solution(s), ")
@@ -43,7 +44,7 @@ def test_a_collection_prints_a_summary_per_puzzle_then_its_totals(
     assert output[1].startswith("sudoku/mini/2: 1 solution(s), ")
     assert output[2].startswith("sudoku/mini: 2 puzzle(s), 2 solution(s), ")
     (log_file,) = (tmp_path / "log" / "sudoku" / "mini").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert lines[:2] == [
         "INFO  openmind.entrypoint.solve Solving sudoku/mini",
         "INFO  openmind.entrypoint.solve Solving sudoku/mini/1",
@@ -67,9 +68,9 @@ def test_several_domains_each_print_their_solutions_and_save_their_own_log(
     assert puzzle.splitlines()[-1].startswith("sudoku/mini/2: 1 solution(s), ")
     (classic_log,) = (tmp_path / "log" / "sudoku").glob("*.log")
     (puzzle_log,) = (tmp_path / "log" / "sudoku" / "mini" / "2").glob("*.log")
-    assert classic_log.read_text(encoding="utf-8").splitlines()[0] == "INFO  openmind.entrypoint.solve Solving sudoku"
+    assert said(classic_log)[0] == "INFO  openmind.entrypoint.solve Solving sudoku"
     assert (
-        puzzle_log.read_text(encoding="utf-8").splitlines()[0]
+        said(puzzle_log)[0]
         == "INFO  openmind.entrypoint.solve Solving sudoku/mini/2"
     )
 

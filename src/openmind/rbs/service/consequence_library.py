@@ -2,6 +2,7 @@ import math
 
 from openmind.agent.model.domain import Domain
 from openmind.csp.service.solver import Solver
+from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.predictor.service.predictor import Predictor
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.rbs.constant.consequence_constant import (
@@ -76,6 +77,10 @@ class ConsequenceLibrary:
 
     def memory_entries(self) -> int:
         return len(self._cache)
+
+    def evict_memory(self, entries: int) -> None:
+        """Keeps the newest lookups only; the mechanics keep their own to the count the guard gives them."""
+        evict_oldest(self._cache, entries)
 
     def limit_memory(self, memory_bytes: int) -> None:
         """How many bytes a process holds before the mechanics clear their views; copies sent to workers carry it."""

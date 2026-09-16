@@ -10,6 +10,7 @@ from openmind.dashboard.constant.dashboard_constant import DEFAULT_PORT, DEFAULT
 from openmind.dashboard.factory.dashboard_factory import create_dashboard_service
 from openmind.dashboard.mapper.dashboard_html_mapper import DashboardHtmlMapper
 from openmind.dashboard.model.dashboard_settings import DashboardSettings
+from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> None:
     directory = Path(arguments.dashboard_log_directory)
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-5s %(name)s %(message)s"))
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root = logging.getLogger()
     root.addHandler(handler)
     root.setLevel(logging.INFO)

@@ -6,6 +6,7 @@ import pytest
 from openmind.entrypoint.distill_values import main
 from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.repository.value_base_repository import ValueBaseRepository
+from openmind.testing.service.log_reader import said
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -39,7 +40,7 @@ def test_distill_values_prints_and_saves_value_rules(capsys: pytest.CaptureFixtu
     )
     assert output.endswith(f"Saved values {values_file}\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    assert log_file.read_text(encoding="utf-8").splitlines()[-1] == (
+    assert said(log_file)[-1] == (
         f"INFO  openmind.entrypoint.distill_values Saved values {values_file}"
     )
 
@@ -72,7 +73,7 @@ def test_a_rollout_limit_stops_the_self_play_rollouts(tmp_path: Path) -> None:
     )
 
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    lines = log_file.read_text(encoding="utf-8").splitlines()
+    lines = said(log_file)
     assert "INFO  openmind.entrypoint.distill_values Self-play rollouts stop after 0 actions, every player getting 0.25" in lines
     assert any(line.startswith("INFO  openmind.mcts.service.tree_search ") and "mean payoff 0.25 for " in line for line in lines)
 

@@ -30,6 +30,11 @@ MEMORY_CHECK_INTERVAL = 1_000
 #: the cap once it asked its caches to clear, before it ends itself.
 MEMORY_WATCH_SECONDS = 1.0
 MEMORY_GRACE_SECONDS = 5.0
+#: The share of their entries the caches keep each time a process is found over its limit: the newest stay, the oldest
+#: go, and the next reading cuts again if it is still over. A share rather than a size in bytes, because what an entry
+#: costs can't be told from what the process holds — most of that is no cache of its own. It is also the share of a
+#: worker's memory cap the guard takes as its limit, so the caches are cut back before the cap ends the worker.
+MEMORY_SETTLE_SHARE = 0.85
 #: Seconds between two log lines of a memory guard about clearing its caches; clears in between are counted.
 MEMORY_LOG_SECONDS = 60.0
 #: The exit code of a worker that ended itself for staying over its memory cap.
