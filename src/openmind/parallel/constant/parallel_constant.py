@@ -35,6 +35,10 @@ MEMORY_GRACE_SECONDS = 5.0
 #: costs can't be told from what the process holds — most of that is no cache of its own. It is also the share of a
 #: worker's memory cap the guard takes as its limit, so the caches are cut back before the cap ends the worker.
 MEMORY_SETTLE_SHARE = 0.85
+#: How much, as a share of its limit, a process's memory must grow past where it stood when its caches were last cut
+#: before they are cut again. A cut that didn't bring the memory down won't be helped by another, and without a margin
+#: the memory's page-by-page wobble would set one off at every reading.
+MEMORY_REGROWTH_SHARE = 0.02
 #: Seconds between two log lines of a memory guard about clearing its caches; clears in between are counted.
 MEMORY_LOG_SECONDS = 60.0
 #: The exit code of a worker that ended itself for staying over its memory cap.

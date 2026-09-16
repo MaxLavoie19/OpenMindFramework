@@ -18,6 +18,7 @@ from openmind.parallel.constant.parallel_constant import (
     MEMORY_CHECK_INTERVAL,
     MEMORY_EXIT_CODE,
     MEMORY_LOG_SECONDS,
+    MEMORY_REGROWTH_SHARE,
     MEMORY_SETTLE_SHARE,
     MEMORY_WATCH_SECONDS,
 )
@@ -39,8 +40,8 @@ class MemoryGuard:
     Cutting back rather than emptying, because emptying doesn't do what it looks like it does: a process that has
     churned through millions of small objects keeps most of what it frees, so emptying every cache moves the measured
     memory very little while the working set a search keeps coming back to is gone — and is derived again, filled again,
-    and emptied again. Dropping a share of the oldest leaves that working set in place, and the next reading, which is
-    soon, cuts again if the process is still over.
+    and emptied again. Dropping a share of the oldest leaves that working set in place, and another cut comes only if the
+    memory keeps climbing: a cut that didn't bring it down would not be helped by another.
 
     A share of the entries rather than a size in bytes, since what an entry costs can't be read off a process: most of
     what it holds is no cache of its own — a search's columns, and everything it has freed without giving back — and
@@ -66,6 +67,7 @@ class MemoryGuard:
         self._floor: int | None = None
         self._budget: int | None = None
         self._evicted = 0
+        self._cut_at: int | None = None
 
     @property
     def limit_bytes(self) -> int:
@@ -99,9 +101,15 @@ class MemoryGuard:
         a search keeps coming back to is gone — and it is derived again, filled again, and emptied again.
 
         So the trigger is unchanged, the process being over its limit, and only what follows is different: every cache
-        keeps MEMORY_SETTLE_SHARE of what it holds and drops its oldest, and the next reading cuts again if the process
-        is still over. The floor — what the process holds with nothing cached — is kept as it is read, for the memory
-        diagnosis a worker writes when it is ended."""
+        keeps MEMORY_SETTLE_SHARE of what it holds and drops its oldest.
+
+        And it cuts only while the memory is still climbing. A process whose own memory already sits above its limit —
+        what it freed and kept, not what it caches — stays over whatever the caches do, and cutting at every reading
+        would take them down to nothing, the old emptying in slow motion. So once a cut has been made, the next comes
+        only when the memory has grown past where it stood at that cut, by more than MEMORY_REGROWTH_SHARE of the limit;
+        a process back under its limit starts afresh. A worker that really runs away is still ended by its cap's watch.
+        The floor — what the process holds with nothing cached — is kept as it is read, for the memory diagnosis a
+        worker writes when it is ended."""
         used = self._memory_meter.resident_bytes()
         held = self.held_entries()
         if held == 0:
@@ -109,12 +117,16 @@ class MemoryGuard:
             return
         self._floor = used if self._floor is None else min(self._floor, used)
         if used <= self._limit:
+            self._cut_at = None
+            return
+        if self._cut_at is not None and used <= self._cut_at + self._limit * MEMORY_REGROWTH_SHARE:
             return
         self._budget = budget = int(held * MEMORY_SETTLE_SHARE)
         for cache in list(self._caches):
             entries = cache.memory_entries()
             if entries:
                 cache.evict_memory(int(budget * entries / held))
+        self._cut_at = used
         self._evicted += held - self.held_entries()
         self._log_settled(held, used, budget)
 

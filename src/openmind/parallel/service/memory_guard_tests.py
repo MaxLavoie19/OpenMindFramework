@@ -77,15 +77,47 @@ def test_a_process_under_its_limit_keeps_everything_it_holds() -> None:
     assert (cache.entries, cache.kept, cache.clears) == (5, [], 0)
 
 
-def test_a_process_still_over_its_limit_is_cut_back_again_at_the_next_reading() -> None:
-    """Memory a process frees isn't always given back, so one cut may not show: the next reading cuts again, and the
-    caches come down as far as the memory calls for without ever being emptied."""
+def test_a_cut_that_did_not_bring_the_memory_down_is_not_repeated() -> None:
+    """Memory a process frees isn't always given back: a process whose own memory sits over its limit stays over
+    whatever its caches do, and cutting at every reading would take them down to nothing."""
     guard, cache = guarded(1_200, 1_000, entries=1_000)
 
-    settled(guard, 3)
+    settled(guard, 5)
 
-    assert cache.entries == 613  # 1000, then 850, then 722, then 613, each cut rounded down.
-    assert cache.clears == 0
+    assert (cache.entries, cache.kept) == (850, [850])
+
+
+def test_the_caches_are_cut_again_once_the_memory_climbs_past_where_it_stood_at_the_last_cut() -> None:
+    meter = Meter(1_200)
+    guard = MemoryGuard(meter)  # type: ignore[arg-type]
+    guard.limit(1_000)
+    cache = Cache(1_000)
+    guard.register(cache)
+    settled(guard)
+
+    meter.held = 1_215  # Within 2% of the limit of where it stood: the wobble of pages, not growth.
+    settled(guard)
+    assert cache.entries == 850
+
+    meter.held = 1_300  # Grown well past it: the caches are what's growing, so they are cut again.
+    settled(guard)
+    assert cache.entries == 722
+
+
+def test_a_process_back_under_its_limit_starts_afresh() -> None:
+    meter = Meter(1_200)
+    guard = MemoryGuard(meter)  # type: ignore[arg-type]
+    guard.limit(1_000)
+    cache = Cache(1_000)
+    guard.register(cache)
+    settled(guard)
+
+    meter.held = 900
+    settled(guard)
+    meter.held = 1_100  # Over again, though lower than at the first cut.
+    settled(guard)
+
+    assert cache.entries == 722
 
 
 def test_each_cache_drops_its_share_of_what_has_to_go() -> None:
