@@ -7,10 +7,12 @@ from openmind.agent.factory.rock_paper_scissors_factory import create_rock_paper
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.agent.model.domain import Domain
+from openmind.agent.service.deduction_fallback import DeductionFallback
 from openmind.agent.service.move_planner import MovePlanner
 from openmind.agent.service.one_ply_chooser import OnePlyChooser
 from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.inference.model.deduction_budget import DeductionBudget
+from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.service.valuation_prior_tests import CenterValued
 from openmind.parallel.service.task_runner import TaskRunner
@@ -102,10 +104,11 @@ def test_an_agent_given_a_clock_searches_for_the_step_s_budget() -> None:
     assert result.chosen == Action("win", ())
 
 
-def test_an_agent_s_iterations_cap_its_search_on_a_clock() -> None:
+def test_on_a_clock_the_budget_replaces_the_iterations_an_agent_was_built_with() -> None:
     domain = win_or_lose()
 
-    assert timed_agent(3).search(domain, domain.initial_state, clock=Clock(5.0)).iterations == 3
+    assert timed_agent(3).search(domain, domain.initial_state, clock=Clock(5.0)).iterations == 5
+    assert timed_agent(3).search(domain, domain.initial_state).iterations == 3
 
 
 def test_an_agent_without_a_clock_searches_its_iterations() -> None:
@@ -143,35 +146,49 @@ def test_an_agent_acting_at_once_searches_for_the_step_s_budget() -> None:
     assert timed_agent(None).search(domain, domain.initial_state, "A", Clock(5.0)).iterations == 5
 
 
-def clocked_agent() -> Agent:
-    """An agent on a time source moving on 10 ms a reading, whose planner has seen a search iteration cost 0.1 s and a
-    valuation 0.01 s, estimating a move's budget as the time left above a 1 s reserve."""
-    tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper(), time_source=Ticking(0.01))
+def clocked_agent(fallback_cost: float | None) -> Agent:
+    """An agent on a time source moving on 10 ms a reading, with a deduction fallback whose cost per legal move the
+    planner has seen when given, estimating a move's budget as the time left above a 1 s reserve."""
+    solver, predictor, state_reader = create_solver(), create_predictor(), StateReader()
+    tree_search = TreeSearch(solver, predictor, state_reader, ActionTextMapper(), time_source=Ticking(0.01))
     planner = MovePlanner()
-    planner.observe("iteration", 1.0, 10)
-    planner.observe("valuation", 0.09, 9)
+    if fallback_cost is not None:
+        planner.observe("fallback", fallback_cost * 9, 9)
+    fallback = DeductionFallback(
+        PositionDeducer(solver, predictor, state_reader, ActionTextMapper()), solver, predictor, state_reader, DeductionBudget(1, 5.0)
+    )
     return Agent(
         tree_search,
         SearchSettings(None, math.sqrt(2), 1),
         valuation=LeafValuation(CenterValued()),
+        fallback=fallback,
         estimator=PlainTimeBudgetEstimator(1, 1.0),
-        one_ply=OnePlyChooser(create_solver(), create_predictor(), StateReader()),
+        one_ply=OnePlyChooser(solver, predictor, state_reader),
         planner=planner,
     )
 
 
-def test_an_agent_on_a_clock_plays_by_the_option_its_budget_affords_down_to_a_random_move(caplog: pytest.LogCaptureFixture) -> None:
+def test_an_agent_on_a_clock_searches_after_its_fallback_when_it_leaves_time_and_alone_otherwise(caplog: pytest.LogCaptureFixture) -> None:
     domain = create_tictactoe_domain()
 
-    # 9 legal moves: the search needs 0.9 s, one-ply 0.09 s
-    searched = clocked_agent().search(domain, domain.initial_state, clock=Clock(3.0))
-    one_ply = clocked_agent().search(domain, domain.initial_state, clock=Clock(1.5))
-    random_move = clocked_agent().search(domain, domain.initial_state, clock=Clock(0.9))
+    # 9 legal moves and a 2 s budget: a fallback at 0.1 s a move leaves time, one at 0.3 s doesn't
+    full = clocked_agent(0.1).search(domain, domain.initial_state, clock=Clock(3.0))
+    alone = clocked_agent(0.3).search(domain, domain.initial_state, clock=Clock(3.0))
+    random_move = clocked_agent(0.1).search(domain, domain.initial_state, clock=Clock(0.9))
 
-    assert (searched.option, searched.budget, searched.iterations > 0) == ("search", 2.0, True)
-    assert (one_ply.option, one_ply.chosen) == ("one-ply", Action("place", (("col", 2), ("row", 2))))
+    assert (full.option, full.budget, full.iterations > 0) == ("fallback and search", 2.0, True)
+    assert (alone.option, alone.iterations > 0) == ("search", True)
     assert (random_move.option, random_move.budget) == ("random", 0.0)
     assert any(message.startswith("X plays by random within a 0.000 second budget: ") for message in caplog.messages)
+
+
+def test_a_fallback_cut_short_by_the_deadline_still_leaves_the_move_a_search() -> None:
+    domain = create_tictactoe_domain()
+    agent = clocked_agent(None)
+
+    result = agent.search(domain, domain.initial_state, clock=Clock(1.05))
+
+    assert result.option == "fallback and search" and result.iterations >= 1
 
 
 def test_an_agent_on_a_tight_clock_with_slow_valuations_never_runs_out_of_time() -> None:
@@ -201,3 +218,11 @@ class SlowCenterValued(CenterValued):
     def value(self, state: State) -> tuple[float, ...] | None:
         time.sleep(0.02)
         return super().value(state)
+
+
+def test_where_the_planner_doesn_t_choose_a_budget_of_0_searches_a_single_iteration() -> None:
+    domain = create_rock_paper_scissors_domain()
+
+    result = timed_agent(None).search(domain, domain.initial_state, "A", Clock(0.0))
+
+    assert (result.iterations, result.budget) == (1, 0.0)

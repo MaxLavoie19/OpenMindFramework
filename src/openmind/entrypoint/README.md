@@ -81,7 +81,7 @@ which is rejected.
 | `--seed S` | unseeded | random seed for the agent's search |
 | `--rollout-limit N` | no limit | actions an agent's rollout plays at most before every player gets the unfinished payoff |
 | `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit, a draw in games paying 1, 0.5 and 0 |
-| `--time-control MINUTES+SECONDS` | no clock | every player, human or agent, plays on a clock, a human's thinking at the prompt included; both clocks are printed before each move, and a player whose time runs out loses as the domain's timeout rule says, the game ending with `<player>'s time ran out`; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then caps each move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
+| `--time-control MINUTES+SECONDS` | no clock | every player, human or agent, plays on a clock, a human's thinking at the prompt included; both clocks are printed before each move, and a player whose time runs out loses as the domain's timeout rule says, the game ending with `<player>'s time ran out`; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then no longer counts, each move's budget replacing it; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
 | `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
 | `--time-reserve X` | `0.05` | with a clock: the share of a player's base time kept in reserve; below it the player plays only random moves, so its clock never runs out; from 0 to below 1 |
 | `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
@@ -139,7 +139,7 @@ agent's rollouts.
 | `--seed S` | `1` | random seed |
 | `--reference-iterations N` | exact search | stand in for perfect play with unguided searches of N iterations on positions of random games, for domains exact search can't reach; needs a number of `--positions`, not `all` |
 | `--rules PATH` | none | rule base guiding the evaluated agent; its path is recorded in the report |
-| `--time-control MINUTES+SECONDS` | no clock | the baseline series play on a clock, the evaluated and the untrained agent both budgeting their moves; the report records the control and each series' wins and losses on time; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then caps each move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
+| `--time-control MINUTES+SECONDS` | no clock | the baseline series play on a clock, the evaluated and the untrained agent both budgeting their moves; the report records the control and each series' wins and losses on time; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then no longer counts, each move's budget replacing it; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
 | `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
 | `--time-reserve X` | `0.05` | with a clock: the share of a player's base time kept in reserve; below it the player plays only random moves, so its clock never runs out; from 0 to below 1 |
 | `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
@@ -308,7 +308,7 @@ searching in <n> worker processes`, has the selector's decisions (see `training/
 | `--seconds X` | `3600.0` | seconds the inference engine's expression search runs (see `inference/README.md`) |
 | `--memory X` | half the machine's memory | GB the expression search's process holds at most, measured; its workers each hold an even share; this process's caches are cleared above it |
 | `--candidates N` | no limit | candidates the expression search tries at most; a search limited by candidates, unlike one limited by time, gives the same rules on any machine |
-| `--training-time-control MINUTES+SECONDS` | no clock | self-play games play on a clock, every agent budgeting its moves; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then caps each move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
+| `--training-time-control MINUTES+SECONDS` | no clock | self-play games play on a clock, every agent budgeting its moves; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then no longer counts, each move's budget replacing it; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
 | `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
 | `--time-reserve X` | `0.05` | with a clock: the share of a player's base time kept in reserve; below it the player plays only random moves, so its clock never runs out; from 0 to below 1 |
 | `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
@@ -368,7 +368,7 @@ another, each game learned from as it ends, a rule search after every decisive g
 | Option | Default | Meaning |
 |---|---|---|
 | `--games N` | until stopped | games to play, then stop |
-| `--iterations N` | `100` | MCTS iterations per move; with a clock, the cap of each move |
+| `--iterations N` | `100` | MCTS iterations per move without a clock; on a clock each move's budget replaces them |
 | `--training-time-control MINUTES+SECONDS` | no clock | games play on a clock, every agent budgeting its moves; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
 | `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
 | `--time-reserve X` | `0.05` | with a clock: the share of a player's base time kept in reserve; below it the player plays only random moves, so its clock never runs out; from 0 to below 1 |

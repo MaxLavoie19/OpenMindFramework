@@ -16,7 +16,7 @@ def add_clock_options(parser: argparse.ArgumentParser, flag: str = "--time-contr
         default=None,
         metavar="MINUTES+SECONDS",
         help="play on a clock, as chess writes a time control: 3+2 is 3 minutes and 2 seconds a move; --iterations then "
-        "caps each move (default: no clock, the iterations are the budget)",
+        "no longer count, each move's budget replacing them (default: no clock, the iterations are the budget)",
     )
     parser.add_argument(
         "--expected-steps",

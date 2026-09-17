@@ -3,8 +3,7 @@ import random
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.agent.service.one_ply_chooser import OnePlyChooser
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.mcts.constant.mcts_constant import ONE_PLY_OPTION, RANDOM_OPTION
-from openmind.mcts.service.rater_prior_tests import CENTER
+from openmind.mcts.constant.mcts_constant import RANDOM_OPTION
 from openmind.mcts.service.tree_search_tests import Ticking
 from openmind.mcts.service.valuation_prior_tests import CenterValued
 from openmind.predictor.factory.predictor_factory import create_predictor
@@ -16,20 +15,15 @@ def chooser() -> OnePlyChooser:
     return OnePlyChooser(create_solver(), create_predictor(), StateReader())
 
 
-def test_one_ply_plays_the_move_valued_highest_for_the_player_to_act() -> None:
+def test_each_legal_move_is_valued_for_the_player_to_act_until_the_deadline_passes() -> None:
     domain = create_tictactoe_domain()
-
-    result = chooser().best(domain, domain.initial_state, CenterValued(), random.Random(1))
-
-    assert result is not None and result.chosen == CENTER and result.option == ONE_PLY_OPTION
-    assert len(result.statistics) == 9 and all(item.visits == 1 for item in result.statistics)
-
-
-def test_one_ply_gives_up_once_its_deadline_passes() -> None:
-    domain = create_tictactoe_domain()
+    actions = chooser().legal(domain, domain.initial_state)
     source = Ticking(1.0)
 
-    assert chooser().best(domain, domain.initial_state, CenterValued(), random.Random(1), Deadline(source.now() + 3.0, source)) is None
+    values = chooser().values(domain, domain.initial_state, actions, CenterValued())
+
+    assert values is not None and max(values) == 0.9 and values.count(0.9) == 1
+    assert chooser().values(domain, domain.initial_state, actions, CenterValued(), Deadline(source.now() + 3.0, source)) is None
 
 
 def test_a_random_move_is_a_legal_move_at_the_value_given_for_what_isn_t_known() -> None:

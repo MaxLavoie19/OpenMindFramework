@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> None:
         "--games", type=_positive, default=None, help="games to play, then stop (default: until stopped)"
     )
     options: list[tuple[str, type, object, str]] = [
-        ("--iterations", int, DEFAULT_TRAINING_ITERATIONS, "MCTS iterations per move; with a clock, the cap of each move"),
+        ("--iterations", int, DEFAULT_TRAINING_ITERATIONS, "MCTS iterations per move without a clock; on a clock each move's budget replaces them"),
         ("--seed", int, DEFAULT_SEED, "random seed"),
         ("--seconds", float, DEFAULT_RULE_SEARCH_SECONDS, "seconds the rule search after each decisive game runs at most"),
         ("--memory", float, DEFAULT_SEARCH_MEMORY / 1024**3, "GB the rule search's process holds at most, workers each holding an even share"),

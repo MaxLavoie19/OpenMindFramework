@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 from openmind.agent.model.domain import Domain
 from openmind.csp.service.solver import Solver
-from openmind.mcts.constant.mcts_constant import ONE_PLY_OPTION, RANDOM_OPTION
+from openmind.mcts.constant.mcts_constant import RANDOM_OPTION
 from openmind.mcts.model.action_statistics import ActionStatistics
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.model.search_result import SearchResult
@@ -16,9 +16,9 @@ from openmind.world.service.state_reader import StateReader
 
 
 class OnePlyChooser:
-    """The cheap ways to choose a move, for a player whose time is short: each legal move valued once, its outcomes
-    valued for the player to act and weighed by their probabilities, a finished outcome at its payoffs; or a random
-    legal move. Neither searches."""
+    """What a player choosing without searching needs: its legal moves, each legal move valued once (its outcomes valued
+    for the player to act and weighed by their probabilities, a finished outcome at its payoffs), which the deduction
+    fallback reads, and a random legal move, for a player out of time."""
 
     def __init__(self, solver: Solver, predictor: Predictor, state_reader: StateReader) -> None:
         self._solver = solver
@@ -54,21 +54,6 @@ class OnePlyChooser:
                     worth.append(probability * self._state_reader.payoffs(outcome, domain.players)[player])
             values.append(math.fsum(worth))
         return values
-
-    def best(
-        self, domain: Domain, state: State, valuer: PositionValuer, rng: random.Random, deadline: Deadline | None = None
-    ) -> SearchResult | None:
-        """The legal move valued highest, ties drawn at random, every move with one visit at its value; None when a move
-        couldn't be valued in time."""
-        actions = self.legal(domain, state)
-        values = self.values(domain, state, actions, valuer, deadline)
-        if not actions or values is None:
-            return None
-        top = max(values)
-        chosen = rng.choice([action for action, value in zip(actions, values, strict=True) if value == top])
-        statistics = tuple(ActionStatistics(action, 1, value) for action, value in zip(actions, values, strict=True))
-        player = domain.players.names[self._state_reader.player_to_act(state, domain.players)]
-        return SearchResult(player, statistics, chosen, (), option=ONE_PLY_OPTION)
 
     def random(self, domain: Domain, state: State, rng: random.Random, unknown: float) -> SearchResult:
         """A random legal move, with one visit at the value given for what isn't known. No legal move raises ValueError."""
