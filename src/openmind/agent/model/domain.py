@@ -15,8 +15,9 @@ class Domain:
     record: `ending`, a rule reading a finished game's last state, and `record`, a rule reading the initial state and the
     parameter `actions`, both seeing the transitions' definitions when they are source (None: not said); and `timeout`,
     an effects rule giving the state after a player's clock ran out, the player given as `flagged`, which sets the
-    payoffs (None: the domain can't be played on a clock). Every rule is Python source or one of the project's own
-    functions."""
+    payoffs (None: the domain can't be played on a clock); and `picture`, a rule reading a state and the parameter `last`,
+    the action that led to it (None at the start), and giving an SVG image of the position as text, for pages showing
+    games (None: a position is shown as text). Every rule is Python source or one of the project's own functions."""
 
     name: str
     initial_state: State
@@ -27,3 +28,4 @@ class Domain:
     ending: Rule | None = None
     record: Rule | None = None
     timeout: Rule | None = None
+    picture: Rule | None = None

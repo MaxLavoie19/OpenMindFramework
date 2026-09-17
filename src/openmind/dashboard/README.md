@@ -24,6 +24,8 @@ the process file system and the system log.
 | `service/log_progress_reader.py` | `LogProgressReader.progress(directory)` and `.played()`: the newest log's round, the round's self-play games and how many were drawn or decisive, games against opponents, searched and deduced moves, and the latest notable lines |
 | `model/model_score.py` | `ModelScore(name, id, games, wins, draws, losses, last_game)`: what a model's games came to; `score` is points per game |
 | `service/model_score_reader.py` | `ModelScoreReader.scores(directory, domain)`: every model the knowledge base remembers with its games, the latest to play first |
+| `model/game_view.py` | `GameView(label, ended, players, payoffs, ending, record, moves, pictures, pictured)`: a game as the page shows it, one picture per position |
+| `service/latest_game_reader.py` | `LatestGameReader(domain_factory=create_domain).latest_decisive(directory, domain)`: the latest decisive game the knowledge base remembers, replayed and drawn position by position with the domain's picture rule, or laid out as text without one; the game last drawn is kept until a newer one is remembered |
 | `service/report_reader.py` | `ReportReader.summary(directory)`: the newest report's rounds and latest rules |
 | `service/machine_reader.py` | `MachineReader.status(proc, syslog)`: memory and swap, the training's processes, earlyoom's latest kills |
 | `service/dashboard_service.py` | `DashboardService.snapshot(settings)`: a snapshot from the three readers, which keep their places between snapshots |
@@ -53,6 +55,13 @@ the process file system and the system log.
   whole at every snapshot: every model remembered, with the sides it played, its wins, draws and losses as `GameMemory`
   remembered them at the end of each game, its score and its latest game, the latest to play first. No table without a
   knowledge base.
+- **Latest decisive game.** The same knowledge base's latest game whose payoffs differ, replayed from its moves and
+  outcome seed, every position drawn by the domain's picture rule (a chess board with the last move highlighted) or
+  laid out as text. The page shows who played which side, the result and why the game ended, the board with buttons
+  for the first, previous, next and last position (the left and right arrow keys step too), and the record, such as the
+  PGN. Every picture travels in the page, so stepping asks the dashboard for nothing; the position shown is kept for
+  that game in the browser's session, so the page reloading itself comes back to it. A chess game's boards weigh about
+  31 KB each: a 140-move game makes a page of about 4.5 MB, sent at every reload.
 - **Machine.** `meminfo` gives memory and swap; every process's command line, parent, start and resident memory give the
   training's processes: the loop script (`bash ...continue_training...`), the training entrypoint, and the workers
   whose parent is a training. The system log is read a piece at a time for earlyoom's `sending SIG...` lines, the

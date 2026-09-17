@@ -42,6 +42,11 @@ class GameSummaryJsonMapper:
             }
         )
 
+    @staticmethod
+    def players(text: str) -> list[dict[str, object]]:
+        """A summary's players, each with its player, model, model id and payoff, without reading the rest."""
+        return list(json.loads(text)["players"])
+
     def from_json(self, text: str, models: tuple[ModelDescription, ...]) -> GameSummary:
         data = json.loads(text)
         known = {model.id: model for model in models}

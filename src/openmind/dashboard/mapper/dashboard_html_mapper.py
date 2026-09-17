@@ -1,4 +1,5 @@
 import html
+import json
 from collections.abc import Sequence
 
 from openmind.dashboard.mapper.svg_chart_mapper import SvgChartMapper
@@ -28,6 +29,41 @@ pre { background: #fff; border: 1px solid #ddd; padding: .6rem; overflow-x: auto
 .chart .key { margin-right: .6rem; white-space: nowrap; }
 .chart .key i { display: inline-block; width: .6rem; height: .6rem; margin-right: .25rem; border-radius: 2px; }
 .chart text { font-size: 10px; fill: #666; }
+.game { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+.board { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .6rem; width: 26rem; max-width: 100%; }
+.board svg { width: 100%; height: auto; display: block; }
+.board pre { margin: 0; border: 0; }
+.steps { display: flex; gap: .4rem; align-items: center; margin-top: .5rem; flex-wrap: wrap; }
+.steps button { font-size: 1rem; padding: .2rem .6rem; }
+.record { flex: 1 1 18rem; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+"""
+
+#: Steps through the latest decisive game: buttons and the arrow keys move between positions, and the position shown is
+#: kept for that game in the browser, so the page reloading itself comes back to it.
+GAME_SCRIPT = """
+(() => {
+  const game = JSON.parse(document.getElementById('game-data').textContent);
+  const position = document.getElementById('position'), caption = document.getElementById('caption');
+  const last = game.pictures.length - 1, stored = 'openmind-game';
+  let at = 0;
+  try { const kept = JSON.parse(sessionStorage.getItem(stored) || 'null'); if (kept && kept.key === game.key) at = Math.min(kept.at, last); } catch (e) {}
+  const show = (next) => {
+    at = Math.max(0, Math.min(last, next));
+    if (game.pictured) { position.innerHTML = game.pictures[at]; }
+    else { const pre = document.createElement('pre'); pre.textContent = game.pictures[at]; position.replaceChildren(pre); }
+    caption.textContent = at === 0 ? `start, ${last} moves` : `move ${at} of ${last}: ${game.moves[at - 1]}`;
+    try { sessionStorage.setItem(stored, JSON.stringify({key: game.key, at})); } catch (e) {}
+  };
+  document.getElementById('first').onclick = () => show(0);
+  document.getElementById('previous').onclick = () => show(at - 1);
+  document.getElementById('next').onclick = () => show(at + 1);
+  document.getElementById('last').onclick = () => show(last);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowLeft') show(at - 1);
+    if (event.key === 'ArrowRight') show(at + 1);
+  });
+  show(at);
+})();
 """
 
 #: What each column of the rounds table means, in the table's order.
@@ -69,6 +105,7 @@ class DashboardHtmlMapper:
             self._progress(snapshot),
             self._machine(snapshot),
             self._plots(snapshot),
+            self._latest_game(snapshot),
             self._rounds(snapshot),
             self._rules(snapshot),
             self._arms(snapshot),
@@ -269,6 +306,24 @@ class DashboardHtmlMapper:
         )
         header = ("signal", "agreements", "disagreements", "accuracy", "reliability", "games", "wins", "draws", "losses", "score")
         return f"<h2>Latest round's signals</h2>{explanation}{self._table(header, rows)}"
+
+    def _latest_game(self, snapshot: DashboardSnapshot) -> str:
+        game = snapshot.latest_game
+        if game is None:
+            return ""
+        players = ", ".join(f"{html.escape(model)} ({html.escape(player)}) {payoff:g}" for (player, model), payoff in zip(game.players, game.payoffs, strict=True))
+        ending = "" if game.ending is None else f" by {html.escape(game.ending)}"
+        first = game.pictures[0] if game.pictured else f"<pre>{html.escape(game.pictures[0])}</pre>"
+        data = json.dumps({"key": f"{game.label} {game.ended}", "moves": list(game.moves), "pictures": list(game.pictures), "pictured": game.pictured})
+        record = "" if game.record is None else f"<pre class='record'>{html.escape(game.record)}</pre>"
+        return (
+            f"<h2>Latest decisive game</h2><div class='muted'>{html.escape(game.label)}, ended {html.escape(game.ended)}: "
+            f"{players}{ending}</div><div class='game'><div class='board'><div id='position'>{first}</div>"
+            "<div class='steps'><button id='first' title='first position'>⏮</button><button id='previous' title='previous move'>◀</button>"
+            "<button id='next' title='next move'>▶</button><button id='last' title='last move'>⏭</button>"
+            f"<span id='caption' class='muted'>start, {len(game.moves)} moves</span></div></div>{record}</div>"
+            f"<script id='game-data' type='application/json'>{data.replace('</', '<\\/')}</script><script>{GAME_SCRIPT}</script>"
+        )
 
     def _models(self, snapshot: DashboardSnapshot) -> str:
         if not snapshot.models:

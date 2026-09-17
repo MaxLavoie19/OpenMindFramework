@@ -30,3 +30,5 @@ WIN, DRAW, LOSS = "win", "draw", "loss"
 MODEL_KEYWORD, GAME_KEYWORD = "model", "game"
 #: How a random policy is described.
 RANDOM_POLICY_TEXT = '{"policy": "uniformly random legal actions"}'
+#: The parameter a domain's picture rule reads: the action that led to the position, None at the start.
+LAST_ACTION = "last"

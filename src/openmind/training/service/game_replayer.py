@@ -17,16 +17,9 @@ class GameReplayer:
         self._predictor = predictor
 
     def replay(self, domain: Domain, summary: GameSummary) -> PlayedGame:
-        """The game with its positions, payoffs, arms and actions. A summary without an outcome seed raises ValueError."""
-        if len(summary.seeds) < 2:
-            raise ValueError(f"{summary.label} has no outcome seed to replay it from")
-        rng = random.Random(summary.seeds[1])
-        state = domain.initial_state
-        states: list[State] = []
-        for action in summary.actions:
-            states.append(state)
-            outcomes = self._predictor.predict(domain.transitions, state, action).outcomes
-            (state,) = rng.choices([outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes])
+        """The game with the positions its moves were played from, its payoffs, arms and actions. A summary without an
+        outcome seed raises ValueError."""
+        states = self.positions(domain, summary)[:-1]
         mean = math.fsum(summary.payoffs) / len(summary.payoffs)
         return PlayedGame(
             (),
@@ -44,3 +37,17 @@ class GameReplayer:
             summary.seeds[1],
             summary.ending,
         )
+
+    def positions(self, domain: Domain, summary: GameSummary) -> tuple[State, ...]:
+        """Every position of the game, from the start to the position its last move led to: one more than its moves. A
+        summary without an outcome seed raises ValueError."""
+        if len(summary.seeds) < 2:
+            raise ValueError(f"{summary.label} has no outcome seed to replay it from")
+        rng = random.Random(summary.seeds[1])
+        state = domain.initial_state
+        states: list[State] = [state]
+        for action in summary.actions:
+            outcomes = self._predictor.predict(domain.transitions, state, action).outcomes
+            (state,) = rng.choices([outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes])
+            states.append(state)
+        return tuple(states)

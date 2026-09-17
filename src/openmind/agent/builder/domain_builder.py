@@ -27,6 +27,7 @@ class DomainBuilder:
         self._ending: Rule | None = None
         self._record: Rule | None = None
         self._timeout: Rule | None = None
+        self._picture: Rule | None = None
 
     def with_name(self, name: str) -> Self:
         self._name = name
@@ -86,6 +87,13 @@ class DomainBuilder:
         self._timeout = timeout
         return self
 
+    def with_picture(self, picture: Rule | None) -> Self:
+        """The rule drawing a position as an SVG image, reading the state and `last`, the action that led to it; None, the
+        default, shows positions as text."""
+        self._caller.check(picture)
+        self._picture = picture
+        return self
+
     def build(self) -> Domain:
         name, initial_state, problem, transitions, players = (
             self._name,
@@ -104,4 +112,4 @@ class DomainBuilder:
             )
             missing = ", ".join(part for part, value in parts if value is None)
             raise ValueError(f"Domain is missing: {missing}")
-        return Domain(name, initial_state, problem, transitions, players, self._observation, self._ending, self._record, self._timeout)
+        return Domain(name, initial_state, problem, transitions, players, self._observation, self._ending, self._record, self._timeout, self._picture)

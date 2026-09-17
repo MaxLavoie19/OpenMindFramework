@@ -3,6 +3,7 @@ from pathlib import Path
 
 from openmind.dashboard.mapper.dashboard_html_mapper import DashboardHtmlMapper
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
+from openmind.dashboard.model.game_view import GameView
 from openmind.dashboard.model.log_progress import LogProgress
 from openmind.dashboard.model.machine_status import MachineStatus
 from openmind.dashboard.model.model_score import ModelScore
@@ -83,3 +84,30 @@ def test_the_page_shows_every_model_s_games_under_a_header() -> None:
 
 def test_a_page_without_models_has_no_models_table() -> None:
     assert "<h2>Models</h2>" not in DashboardHtmlMapper().to_html(snapshot(), 30)
+
+
+def test_the_page_shows_the_latest_decisive_game_with_its_record_and_buttons_to_step_through_its_moves() -> None:
+    game = GameView(
+        "arms game 212",
+        "2026-09-16 23:41:00",
+        (("white", "deduced, losing color doubled"), ("black", "deduced, fork color doubled")),
+        (1.0, 0.0),
+        "checkmate",
+        '[Result "1-0"] 1. f3 e5 1-0',
+        ("f2f3", "e7e5"),
+        ("<svg>start</svg>", "<svg>f3</svg>", "<svg>e5</svg>"),
+        True,
+    )
+
+    page = DashboardHtmlMapper().to_html(replace(snapshot(), latest_game=game), 30)
+
+    assert "<h2>Latest decisive game</h2>" in page
+    assert "arms game 212, ended 2026-09-16 23:41:00: deduced, losing color doubled (white) 1, deduced, fork color doubled (black) 0 by checkmate" in page
+    assert "<div id='position'><svg>start</svg></div>" in page
+    assert "<pre class='record'>[Result &quot;1-0&quot;] 1. f3 e5 1-0</pre>" in page
+    assert all(f"<button id='{name}'" in page for name in ("first", "previous", "next", "last"))
+    assert '"moves": ["f2f3", "e7e5"]' in page and "<\\/svg>" in page
+
+
+def test_a_page_without_a_decisive_game_has_no_game_section() -> None:
+    assert "Latest decisive game" not in DashboardHtmlMapper().to_html(snapshot(), 30)
