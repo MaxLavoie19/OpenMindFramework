@@ -40,4 +40,5 @@ class MatchGameSummaryMapper:
             (None,) * len(game.seconds),
             game.clocks,
             game.flagged,
+            game.actions,
         )

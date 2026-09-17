@@ -5,6 +5,7 @@ from openmind.agent.model.game_summary import GameSummary
 from openmind.agent.model.model_description import ModelDescription
 from openmind.timing.model.clock import Clock
 from openmind.timing.model.time_control import TimeControl
+from openmind.world.model.action import Action
 
 MODEL = ModelDescription("round 2", '{"iterations": 100}')
 RANDOM = ModelDescription("random", '{"policy": "uniformly random legal actions"}')
@@ -28,6 +29,7 @@ def summary() -> GameSummary:
         (None, None, None),
         (Clock(-0.4, 2.0, True), Clock(181.9, 2.0)),
         "white",
+        (Action("move", (("uci", "e2e4"),)), Action("move", (("uci", "e7e5"),))),
     )
 
 

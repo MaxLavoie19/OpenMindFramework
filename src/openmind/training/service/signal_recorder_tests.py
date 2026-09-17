@@ -5,7 +5,9 @@ import pytest
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.inference.model.deduction import Deduction
 from openmind.rbs.service.term_evaluator_tests import new_evaluator
+from openmind.rbs.model.value_base import ValueBase
 from openmind.rule.model.python_rule import PythonRule
+from openmind.training.model.rule_support import RuleSupport
 from openmind.training.model.signal import Signal
 from openmind.training.model.signal_library import SignalLibrary
 from openmind.training.service.position_ponderer_tests import X_WINS, played
@@ -68,6 +70,16 @@ def test_records_keep_counting_across_rounds() -> None:
     twice = recorder.record(domain, once, (MARKS,), games)
 
     assert records(twice) == {"marks": (4, 0)}
+
+
+def test_adding_readings_keeps_the_library_s_rules_and_value_bases() -> None:
+    domain, recorder = create_tictactoe_domain(), SignalRecorder(new_evaluator())
+    base = ValueBase("tictactoe", 0.0, 0.0, 1.0, ())
+    library = SignalLibrary("tictactoe", (), (RuleSupport(MARKS.source, (("marks", 1.0),)),), (("marks", base),))  # type: ignore[arg-type]
+
+    recorded = recorder.record(domain, library, (MARKS,), (played(*X_WINS),))
+
+    assert (recorded.supports, recorded.value_bases) == (library.supports, library.value_bases)
 
 
 def test_a_proof_names_the_winner_and_a_proven_draw_is_no_anchor() -> None:

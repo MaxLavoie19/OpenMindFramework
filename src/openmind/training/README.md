@@ -41,7 +41,7 @@ self-play valuing positions with the previous round's rules.
 | `model/signal_record.py` | `SignalRecord(signal, agreements=0, disagreements=0, games=0, wins=0, draws=0, losses=0)`: how often the signal pointed to the coming winner over every round, and the games an agent following it played; `accuracy` (0.5 before any reading) and `reliability` (2 × accuracy − 1, at least 0) |
 | `model/rule_support.py` | `RuleSupport(term, strengths)`: a value rule's term and, by signal name, its standardized weight in that signal's fit |
 | `model/signal_library.py` | `SignalLibrary(domain, records=(), supports=(), value_bases=())`: every signal's record, the rules the signals support, and the value base last fitted to each followed signal, kept across rounds and runs |
-| `service/signal_recorder.py` | `SignalRecorder(term_evaluator)`: `read(domain, signals, games, deductions=())` reads every signal at every anchor for the winner and the loser; `aggregate(readings, aggregation, weights=None)` adds an aggregation's votes; `add(library, signals, readings)` adds the agreements and disagreements to the records; `record` reads then adds |
+| `service/signal_recorder.py` | `SignalRecorder(term_evaluator)`: `read(domain, signals, games, deductions=())` reads every signal at every anchor for the winner and the loser; `aggregate(readings, aggregation, weights=None)` adds an aggregation's votes; `add(library, signals, readings)` adds the agreements and disagreements to the records, everything else in the library kept; `record` reads then adds |
 | `service/signal_library_updater.py` | `SignalLibraryUpdater.update(library, fits)`: replaces each fitted signal's strengths, weighs rules by standing, drops rules no reliable signal supports, and keeps this round's fits as the value bases; `standing(library, support)`; `score(library, games)`, each game between arms a win, a draw or a loss on its arms' records |
 | `mapper/signal_library_json_mapper.py` | `SignalLibraryJsonMapper`: a signal library as JSON text and back, every record with its accuracy and reliability, every support with its strengths |
 | `repository/signal_library_repository.py` | `SignalLibraryRepository`: writes a signal library at a path and loads it back |
@@ -49,6 +49,16 @@ self-play valuing positions with the previous round's rules.
 | `model/training_round.py` | `TrainingRound(number, value_base, fits, chosen, training_rows, held_out_rows, held_out_error, baselines, against_previous, seconds, pondering=None)`: one round's value rules, fits, games and pondering |
 | `model/training_report.py` | `TrainingReport(domain, created_at, settings, rounds, complete)` |
 | `constant/training_constant.py` | Also the training loop defaults: 3 rounds, 200 games and 50 held out, 100 iterations, 10 rollout actions before valuing, 20 games per opponent; `START_RULES` |
+| `model/continuous_training_settings.py` | `ContinuousTrainingSettings(games, iterations, seed, values, signals, rollout_actions, rollout_limit, unfinished_payoff, deduction=None, ponder_positions=0, ponder_endings=0, learning_rate=0.01, time_control=None, expected_steps=30, selection='ucb1', puct_exploration=1.5, prior='uniform', prior_temperature=0.1)`: how continuous training runs; pondering without a deduction, negative games, pondering or learning rate raise `ValueError` |
+| `model/game_lesson.py` | `GameLesson(game, candidates, readings, pondering, targets, terms)`: what a worker learned from one game |
+| `model/study_snapshot.py` | `StudySnapshot(library, seeds, reference)`: what a game's study starts from |
+| `service/game_study.py` | `GameStudy.play_and_study(domain, builders, arms, agent_seed, outcome_seed, snapshot, settings)`: plays a game between two arms and studies it, in its worker |
+| `service/lesson_learner.py` | `LessonLearner(signal_recorder, online_value_fitter, knowledge_base=None)`: `learn(domain, library, lesson, label, settings)`, records, the pool of proofs and seeds (`deductions`, `seeds`), and every arm's weight step |
+| `service/online_value_fitter.py` | `OnlineValueFitter.step(value_base, terms, targets, learning_rate, price)`: one proximal gradient step on the rule search's loss, a weight landing on 0 dropping its rule; None when a rule's term couldn't be read |
+| `service/rule_searcher.py` | `RuleSearcher.search(domain, library, games, deductions, seeds, settings)`: the rule search after a decisive game, over every game so far |
+| `service/game_replayer.py` | `GameReplayer.replay(domain, summary)`: a remembered game played again from its actions and outcome seed, its positions exactly as they were |
+| `service/candidate_signals.py` | `CandidateSignals.candidates(domain, games, seeds, library)`: the signals read from positions, recorded ones, seeds, supported rules and the positions' leaves |
+| `service/continuous_trainer.py` | `ContinuousTrainer.train(domain, library, settings, on_game=None)`: continuous training; `ContinuousTrainerBuilder` wires it with its workers, memory cap and knowledge base |
 | `service/value_training_loop.py` | `ValueTrainingLoop`: rounds of self-play valuing positions with the previous round's rules, value fitting, and games against the random policy, untrained MCTS and the previous round's agent; with the signals target and no value bases yet, it prepares the deduced signals first; with a game memory (`ValueTrainingLoopBuilder.with_game_memory`), every game, evaluation series included, is remembered as it ends |
 | `service/signal_preparer.py` | `SignalPreparer(heuristic_deducer)`: `prepare(domain)`, a library with a record for every deduced signal and the value bases round 1's arms follow: `deduced`, every weight 1 over the number of signals, and `deduced, <signal> doubled` for each signal |
 | `builder/value_training_loop_builder.py` | `ValueTrainingLoopBuilder`: sets how many worker processes self-play, term evaluations and games run in (`with_workers`, 1 by default) and the memory each holds at most (`with_memory_cap`, no cap by default), and wires the loop |
@@ -243,6 +253,39 @@ options are derived.
 - **Standing.** `SignalLibraryUpdater` replaces the strengths of every signal fitted this round, keeps those of signals
   not fitted, and weighs each rule by its standing, Σ reliability × |strength| over its signals; a signal never read yet
   counts as fully reliable. A rule whose standing is 0 leaves the library; there is no limit on how many stay.
+
+## How continuous training works
+
+`ContinuousTrainer.train(domain, library, settings, on_game)` plays games between arms, the value bases the signal
+library holds, one after another, and learns from each game as it ends. There are no rounds. Without a library holding
+value bases, the signals deduced from the rules come first, as the arms (see "Signals").
+
+1. **A game starts** when a worker is free. UCB picks its two arms from the scores the knowledge base counts (see
+   `GameMemory`), and the game plays with the library, the weights and the seeds as they stand at that moment. No search
+   tree outlives its move.
+2. **The worker studies the game** before taking the next one (`GameStudy`): it ponders the positions the best-scoring
+   arm's rules missed most (`ponder_positions`) and walks a decisive game back from its end (`ponder_endings`); reads
+   every candidate signal on the game's anchors; works out the targets of the signals followed on every position for
+   each player; and reads every term of the arms' rules on those positions.
+3. **The lesson is learned here** as it arrives (`LessonLearner`): the game is remembered with its arms' models; every
+   candidate's readings add to its record; the proofs and seeds join the pool, each proof remembered as `proved` with
+   its game and ply; and every arm's weights take one step toward its signal's targets (`OnlineValueFitter`), an arm
+   not named after a followed signal, such as a deduced one, toward the weighted aggregation's. The library is handed to
+   `on_game` to be saved.
+4. **After a decisive game**, a rule search runs over every game played so far, replayed from the knowledge base
+   (`GameReplayer`), starting from the seed pool, within `values.seconds` (`RuleSearcher`); its fits become the
+   library's rules and arms. No new game starts until the search is done; games already under way finish meanwhile, and
+   their lessons are learned after it. A lesson whose arms' rules the search replaced gets no weight step.
+
+It stops after `games` games, or runs until stopped. Every game, proof and seed is in the knowledge base, and the
+library is saved after every game, so nothing learned from a finished game is lost.
+
+Logs, besides every game's own lines:
+
+- `INFO Training continuously from game <n> on <games or until stopped>: <k> arms, learning rate <r>, a rule search of at most <s> seconds after each decisive game`
+- `INFO Learned from arms game <n>: <a> anchors read by <k> signals, <p> positions proven, <s> seeds; the largest weight step <x> on <arm>`, or `...; no weight step: ...` when no arm could step
+- `INFO Game <n> was decisive: searching for rules before the next game starts`
+- `INFO Searched rules on <g> games and <p> positions for <k> signals: <signal> <n> rules; ...`
 
 ## How the value training loop works
 

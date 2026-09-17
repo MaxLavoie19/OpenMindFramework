@@ -98,7 +98,7 @@ class SignalRecorder:
         return replace(readings, signs=signs)
 
     def add(self, library: SignalLibrary, signals: Sequence[Signal], readings: SignalReadings) -> SignalLibrary:
-        """The library with the signals' readings added to their records."""
+        """The library with the signals' readings added to their records, everything else in it kept."""
         records = {record.signal.name: record for record in library.records}
         unreadable = 0
         for signal in signals:
@@ -132,7 +132,7 @@ class SignalRecorder:
             readings.games,
             unreadable,
         )
-        return SignalLibrary(library.domain, tuple(records.values()), library.supports)
+        return replace(library, records=tuple(records.values()))
 
     def _anchors(
         self, names: Sequence[str], games: Sequence[PlayedGame], deductions: Sequence[Deduction]

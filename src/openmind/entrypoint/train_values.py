@@ -5,30 +5,23 @@ from pathlib import Path
 
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF
 from openmind.agent.factory.domain_factory import create_domain
-from openmind.agent.service.game_memory import GameMemory
 from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.entrypoint.clock_options import add_clock_options, add_knowledge_option
-from openmind.entrypoint.search_options import add_selection_options
-from openmind.mcts.constant.mcts_constant import RATER_PRIOR
 from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
+from openmind.entrypoint.search_options import add_selection_options
 from openmind.inference.constant.inference_constant import (
     DEFAULT_DEDUCTION_SECONDS,
     DEFAULT_HIGHEST_PAYOFF,
     DEFAULT_SEARCH_MEMORY,
-    DEFAULT_SEARCH_SECONDS,
 )
 from openmind.inference.model.deduction_budget import DeductionBudget
+from openmind.mcts.constant.mcts_constant import RATER_PRIOR
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.parallel.model.memory_cap import MemoryCap
-from openmind.rbs.constant.explanation_constant import DEFAULT_EXPLANATIONS_DIRECTORY
 from openmind.rbs.constant.value_constant import DEFAULT_MAX_STEPS, DEFAULT_PRICES, DEFAULT_TOLERANCE
-from openmind.rbs.factory.rbs_factory import create_rule_explainer
-from openmind.rbs.mapper.value_base_explanation_mapper import ValueBaseExplanationMapper
-from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
 from openmind.rbs.model.value_settings import ValueSettings
-from openmind.rbs.repository.value_base_repository import ValueBaseRepository
-from openmind.rbs.service.ollama_language_model import OllamaLanguageModel
+from openmind.training.constant.continuous_constant import DEFAULT_LEARNING_RATE, DEFAULT_RULE_SEARCH_SECONDS
 from openmind.training.constant.signal_constant import (
     DEFAULT_ARM_EXPLORATION,
     DEFAULT_ARMS,
@@ -36,96 +29,71 @@ from openmind.training.constant.signal_constant import (
     DEFAULT_SIGNAL_HORIZON,
 )
 from openmind.training.constant.training_constant import (
-    DEFAULT_EVALUATION_GAMES,
     DEFAULT_SEED,
-    DEFAULT_TRAINING_GAMES,
-    DEFAULT_TRAINING_HELD_OUT_GAMES,
     DEFAULT_TRAINING_ITERATIONS,
     DEFAULT_TRAINING_ROLLOUT_ACTIONS,
-    DEFAULT_TRAINING_ROUNDS,
-    SEARCH_TARGET,
-    SIGNALS_TARGET,
-    VALUE_TARGETS,
 )
+from openmind.training.factory.training_factory import create_continuous_trainer
 from openmind.training.mapper.signal_library_json_mapper import SignalLibraryJsonMapper
+from openmind.training.model.continuous_training_settings import ContinuousTrainingSettings
+from openmind.training.model.pondering_settings import PonderingSettings
+from openmind.training.model.signal_library import SignalLibrary
 from openmind.training.model.signal_settings import SignalSettings
 from openmind.training.repository.signal_library_repository import SignalLibraryRepository
-from openmind.training.factory.training_factory import create_value_training_loop
-from openmind.training.mapper.training_report_json_mapper import TrainingReportJsonMapper
-from openmind.training.mapper.training_report_text_mapper import TrainingReportTextMapper
-from openmind.training.model.pondering_settings import PonderingSettings
-from openmind.training.model.training_report import TrainingReport
-from openmind.training.model.value_distillation_settings import ValueDistillationSettings
-from openmind.training.model.value_training_settings import ValueTrainingSettings
-from openmind.training.repository.training_report_repository import TrainingReportRepository
 
 logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Trains value rules round after round from self-play, saves every round's value base and the report as each round
-    ends, and prints the rounds."""
+    """Trains value rules continuously: games between arms one after another, learning from each game as it ends, a rule
+    search after each decisive game, and the signal library saved after every game."""
     parser = argparse.ArgumentParser(
-        prog="openmind-train-values", description="Train value rules round after round from self-play."
+        prog="openmind-train-values", description="Train value rules continuously, learning from every game as it ends."
     )
-    parser.add_argument("domain", help="domain to train value rules for, such as tictactoe")
+    parser.add_argument("domain", help="domain to train value rules for, such as chess")
+    parser.add_argument(
+        "--games", type=_positive, default=None, help="games to play, then stop (default: until stopped)"
+    )
     options: list[tuple[str, type, object, str]] = [
-        ("--games", int, DEFAULT_TRAINING_GAMES, "self-play games per round to fit value rules on"),
-        ("--held-out-games", int, DEFAULT_TRAINING_HELD_OUT_GAMES, "self-play games per round to choose a fit and measure it on"),
-        ("--iterations", int, DEFAULT_TRAINING_ITERATIONS, "MCTS iterations per move, in self-play and in each round's games"),
-        ("--seed", int, DEFAULT_SEED, "random seed; round k uses the seed plus k"),
-        ("--seconds", float, DEFAULT_SEARCH_SECONDS, "seconds the expression search runs per round"),
-        ("--memory", float, DEFAULT_SEARCH_MEMORY / 1024**3, "GB the expression search's process holds at most, workers each holding an even share"),
+        ("--iterations", int, DEFAULT_TRAINING_ITERATIONS, "MCTS iterations per move; with a clock, the cap of each move"),
+        ("--seed", int, DEFAULT_SEED, "random seed"),
+        ("--seconds", float, DEFAULT_RULE_SEARCH_SECONDS, "seconds the rule search after each decisive game runs at most"),
+        ("--memory", float, DEFAULT_SEARCH_MEMORY / 1024**3, "GB the rule search's process holds at most, workers each holding an even share"),
         ("--max-steps", int, DEFAULT_MAX_STEPS, "steps a fit takes at most"),
         ("--tolerance", float, DEFAULT_TOLERANCE, "weight change below which a fit has settled"),
-        ("--workers", int, DEFAULT_WORKERS, "worker processes self-play games, term evaluations and games run in"),
+        ("--workers", int, DEFAULT_WORKERS, "worker processes games are played and studied in, and the rule search evaluates terms in"),
     ]
     for flag, kind, default, meaning in options:
         parser.add_argument(flag, type=kind, default=default, help=f"{meaning} (default: {default})")
     parser.add_argument(
-        "--rounds",
-        type=_positive,
-        default=DEFAULT_TRAINING_ROUNDS,
-        help=f"rounds of self-play and fitting (default: {DEFAULT_TRAINING_ROUNDS})",
-    )
-    parser.add_argument(
-        "--start",
-        type=Path,
-        default=None,
-        help="value rules round 1's self-play values positions with (default: none, plain MCTS self-play)",
-    )
-    parser.add_argument(
-        "--target",
-        default=SEARCH_TARGET,
-        choices=VALUE_TARGETS,
-        help=f"what a position is valued at: the game's final payoffs (outcome) or the search's mean payoff (search) "
-        f"(default: {SEARCH_TARGET})",
-    )
-    parser.add_argument(
         "--prices",
         type=_prices,
         default=DEFAULT_PRICES,
-        help=f"comma-separated L1 prices swept (default: {','.join(map(str, DEFAULT_PRICES))})",
+        help=f"comma-separated L1 prices swept by each search; the middle one prices each game's weight step (default: {','.join(map(str, DEFAULT_PRICES))})",
     )
     parser.add_argument(
         "--candidates",
         type=_non_negative,
         default=None,
-        help="candidates the expression search tries at most per round (default: no limit)",
+        help="candidates each rule search tries at most (default: no limit)",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=DEFAULT_LEARNING_RATE,
+        help=f"how far each weight moves toward what a finished game showed (default: {DEFAULT_LEARNING_RATE})",
     )
     parser.add_argument(
         "--rollout-actions",
         type=_non_negative,
         default=DEFAULT_TRAINING_ROLLOUT_ACTIONS,
-        help="rollout actions played before a position is valued with value rules "
-        f"(default: {DEFAULT_TRAINING_ROLLOUT_ACTIONS})",
+        help=f"rollout actions played before a position is valued with value rules (default: {DEFAULT_TRAINING_ROLLOUT_ACTIONS})",
     )
     parser.add_argument(
         "--rollout-limit",
         type=_non_negative,
         default=None,
-        help="actions a rollout plays at most before every player gets the unfinished payoff, for every agent "
-        "(default: no limit)",
+        help="actions a rollout plays at most before every player gets the unfinished payoff (default: no limit)",
     )
     parser.add_argument(
         "--unfinished-payoff",
@@ -133,58 +101,42 @@ def main(argv: list[str] | None = None) -> None:
         default=DEFAULT_UNFINISHED_PAYOFF,
         help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF})",
     )
-    parser.add_argument(
-        "--evaluation-games",
-        type=_non_negative,
-        default=DEFAULT_EVALUATION_GAMES,
-        help="games against each opponent after every round; 0 plays none "
-        f"(default: {DEFAULT_EVALUATION_GAMES})",
-    )
     _add_deduction_options(parser)
     _add_worker_memory_option(parser)
     parser.add_argument(
         "--arms",
         type=_non_negative,
         default=DEFAULT_ARMS,
-        help=f"with --target signals: signals each round follows at most, those with the best records, besides winning and "
-        f"the aggregations (default: {DEFAULT_ARMS})",
+        help=f"signals followed at most, those with the best records, besides winning and the aggregations (default: {DEFAULT_ARMS})",
     )
     parser.add_argument(
         "--signal-horizon",
         type=_non_negative,
         default=DEFAULT_SIGNAL_HORIZON,
-        help=f"with --target signals: plies later a position's signals are read for its targets (default: "
-        f"{DEFAULT_SIGNAL_HORIZON})",
+        help=f"plies later a position's signals are read for its targets (default: {DEFAULT_SIGNAL_HORIZON})",
     )
     parser.add_argument(
         "--arm-exploration",
         type=float,
         default=DEFAULT_ARM_EXPLORATION,
-        help=f"with --target signals: UCB1's exploration weight when choosing which signals' agents play each other "
-        f"(default: {DEFAULT_ARM_EXPLORATION})",
+        help=f"UCB1's exploration weight when choosing which arms play each other (default: {DEFAULT_ARM_EXPLORATION})",
     )
     parser.add_argument(
         "--goal-limit",
         type=_non_negative,
         default=DEFAULT_GOAL_LIMIT,
-        help=f"with --target signals: moves ahead the deduced goal distance looks for a win, 1 or more (default: "
-        f"{DEFAULT_GOAL_LIMIT})",
+        help=f"moves ahead the deduced goal distance looks for a win, 1 or more (default: {DEFAULT_GOAL_LIMIT})",
     )
     parser.add_argument(
         "--signal-library",
         type=Path,
         default=None,
-        help="with --target signals: the signal library round 1 starts from, such as an earlier run's (default: a new one)",
+        help="the signal library to start from, such as an earlier run's (default: the signals deduced from the rules)",
     )
     parser.add_argument(
         "--signals-directory",
         default="data/signals",
-        help="where the signal library is saved after every round, with --target signals (default: data/signals)",
-    )
-    parser.add_argument(
-        "--pgn-directory",
-        default="data/pgn",
-        help="where each round's game records are saved, for a domain that records its games (default: data/pgn)",
+        help="where the signal library is saved after every game (default: data/signals)",
     )
     parser.add_argument(
         "--log-level",
@@ -197,155 +149,89 @@ def main(argv: list[str] | None = None) -> None:
         default="data/log/train-values",
         help="where logs are saved (default: data/log/train-values)",
     )
-    parser.add_argument(
-        "--values-directory", default="data/values", help="where each round's value base is saved (default: data/values)"
-    )
-    parser.add_argument(
-        "--report-directory", default="data/training", help="where training reports are saved (default: data/training)"
-    )
-    parser.add_argument(
-        "--explainer-url",
-        default=None,
-        help="an Ollama server that explains each round's rules in sentences, such as http://127.0.0.1:11434 "
-        "(default: none, literal readings only)",
-    )
-    parser.add_argument(
-        "--explainer-model", default=None, help="the Ollama model explaining the rules, such as qwen3:8b (default: none)"
-    )
-    parser.add_argument(
-        "--explanations-directory",
-        default=DEFAULT_EXPLANATIONS_DIRECTORY,
-        help=f"where the model's sentences are cached (default: {DEFAULT_EXPLANATIONS_DIRECTORY})",
-    )
     add_clock_options(parser, "--training-time-control")
     add_knowledge_option(parser)
     add_selection_options(parser)
     arguments = parser.parse_args(argv)
     if arguments.prior == RATER_PRIOR:
         parser.error("--prior rater needs rules that rate actions, which training doesn't have; use value or uniform")
-    if (arguments.explainer_url is None) != (arguments.explainer_model is None):
-        parser.error("--explainer-url and --explainer-model go together")
-    domain = create_domain(arguments.domain)
-    if arguments.training_time_control is not None and domain.timeout is None:
-        parser.error(f"{domain.name} can't be played on a clock: it has no timeout rule")
-    value_bases = ValueBaseRepository(ValueBaseJsonMapper())
-    start = None if arguments.start is None else value_bases.load(arguments.start)
-    if start is not None and start.domain != domain.name:
-        parser.error(f"--start holds value rules for {start.domain}, not {domain.name}")
-    signaled = arguments.target == SIGNALS_TARGET
-    if arguments.signal_library is not None and not signaled:
-        parser.error("--signal-library needs --target signals")
     if arguments.arm_exploration < 0.0:
         parser.error(f"--arm-exploration needs 0 or more, not {arguments.arm_exploration}")
     if arguments.goal_limit < 1:
         parser.error(f"--goal-limit needs 1 or more, not {arguments.goal_limit}")
+    if arguments.learning_rate < 0.0:
+        parser.error(f"--learning-rate needs 0 or more, not {arguments.learning_rate}")
+    domain = create_domain(arguments.domain)
+    if arguments.training_time_control is not None and domain.timeout is None:
+        parser.error(f"{domain.name} can't be played on a clock: it has no timeout rule")
     libraries = SignalLibraryRepository(SignalLibraryJsonMapper())
     library = None if arguments.signal_library is None else libraries.load(arguments.signal_library)
     if library is not None and library.domain != domain.name:
         parser.error(f"--signal-library holds signals for {library.domain}, not {domain.name}")
-    values = ValueSettings(
-        arguments.prices,
-        arguments.max_steps,
-        arguments.tolerance,
-        arguments.seconds,
-        int(arguments.memory * 1024**3),
-        arguments.candidates,
-    )
-    deduction, pondering = _deduction_settings(parser, arguments)
-    settings = ValueTrainingSettings(
-        arguments.rounds,
-        ValueDistillationSettings(
-            arguments.games,
-            arguments.held_out_games,
-            arguments.iterations,
-            arguments.seed,
-            arguments.target,
-            values,
-            pondering,
-            SignalSettings(arguments.arms, arguments.signal_horizon, arguments.arm_exploration, arguments.goal_limit)
-            if signaled
-            else None,
-            arguments.training_time_control,
-            arguments.expected_steps,
-            arguments.selection,
-            arguments.puct_exploration,
-            arguments.prior,
-            arguments.prior_temperature,
+    deduction, _ = _deduction_settings(parser, arguments)
+    settings = ContinuousTrainingSettings(
+        arguments.games,
+        arguments.iterations,
+        arguments.seed,
+        ValueSettings(
+            arguments.prices,
+            arguments.max_steps,
+            arguments.tolerance,
+            arguments.seconds,
+            int(arguments.memory * 1024**3),
+            arguments.candidates,
         ),
+        SignalSettings(arguments.arms, arguments.signal_horizon, arguments.arm_exploration, arguments.goal_limit),
         arguments.rollout_actions,
         arguments.rollout_limit,
         None if arguments.rollout_limit is None else arguments.unfinished_payoff,
-        arguments.evaluation_games,
-        None if arguments.start is None else str(arguments.start),
         deduction,
+        arguments.ponder_positions,
+        arguments.ponder_endings,
+        arguments.learning_rate,
+        arguments.training_time_control,
+        arguments.expected_steps,
+        arguments.selection,
+        arguments.puct_exploration,
+        arguments.prior,
+        arguments.prior_temperature,
     )
 
     directory = Path(arguments.log_directory) / domain.name
     memory_cap = _memory_cap(parser, arguments, directory)
     directory.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
+    started = datetime.now()
+    handler = logging.FileHandler(directory / f"{started:%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root = logging.getLogger()
     level = root.level
     root.addHandler(handler)
     root.setLevel(arguments.log_level)
+    path = Path(arguments.signals_directory) / domain.name / f"{started:%Y-%m-%d_%H-%M-%S}.json"
     try:
-        reports = TrainingReportRepository(TrainingReportJsonMapper())
-        explainer, explanation_mapper = create_rule_explainer(), ValueBaseExplanationMapper()
-        language_model = (
-            None
-            if arguments.explainer_url is None
-            else OllamaLanguageModel(arguments.explainer_url, arguments.explainer_model)
-        )
-        round_files: dict[int, Path] = {}
-        report_files: list[Path] = []
-
-        def save(report: TrainingReport) -> None:
-            for item in report.rounds:
-                if item.number not in round_files:
-                    run = Path(arguments.values_directory) / report.domain / f"{report.created_at:%Y-%m-%d_%H-%M-%S}"
-                    round_files[item.number] = value_bases.write(item.value_base, run / f"round-{item.number}.json")
-                    logger.info("Saved round %d values %s", item.number, round_files[item.number])
-                    explanations = explainer.explain(
-                        item.value_base, domain, language_model, Path(arguments.explanations_directory)
-                    )
-                    exported = value_bases.export(
-                        explanation_mapper.to_markdown(item.value_base, explanations), run / f"round-{item.number}.md"
-                    )
-                    logger.info("Exported round %d rules %s", item.number, exported)
-                    if item.records:
-                        games = Path(arguments.pgn_directory) / report.domain / f"{report.created_at:%Y-%m-%d_%H-%M-%S}"
-                        games.mkdir(parents=True, exist_ok=True)
-                        played = games / f"round-{item.number}.pgn"
-                        played.write_text("\n\n".join(item.records) + "\n", encoding="utf-8")
-                        logger.info("Saved round %d games %s", item.number, played)
-            report_files.append(reports.save(report, Path(arguments.report_directory)))
-            logger.info("Saved training report %s", report_files[-1])
-            latest = report.rounds[-1].library if report.rounds else None
-            if latest is not None:
-                path = Path(arguments.signals_directory) / report.domain / f"{report.created_at:%Y-%m-%d_%H-%M-%S}.json"
-                logger.info("Saved signal library %s", libraries.write(latest, path))
-
         logger.info(
             "Training in %d worker processes, each holding at most %d bytes; memory diagnoses in %s",
             arguments.workers,
             memory_cap.worker_bytes,
             memory_cap.diagnosis_directory,
         )
-        if signaled:
-            logger.info(
-                "Following signals: at most %d besides winning and the aggregations, read %d plies later, goal distance "
-                "looking up to %d moves ahead; starting from %s",
-                arguments.arms,
-                arguments.signal_horizon,
-                arguments.goal_limit,
-                arguments.signal_library or "a new signal library",
-            )
-        report = create_value_training_loop(arguments.workers, memory_cap, GameMemory(create_knowledge_base(domain.name, arguments.knowledge))).train(domain, start, settings, save, library)
-        print(TrainingReportTextMapper().to_text(report))
-        for number, path in round_files.items():
-            print(f"Saved round {number} values {path}")
-        print(f"Saved training report {report_files[-1]}")
+        logger.info(
+            "Following signals: at most %d besides winning and the aggregations, read %d plies later, goal distance "
+            "looking up to %d moves ahead; starting from %s; the library saved after every game to %s",
+            arguments.arms,
+            arguments.signal_horizon,
+            arguments.goal_limit,
+            arguments.signal_library or "the signals deduced from the rules",
+            path,
+        )
+
+        def save(saved: SignalLibrary) -> None:
+            libraries.write(saved, path)
+
+        knowledge_base = create_knowledge_base(domain.name, arguments.knowledge)
+        library = create_continuous_trainer(knowledge_base, arguments.workers, memory_cap).train(domain, library, settings, save)
+        logger.info("Saved signal library %s", path)
+        print(f"Saved signal library {path}")
     finally:
         root.setLevel(level)
         root.removeHandler(handler)

@@ -11,7 +11,7 @@ workers.
 
 | File | What it is |
 |---|---|
-| `service/task_runner.py` | `TaskRunner(workers, memory_cap=None)`: `map(function, *argument_lists, droppable=False)` calls the function with the items at each index, in worker processes when it has more than one worker, and gives the results in order; `stream(function, count, arguments_for, on_result, droppable=False)` does the same, choosing each call's arguments only when a worker takes it and handing back each result as it ends; `split(items)` cuts a list into slices for the workers |
+| `service/task_runner.py` | `TaskRunner(workers, memory_cap=None)`: `map(function, *argument_lists, droppable=False)` calls the function with the items at each index, in worker processes when it has more than one worker, and gives the results in order; `stream(function, count, arguments_for, on_result, droppable=False, keep_results=True)` does the same, choosing each call's arguments only when a worker takes it and handing back each result as it ends; without keeping results only `on_result` sees them, and a count of None calls without end, which can't keep them; `split(items)` cuts a list into slices for the workers |
 | `service/memory_guard.py` | `MemoryGuard`: one per process; cuts the caches registered with it back, oldest first, when the process holds more than its limit, empties them when a worker's call ends, hands freed memory back to the system, and in a worker under a cap watches the memory and ends the worker with a diagnosis |
 | `service/memory_evictor.py` | `evict_oldest(cache, keep)`: drops a cache's oldest entries down to so many |
 | `service/memory_meter.py` | `MemoryMeter`: how many bytes this process holds, from `/proc/self/statm`, or its peak where `/proc` is missing |

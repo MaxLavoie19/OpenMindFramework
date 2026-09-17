@@ -1,13 +1,10 @@
-import json
-from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from openmind.agent.service.game_memory import GameMemory
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.entrypoint.train_values import main
-from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
-from openmind.rbs.model.value_base import ValueBase
-from openmind.rbs.repository.value_base_repository import ValueBaseRepository
 from openmind.testing.service.log_reader import said
 from openmind.training.mapper.signal_library_json_mapper import SignalLibraryJsonMapper
 from openmind.training.repository.signal_library_repository import SignalLibraryRepository
@@ -15,75 +12,61 @@ from openmind.training.repository.signal_library_repository import SignalLibrary
 pytestmark = pytest.mark.log_level("INFO")
 
 SMALL = (
-    *("--games", "2", "--held-out-games", "1", "--iterations", "10", "--seed", "1"),
-    *("--seconds", "300", "--memory", "1", "--candidates", "1000", "--prices", "0.1,0.01", "--max-steps", "100"),
-    *("--rollout-actions", "1", "--evaluation-games", "2", "--workers", "1"),
+    *("--games", "4", "--iterations", "10", "--seed", "1", "--arms", "2", "--workers", "1"),
+    *("--seconds", "20", "--memory", "1", "--candidates", "300", "--prices", "0.1,0.01", "--max-steps", "100"),
+    *("--rollout-actions", "0", "--deduction-plies", "2", "--deduction-seconds", "1", "--ponder-positions", "2"),
+    *("--ponder-endings", "3"),
 )
 
 
 def directories(tmp_path: Path) -> tuple[str, ...]:
     return (
-        *("--log-directory", str(tmp_path / "log"), "--values-directory", str(tmp_path / "values")),
-        *("--report-directory", str(tmp_path / "training")),
+        *("--log-directory", str(tmp_path / "log"), "--signals-directory", str(tmp_path / "signals")),
+        *("--knowledge", str(tmp_path / "knowledge")),
     )
 
 
-def test_with_the_signals_target_every_round_saves_the_signal_library_and_the_report_holds_the_arms(tmp_path: Path) -> None:
-    signals = tmp_path / "signals"
-    main(
-        [
-            "tictactoe",
-            *("--rounds", "2", "--target", "signals", "--arms", "2", "--signals-directory", str(signals)),
-            *SMALL,
-            *directories(tmp_path),
-        ]
-    )
-
-    (library_file,) = (signals / "tictactoe").glob("*.json")
-    library = SignalLibraryRepository(SignalLibraryJsonMapper()).load(library_file)
-    (report_file,) = (tmp_path / "training" / "tictactoe").glob("*.json")
-    report = json.loads(report_file.read_text(encoding="utf-8"))
-    assert library.domain == "tictactoe" and any(record.signal.name == "win" for record in library.records)
-    assert report["settings"]["signals"] == {"arms": 2, "horizon": 0, "goal_limit": 2}
-    assert [arm["name"] for arm in report["rounds"][1]["arms"]][-2:] == ["uniform", "weighted"]
-
-    main(["tictactoe", *("--rounds", "1", "--target", "signals", "--signal-library", str(library_file)), *SMALL, *directories(tmp_path)])
-
-
-def test_a_signal_library_without_the_signals_target_is_rejected(tmp_path: Path) -> None:
-    with pytest.raises(SystemExit):
-        main(["tictactoe", "--signal-library", str(tmp_path / "missing.json"), *SMALL, *directories(tmp_path)])
-
-
-def test_train_values_saves_every_round_and_the_report_and_prints_the_rounds(
+def test_training_learns_from_every_game_as_it_ends_and_saves_the_library_and_the_games(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    main(["tictactoe", "--rounds", "2", *SMALL, *directories(tmp_path)])
+    main(["tictactoe", *SMALL, *directories(tmp_path)])
 
-    (run,) = (tmp_path / "values" / "tictactoe").iterdir()
-    assert sorted(path.name for path in run.iterdir()) == ["round-1.json", "round-1.md", "round-2.json", "round-2.md"]
-    assert (run / "round-2.md").read_text(encoding="utf-8").startswith("# tictactoe value rules\n")
-    assert ValueBaseRepository(ValueBaseJsonMapper()).load(run / "round-2.json").domain == "tictactoe"
-    (report_file,) = (tmp_path / "training" / "tictactoe").glob("*.json")
-    report = json.loads(report_file.read_text(encoding="utf-8"))
-    assert (report["complete"], [item["number"] for item in report["rounds"]]) == (True, [1, 2])
-    output = capsys.readouterr().out
-    assert output.startswith("Trained tictactoe value rules for 2 of 2 rounds, complete; round 1 started from no value rules\n")
-    assert f"\nSaved round 2 values {run / 'round-2.json'}\n" in output
-    assert output.endswith(f"Saved training report {report_file}\n")
+    (library_file,) = (tmp_path / "signals" / "tictactoe").glob("*.json")
+    library = SignalLibraryRepository(SignalLibraryJsonMapper()).load(library_file)
+    assert library.domain == "tictactoe" and len(library.value_bases) >= 2
+    assert any(record.agreements + record.disagreements > 0 for record in library.records)
+    memory = GameMemory(create_knowledge_base("tictactoe", tmp_path / "knowledge"))
+    assert len(memory.games("arms")) == 4
+    assert capsys.readouterr().out.endswith(f"Saved signal library {library_file}\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
     lines = said(log_file)
-    assert (
-        "INFO  openmind.entrypoint.train_values Training in 1 worker processes, each holding at most 1073741824 bytes; "
-        f"memory diagnoses in {tmp_path / 'log' / 'tictactoe' / 'memory'}"
-    ) in lines
-    assert lines[-1] == f"INFO  openmind.entrypoint.train_values Saved training report {report_file}"
+    assert sum(1 for line in lines if " openmind.training.service.lesson_learner Learned from arms game " in line) == 4
+    decisive = sum(1 for line in lines if " was decisive: searching for rules before the next game starts" in line)
+    assert decisive == sum(1 for line in lines if " openmind.training.service.rule_searcher Searched rules on " in line)
 
 
-def test_start_rules_of_another_domain_are_rejected(tmp_path: Path) -> None:
-    start = ValueBaseRepository(ValueBaseJsonMapper()).save(
-        ValueBase("sudoku", 0.0, 0.0, 1.0, ()), tmp_path / "values", datetime(2026, 9, 14, 13, 0, 0)
-    )
+def test_training_carries_on_from_a_saved_library_numbering_its_games_after_those_remembered(tmp_path: Path) -> None:
+    main(["tictactoe", *SMALL, *directories(tmp_path)])
+    (library_file,) = (tmp_path / "signals" / "tictactoe").glob("*.json")
 
+    main(["tictactoe", *SMALL, "--signal-library", str(library_file), *directories(tmp_path)])
+
+    memory = GameMemory(create_knowledge_base("tictactoe", tmp_path / "knowledge"))
+    assert sorted(game.number for game in memory.games("arms")) == list(range(1, 9))
+
+
+@pytest.mark.parametrize(
+    ("flags", "message"),
+    [
+        (("--prior", "rater"), "--prior rater needs rules"),
+        (("--learning-rate", "-0.1"), "--learning-rate needs 0 or more"),
+        (("--ponder-positions", "2"), "need --deduction-plies"),
+    ],
+)
+def test_train_values_refuses_what_it_can_t_train_with(
+    flags: tuple[str, ...], message: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     with pytest.raises(SystemExit):
-        main(["tictactoe", "--start", str(start), *directories(tmp_path)])
+        main(["tictactoe", "--games", "1", *flags, *directories(tmp_path)])
+
+    assert message in capsys.readouterr().err

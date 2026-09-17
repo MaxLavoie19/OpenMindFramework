@@ -36,4 +36,5 @@ class PlayedGameSummaryMapper:
             game.budgets,
             game.clocks,
             game.flagged,
+            game.actions,
         )

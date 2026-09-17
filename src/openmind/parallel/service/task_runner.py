@@ -75,27 +75,34 @@ class TaskRunner:
     def stream[R](
         self,
         function: Callable[..., R],
-        count: int,
+        count: int | None,
         arguments_for: Callable[[int], Sequence[object]],
         on_result: Callable[[int, R | DroppedCall], None],
         droppable: bool = False,
+        keep_results: bool = True,
     ) -> list[R]:
         """Calls the function count times, as `map` does, choosing each call's arguments only when a worker takes it:
         `arguments_for(index)` runs in this process just before call `index` starts, after `on_result` has seen every
         result finished so far, in the order they finish, a dropped call's `DroppedCall` included. A call run again in a
-        fresh worker keeps its arguments. Results come back in the calls' order."""
-        if count < 0:
+        fresh worker keeps its arguments. Results come back in the calls' order; without keeping them, only `on_result`
+        sees them and nothing comes back. A count of None calls it without end, which needs `keep_results` false. A
+        negative count raises ValueError."""
+        if count is not None and count < 0:
             raise ValueError(f"A stream needs 0 calls or more, not {count}")
-        if self._workers == 1 or count <= 1:
+        if count is None and keep_results:
+            raise ValueError("A stream without end can't keep its results")
+        if self._workers == 1 or (count is not None and count <= 1):
             results: list[R] = []
-            for index in range(count):
+            index = 0
+            while count is None or index < count:
                 result = function(*arguments_for(index))
-                results.append(result)
+                if keep_results:
+                    results.append(result)
                 on_result(index, result)
+                index += 1
             return results
-        run = _Run(
-            function, [None] * count, min(self._workers, count), self._memory_cap, droppable, arguments_for, on_result  # type: ignore[arg-type]
-        )
+        workers = self._workers if count is None else min(self._workers, count)
+        run = _Run(function, count, workers, self._memory_cap, droppable, arguments_for, on_result, keep_results)  # type: ignore[arg-type]
         return run.results()  # type: ignore[return-value]
 
     def split[T](self, items: Sequence[T]) -> list[Sequence[T]]:
@@ -121,39 +128,44 @@ class _Worker:
 
 class _Run:
     """One map over worker processes: hands the calls out one at a time, collects results and log records, and replaces
-    the workers that end."""
+    the workers that end. `calls` are the calls' arguments, or how many calls to make, their arguments chosen as each
+    starts, None making them without end; results are kept unless told not to."""
 
     def __init__(
         self,
         function: Callable[..., object],
-        calls: list[tuple[object, ...] | None],
+        calls: list[tuple[object, ...] | None] | int | None,
         workers: int,
         memory_cap: MemoryCap | None,
         droppable: bool,
         arguments_for: Callable[[int], Sequence[object]] | None = None,
         on_result: Callable[[int, object], None] | None = None,
+        keep_results: bool = True,
     ) -> None:
         self._function = function
-        self._calls = calls
+        given = calls if isinstance(calls, list) else []
+        self._count: int | None = len(given) if isinstance(calls, list) else calls
+        self._calls: dict[int, tuple[object, ...] | None] = dict(enumerate(given))
         self._workers = workers
         self._memory_cap = memory_cap
         self._droppable = droppable
         self._arguments_for = arguments_for
         self._on_result = on_result
         self._context = multiprocessing.get_context(START_METHOD)
-        self._results: list[object] = [_MISSING] * len(calls)
-        self._waiting: deque[int] = deque(range(len(calls)))
+        self._results: list[object] | None = [_MISSING] * self._count if keep_results and self._count is not None else None
+        self._waiting: deque[int] = deque()
+        self._next = 0
         self._failures: dict[int, int] = {}
         self._live: list[_Worker] = []
         self._done = 0
 
     def results(self) -> list[object]:
-        logger.debug("Running %d calls in %d worker processes", len(self._calls), self._workers)
+        logger.debug("Running %s calls in %d worker processes", "endless" if self._count is None else self._count, self._workers)
         finished = False
         try:
             for _ in range(self._workers):
                 self._assign(self._start())
-            while self._done < len(self._calls):
+            while self._count is None or self._done < self._count:
                 ready = wait([worker.connection for worker in self._live] + [worker.process.sentinel for worker in self._live])
                 for worker in list(self._live):
                     ended = worker.process.sentinel in ready
@@ -162,7 +174,7 @@ class _Run:
                     if worker.gone or ended:
                         self._end(worker)
             finished = True
-            return self._results
+            return [] if self._results is None else self._results
         finally:
             self._stop(finished)
 
@@ -177,12 +189,19 @@ class _Run:
         self._live.append(worker)
         return worker
 
+    def _pending(self) -> bool:
+        """Whether a call is still to be handed out: one to run again, or one not started yet."""
+        return bool(self._waiting) or self._count is None or self._next < self._count
+
     def _assign(self, worker: _Worker) -> None:
-        if not self._waiting:
+        if self._waiting:
+            index = self._waiting.popleft()
+        elif self._count is None or self._next < self._count:
+            index, self._next = self._next, self._next + 1
+        else:
             return
-        index = self._waiting.popleft()
         worker.call, worker.over = index, None
-        arguments = self._calls[index]
+        arguments = self._calls.get(index)
         if arguments is None:
             arguments = self._calls[index] = tuple(self._arguments_for(index))  # type: ignore[misc]
         try:
@@ -209,7 +228,9 @@ class _Run:
                 _handle(message[1])
             elif kind == "done":
                 _, index, value = message
-                self._results[index] = value
+                if self._results is not None:
+                    self._results[index] = value
+                self._calls.pop(index, None)
                 self._done += 1
                 worker.call = None
                 if self._on_result is not None:
@@ -233,7 +254,7 @@ class _Run:
         self._live.remove(worker)
         if worker.call is not None:
             self._lost(worker)
-        if self._waiting:
+        if self._pending():
             self._assign(self._start())
 
     def _lost(self, worker: _Worker) -> None:
@@ -267,10 +288,13 @@ class _Run:
                 name,
                 worker.over,
             )
-            self._results[index] = DroppedCall(index, worker.over)
+            dropped = DroppedCall(index, worker.over)
+            if self._results is not None:
+                self._results[index] = dropped
+            self._calls.pop(index, None)
             self._done += 1
             if self._on_result is not None:
-                self._on_result(index, self._results[index])
+                self._on_result(index, dropped)
 
     def _stop(self, finished: bool) -> None:
         """Asks every worker to end once the calls are done; terminates them when a call failed."""

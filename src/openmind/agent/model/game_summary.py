@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from openmind.agent.model.model_description import ModelDescription
 from openmind.timing.model.clock import Clock
 from openmind.timing.model.time_control import TimeControl
+from openmind.world.model.action import Action
 
 
 @dataclass(frozen=True, slots=True)
@@ -11,7 +12,8 @@ class GameSummary:
     round it belongs to (None outside training), its number within its kind and round, the seeds it was played from,
     the players' names with the model each player played in the same order, the final payoffs, the plies, why it ended
     and its record when the domain says, and on a clock, the time control, each step's seconds and budget (None where
-    the player gives none), each player's clock at the end and the player whose time ran out."""
+    the player gives none), each player's clock at the end and the player whose time ran out; and the actions played
+    where players took turns, in order, which with the domain and the outcome seed replay the game."""
 
     domain: str
     kind: str
@@ -29,6 +31,7 @@ class GameSummary:
     budgets: tuple[float | None, ...] = ()
     clocks: tuple[Clock, ...] = ()
     flagged: str | None = None
+    actions: tuple[Action, ...] = ()
 
     @property
     def label(self) -> str:

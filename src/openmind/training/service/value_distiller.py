@@ -34,6 +34,7 @@ from openmind.training.model.signal_settings import SignalSettings
 from openmind.training.model.value_distillation_result import ValueDistillationResult
 from openmind.training.model.value_distillation_settings import ValueDistillationSettings
 from openmind.training.service.arm_selector import ArmSelector
+from openmind.training.service.candidate_signals import CandidateSignals
 from openmind.training.service.position_ponderer import PositionPonderer
 from openmind.training.service.self_play import SelfPlay
 from openmind.training.service.signal_library_updater import SignalLibraryUpdater
@@ -350,27 +351,7 @@ class ValueDistiller:
     def _candidates(
         self, domain: Domain, games: Sequence[PlayedGame], seeds: Sequence[Expression], library: SignalLibrary
     ) -> tuple[Signal, ...]:
-        """The signals read from positions this round, once each by source: the signals already recorded, as they are, such
-        as those deduced from the rules with their names and premises; then, each named by its source, the seeds
-        pondering induced, the rules the library's signals support, and the leaves of the games' positions."""
-        vocabulary = self._expression_generator.vocabulary(domain, (state for game in games for state in game.states))
-        recorded = [record.signal for record in library.records if record.signal.source is not None]
-        known = {signal.source for signal in recorded}
-        sources = [
-            *(self._expression_generator.source(seed) for seed in seeds),
-            *(support.term for support in library.supports),
-            *(self._expression_generator.source(leaf) for leaf in self._expression_generator.leaves(vocabulary)),
-        ]
-        candidates = (*recorded, *(Signal(source.source, source) for source in dict.fromkeys(sources) if source not in known))
-        logger.info(
-            "%d candidate signals: %d seeds, %d supported rules, %d recorded signals, and the leaves of %d games' positions",
-            len(candidates),
-            len(seeds),
-            len(library.supports),
-            sum(1 for record in library.records if record.signal.source is not None),
-            len(games),
-        )
-        return candidates
+        return CandidateSignals(self._expression_generator).candidates(domain, games, seeds, library)
 
     def _summary(self, pondering: Pondering, generation: ValueGenerationResult) -> PonderingSummary:
         sources = set(pondering.sources)

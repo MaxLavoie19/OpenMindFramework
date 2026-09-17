@@ -14,7 +14,7 @@ Every way to run the framework. Entrypoints handle input, output and where logs 
 | `solve.py` | `openmind-solve`: solve a domain's constraint problem with the CSP alone and print the solutions |
 | `select.py` | `openmind-select`: select the smallest set of a rule base's rules that plays no worse than all of them |
 | `distill_values.py` | `openmind-distill-values`: fit value rules on the positions of self-play games, choose a fit on held-out games, and save the value base |
-| `train_values.py` | `openmind-train-values`: train value rules round after round, each round's self-play valuing positions with the previous round's rules, and save every round |
+| `train_values.py` | `openmind-train-values`: train value rules continuously, learning from every game as it ends, a rule search after every decisive game, the signal library saved after every game |
 | `dashboard.py` | `openmind-dashboard`: serve a page following a value training while it runs, on the machine it runs on |
 | `rerun_call.py` | `openmind-rerun-call`: run again, alone, the call a worker ended on for its memory cap, and show where it holds memory |
 
@@ -355,69 +355,51 @@ It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.js
 ## `openmind-train-values`
 
 ```bash
-.venv/bin/openmind-train-values tictactoe --rounds 2
-.venv/bin/openmind-train-values chess --rounds 3 --start data/values/chess/<value base>.json --rollout-limit 100 --seconds 3600
+.venv/bin/openmind-train-values tictactoe --games 20
+.venv/bin/openmind-train-values chess --training-time-control 1+0 --rollout-limit 100 --deduction-plies 3 --deduction-seconds 2 --ponder-positions 20 --ponder-endings 20
 ```
+
+Trains continuously (see "How continuous training works" in `training/README.md`): games between arms one after
+another, each game learned from as it ends, a rule search after every decisive game.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--rounds N` | `3` | rounds of self-play and fitting |
-| `--start PATH` | none | value rules round 1's self-play values positions with; without, round 1 plays plain MCTS |
-| `--games N` | `200` | self-play games per round to fit value rules on |
-| `--held-out-games N` | `50` | self-play games per round to choose a fit and measure it on |
-| `--iterations N` | `100` | MCTS iterations per move, in self-play and in each round's games |
-| `--training-time-control MINUTES+SECONDS` | no clock | self-play, arms games and each round's games play on a clock, every agent budgeting its moves; the report records the control; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then caps each move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
+| `--games N` | until stopped | games to play, then stop |
+| `--iterations N` | `100` | MCTS iterations per move; with a clock, the cap of each move |
+| `--training-time-control MINUTES+SECONDS` | no clock | games play on a clock, every agent budgeting its moves; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
 | `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
 | `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
-| `--prior uniform\|rater\|value` | `uniform` | the prior PUCT follows: every action alike, the agent's rules' ratings, or its value rules' values of each action's outcomes; `value` follows each agent's value rules, an agent without any following `uniform`; `rater` is refused, training having no rules that rate actions |
+| `--prior uniform\|rater\|value` | `uniform` | the prior PUCT follows: every action alike, or each arm's own value rules' values of each action's outcomes; `rater` is refused, training having no rules that rate actions |
 | `--puct-exploration X` | `1.5` | PUCT's exploration weight c; 0 or more |
-| `--prior-temperature X` | `0.1` | the softmax temperature turning ratings or values into a prior, lower following the best more closely; above 0 |
-| `--knowledge DIR` | `data/knowledge` | where the knowledge base remembers every game with its models, under `<domain>/` (see `agent/README.md`, `GameMemory`) |
-| `--seed S` | `1` | random seed; round k uses S + k |
-| `--target TARGET` | `search` | what a position is valued at: `search` or `outcome` |
+| `--prior-temperature X` | `0.1` | the softmax temperature turning values into a prior, lower following the best more closely; above 0 |
+| `--knowledge DIR` | `data/knowledge` | where the knowledge base remembers every game with its models, every proof and every seed, under `<domain>/` |
+| `--seed S` | `1` | random seed |
+| `--learning-rate X` | `0.01` | how far each weight moves toward what a finished game showed; below 0 is refused |
+| `--seconds X` | `600` | seconds the rule search after each decisive game runs at most |
+| `--memory X`, `--candidates N`, `--prices LIST`, `--max-steps N`, `--tolerance X` | as `openmind-distill-values` | how each rule search searches and fits; the middle price also prices each game's weight step |
 | `--rollout-actions N` | `10` | rollout actions played before a position is valued with value rules |
-| `--rollout-limit N` | no limit | actions a rollout plays at most, for every agent, before every player gets the unfinished payoff |
+| `--rollout-limit N` | no limit | actions a rollout plays at most before every player gets the unfinished payoff |
 | `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit |
-| `--evaluation-games N` | `20` | games against each opponent after every round; `0` plays none |
-| `--seconds X`, `--memory X`, `--candidates N`, `--prices LIST`, `--max-steps N`, `--tolerance X` | as `openmind-distill-values` | how each round's value rules are searched and fitted; the search budget is per round |
-| `--deduction-plies N`, `--deduction-seconds X`, `--highest-payoff X`, `--ponder-positions N`, `--ponder-endings N` | as `openmind-distill-values` | the deduction every agent but untrained MCTS falls back on when its rules have no clue, in self-play and in each round's games, and the positions each round ponders against the previous round's rules; the report's table then has a `pondered: proven / seeds / kept / in rules` column |
-| `--explainer-url URL` | none | an Ollama server that explains each round's rules in sentences, such as `http://127.0.0.1:11434`; given with `--explainer-model` |
-| `--explainer-model NAME` | none | the Ollama model explaining the rules, such as `qwen3:8b` |
-| `--explanations-directory DIR` | `data/explanations` | where the model's sentences are cached, one file per domain and model |
-| `--workers N` | half the logical CPUs | worker processes self-play, term evaluations and games run in |
-| `--worker-memory X` | `--memory` shared between the workers | as `openmind-distill-values`; a dropped game isn't counted in the round's games |
-| `--target signals` | | every position valued at the signals the round follows, the round's rules being their weighted aggregation's (see `training/README.md`) |
-| `--arms N` | `8` | with `--target signals`: signals each round follows at most, those with the best records, besides winning and the aggregations |
-| `--signal-horizon N` | `0` | with `--target signals`: plies later a position's signals are read for its targets |
-| `--arm-exploration X` | `1.414...` (√2) | with `--target signals`: UCB1's exploration weight when a worker starting a game chooses which signals' agents play it; below 0 is rejected |
-| `--goal-limit N` | `2` | with `--target signals`: how many moves ahead the deduced goal distance looks for a win when signals are prepared before round 1; below 1 is rejected |
-| `--signal-library PATH` | a new one | with `--target signals`: the signal library round 1 starts from, such as an earlier run's; a library for another domain, or one given without `--target signals`, is rejected |
-| `--signals-directory DIR` | `data/signals` | where the signal library is saved after every round, as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` named after the training's start |
-| `--pgn-directory DIR` | `data/pgn` | where each round's game records are saved, as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>/round-<k>.pgn`, one record per line with a blank line between games; nothing is written for a domain that doesn't record its games |
+| `--deduction-plies N`, `--deduction-seconds X`, `--highest-payoff X` | as `openmind-distill-values` | the deduction every agent falls back on when its rules have no clue, which pondering needs |
+| `--ponder-positions N` | `0` | positions of each game the reference rules missed most, deduced in the game's study; needs `--deduction-plies` |
+| `--ponder-endings N` | `0` | positions of each decisive game deduced at most, walking back from its end until one isn't proven; needs `--deduction-plies` |
+| `--workers N` | half the logical CPUs | worker processes games are played and studied in, and the rule search evaluates terms in |
+| `--worker-memory X` | `--memory` shared between the workers | as `openmind-distill-values`; a game dropped over it isn't learned from |
+| `--arms N` | `8` | signals followed at most, those with the best records, besides winning and the aggregations |
+| `--signal-horizon N` | `0` | plies later a position's signals are read for its targets |
+| `--arm-exploration X` | `1.414...` (√2) | UCB1's exploration weight when a worker taking a game chooses which arms play it; below 0 is rejected |
+| `--goal-limit N` | `2` | how many moves ahead the deduced goal distance looks for a win when signals are deduced; below 1 is rejected |
+| `--signal-library PATH` | the deduced signals | the signal library to start from, such as an earlier run's; a library for another domain is rejected |
+| `--signals-directory DIR` | `data/signals` | where the signal library is saved after every game, as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json` named after the training's start |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the log |
 | `--log-directory DIR` | `data/log/train-values` | where logs are saved |
-| `--values-directory DIR` | `data/values` | where each round's value base is saved |
-| `--report-directory DIR` | `data/training` | where training reports are saved |
 
-Runs the loop described in `training/README.md`. Start rules for another domain are rejected. As each round ends, it
-saves the round's value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>/round-<k>.json` and the report as
-`<report directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json`, both named after the training's start, so a training can be
-stopped between rounds. At the end it prints:
-
-```
-Trained <domain> value rules for <k> of <n> rounds, complete; round 1 started from <start file or no value rules>
-round  rules  held-out loss  with no rule  held-out error  against random  against untrained MCTS  against the previous  seconds
-    1     39       0.690987      0.691963          0.0110      12 / 8 / 0              0 / 20 / 0  start rules: 5 / 10 / 5     3600
-Saved round 1 values <path>
-Saved training report <path>
-```
-
-`held-out loss` is the chosen fit's, `with no rule` the held-out loss of a fit that kept no rule (`none` when every fit
-kept one), and the games read wins / draws / losses from the round's agent's side. The log,
+After every game it saves the signal library, its records, rules and arms, so a training stopped at any moment keeps
+every finished game's learning; `--signal-library` carries on from it, and the games are numbered after those the
+knowledge base already remembers. At the end it prints `Saved signal library <path>`. The log,
 `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, starts with `INFO Training in <n> worker processes, each holding
-at most <bytes> bytes; memory diagnoses in <directory>`, has the
-loop's rounds (see `training/README.md`), `INFO Saved round <k> values <path>` and `INFO Saved training report <path>`
-after every round, from logger `openmind.entrypoint.train_values`.
+at most <bytes> bytes; memory diagnoses in <directory>` and `INFO Following signals: ...`, then has the training's lines
+(see `training/README.md`), and ends with `INFO Saved signal library <path>`, from logger `openmind.entrypoint.train_values`.
 
 ## `openmind-solve`
 

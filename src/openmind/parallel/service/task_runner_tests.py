@@ -109,6 +109,34 @@ def test_a_stream_of_no_call_gives_nothing_and_a_negative_count_raises() -> None
         TaskRunner(2).stream(pow, -1, lambda index: (1, 1), lambda index, result: None)
 
 
+class Enough(Exception):
+    """Raised by a test to end a stream that has no end."""
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_a_stream_without_end_keeps_calling_until_stopped_and_keeps_no_result(workers: int) -> None:
+    seen: list[int] = []
+
+    def on_result(index: int, result: int) -> None:
+        seen.append(result)
+        if len(seen) == 6:
+            raise Enough
+
+    with pytest.raises(Enough):
+        TaskRunner(workers).stream(pow, None, lambda index: (index, 2), on_result, keep_results=False)
+
+    assert len(seen) == 6
+
+
+def test_a_stream_not_keeping_its_results_gives_nothing_back_and_one_without_end_must_not_keep_them() -> None:
+    seen: list[int] = []
+
+    assert TaskRunner(2).stream(pow, 4, lambda index: (index, 2), lambda index, result: seen.append(result), keep_results=False) == []
+    assert sorted(seen) == [0, 1, 4, 9]
+    with pytest.raises(ValueError, match="can't keep its results"):
+        TaskRunner(2).stream(pow, None, lambda index: (1, 1), lambda index, result: None)
+
+
 def test_a_worker_ends_itself_once_its_parent_is_gone() -> None:
     parents = iter([100, 100, 1])
     ended: list[int] = []

@@ -102,3 +102,12 @@ def test_after_a_crash_the_knowledge_base_finds_every_finished_game_and_its_mode
     assert len(base.recall(keyword=MODEL_KEYWORD)) == 2
     games = [GameSummaryJsonMapper().from_json(record.text, reopened.models()) for record in base.recall(keyword=GAME_KEYWORD)]
     assert games == [game(1, (1.0, 0.0)), game(2, (0.5, 0.5)), game(3, (0.0, 1.0))]
+
+
+def test_remembered_games_come_back_in_the_order_they_ended_and_are_counted_by_kind(tmp_path: Path) -> None:
+    memory = GameMemory(create_knowledge_base("chess", tmp_path))
+    memory.remember(game(1, (1.0, 0.0)))
+    memory.remember(game(2, (0.5, 0.5)))
+
+    assert GameMemory(create_knowledge_base("chess", tmp_path)).games("arms") == (game(1, (1.0, 0.0)), game(2, (0.5, 0.5)))
+    assert (memory.count("arms"), memory.count("match")) == (2, 0)

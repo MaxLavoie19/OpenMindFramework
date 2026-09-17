@@ -75,6 +75,19 @@ class GameMemory:
             counts[name] = (wins + draws + losses, wins, draws, losses)
         return counts
 
+    def games(self, kind: str | None = None) -> tuple[GameSummary, ...]:
+        """Every game remembered, in the order they ended; those of one kind when it's named."""
+        models = self.models()
+        return tuple(
+            self._mapper.from_json(record.text, models)
+            for record in self._knowledge_base.recall(keyword=GAME_KEYWORD)
+            if kind is None or kind.casefold() in record.keywords
+        )
+
+    def count(self, kind: str) -> int:
+        """How many games of that kind are remembered."""
+        return len(self._knowledge_base.recall(keyword=kind))
+
     def models(self) -> tuple[ModelDescription, ...]:
         """Every model remembered, in the order they first played."""
         return tuple(

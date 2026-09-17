@@ -4,6 +4,7 @@ from openmind.agent.model.game_summary import GameSummary
 from openmind.agent.model.model_description import ModelDescription
 from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 from openmind.timing.model.clock import Clock
+from openmind.world.model.action import Action
 
 
 class GameSummaryJsonMapper:
@@ -37,6 +38,7 @@ class GameSummaryJsonMapper:
                     for clock in summary.clocks
                 ],
                 "flagged": summary.flagged,
+                "actions": [{"name": action.name, "parameters": [list(pair) for pair in action.parameters]} for action in summary.actions],
             }
         )
 
@@ -64,5 +66,9 @@ class GameSummaryJsonMapper:
             tuple(data["budgets"]),
             tuple(Clock(item["remaining"], item["increment"], item["flagged"]) for item in data["clocks"]),
             data["flagged"],
+            tuple(
+                Action(item["name"], tuple((name, value) for name, value in item["parameters"]))
+                for item in data.get("actions", ())
+            ),
         )
 
