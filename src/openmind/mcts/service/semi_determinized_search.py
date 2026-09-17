@@ -122,6 +122,7 @@ class SemiDeterminizedSearch:
             tuple(hypothesis for hypothesis, _ in searched),
             iterations=sum(result.iterations for _, result in searched),
             seconds=source.now() - started,
+            depth=max(result.depth for _, result in searched),
         )
 
     def _expected(self, searched: list[tuple[HypothesisResult, SearchResult]]) -> tuple[ActionStatistics, ...]:

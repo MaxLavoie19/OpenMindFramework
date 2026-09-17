@@ -81,6 +81,12 @@ which is rejected.
 | `--seed S` | unseeded | random seed for the agent's search |
 | `--rollout-limit N` | no limit | actions an agent's rollout plays at most before every player gets the unfinished payoff |
 | `--unfinished-payoff X` | `0.5` | with `--rollout-limit`: each player's payoff for a rollout stopped at the limit, a draw in games paying 1, 0.5 and 0 |
+| `--time-control MINUTES+SECONDS` | no clock | every player, human or agent, plays on a clock, a human's thinking at the prompt included; both clocks are printed before each move, and a player whose time runs out loses as the domain's timeout rule says, the game ending with `<player>'s time ran out`; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then caps each move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
+| `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
+| `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
+| `--prior uniform\|rater\|value` | `uniform` | the prior PUCT follows: every action alike, the agent's rules' ratings, or its value rules' values of each action's outcomes; only `uniform` here, the agent having no rules when playing |
+| `--puct-exploration X` | `1.5` | PUCT's exploration weight c; 0 or more |
+| `--prior-temperature X` | `0.1` | the softmax temperature turning ratings or values into a prior, lower following the best more closely; above 0 |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the game log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/play` | where game logs are saved |
 
@@ -132,6 +138,13 @@ agent's rollouts.
 | `--seed S` | `1` | random seed |
 | `--reference-iterations N` | exact search | stand in for perfect play with unguided searches of N iterations on positions of random games, for domains exact search can't reach; needs a number of `--positions`, not `all` |
 | `--rules PATH` | none | rule base guiding the evaluated agent; its path is recorded in the report |
+| `--time-control MINUTES+SECONDS` | no clock | the baseline series play on a clock, the evaluated and the untrained agent both budgeting their moves; the report records the control and each series' wins and losses on time; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then caps each move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
+| `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
+| `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
+| `--prior uniform\|rater\|value` | `uniform` | the prior PUCT follows: every action alike, the agent's rules' ratings, or its value rules' values of each action's outcomes; `rater` needs `--rules` and `value` needs `--values`; the untrained agent always follows `uniform` |
+| `--puct-exploration X` | `1.5` | PUCT's exploration weight c; 0 or more |
+| `--prior-temperature X` | `0.1` | the softmax temperature turning ratings or values into a prior, lower following the best more closely; above 0 |
+| `--knowledge DIR` | `data/knowledge` | where the knowledge base remembers every game with its models, under `<domain>/` (see `agent/README.md`, `GameMemory`) |
 | `--workers N` | half the logical CPUs | worker processes baseline games, reference searches and the positions searched at each budget run in; the report is the same whatever the number, apart from seconds per choice, and every worker holds its own caches, so memory grows with it |
 | `--rollouts MODE` | `guided` | with `--rules`: `guided` rollouts follow the rules' ratings; `unguided` rollouts pick uniformly and only the search tree's nodes are rated, which is much cheaper with rules reading lookahead such as `wins()` |
 | `--values PATH` | none | value base valuing the positions the evaluated agent's rollouts reach; its path is recorded in the report |
@@ -293,6 +306,13 @@ searching in <n> worker processes`, has the selector's decisions (see `training/
 | `--seconds X` | `3600.0` | seconds the inference engine's expression search runs (see `inference/README.md`) |
 | `--memory X` | half the machine's memory | GB the expression search's process holds at most, measured; its workers each hold an even share; this process's caches are cleared above it |
 | `--candidates N` | no limit | candidates the expression search tries at most; a search limited by candidates, unlike one limited by time, gives the same rules on any machine |
+| `--training-time-control MINUTES+SECONDS` | no clock | self-play games play on a clock, every agent budgeting its moves; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then caps each move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
+| `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
+| `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
+| `--prior uniform\|rater\|value` | `uniform` | the prior PUCT follows: every action alike, the agent's rules' ratings, or its value rules' values of each action's outcomes; only `uniform` here, the self-play agent having no rules |
+| `--puct-exploration X` | `1.5` | PUCT's exploration weight c; 0 or more |
+| `--prior-temperature X` | `0.1` | the softmax temperature turning ratings or values into a prior, lower following the best more closely; above 0 |
+| `--knowledge DIR` | `data/knowledge` | where the knowledge base remembers every game with its models, under `<domain>/` (see `agent/README.md`, `GameMemory`) |
 | `--prices LIST` | `0.1,0.03,0.01,0.003,0.001` | comma-separated L1 prices swept |
 | `--max-steps N` | `1000` | steps a fit takes at most |
 | `--tolerance X` | `1e-06` | weight change below which a fit has settled |
@@ -346,6 +366,13 @@ It saves the value base as `<values directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.js
 | `--games N` | `200` | self-play games per round to fit value rules on |
 | `--held-out-games N` | `50` | self-play games per round to choose a fit and measure it on |
 | `--iterations N` | `100` | MCTS iterations per move, in self-play and in each round's games |
+| `--training-time-control MINUTES+SECONDS` | no clock | self-play, arms games and each round's games play on a clock, every agent budgeting its moves; the report records the control; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then caps each move; a domain without a timeout rule is refused, and so is anything but minutes+seconds or a base of 0 |
+| `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
+| `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
+| `--prior uniform\|rater\|value` | `uniform` | the prior PUCT follows: every action alike, the agent's rules' ratings, or its value rules' values of each action's outcomes; `value` follows each agent's value rules, an agent without any following `uniform`; `rater` is refused, training having no rules that rate actions |
+| `--puct-exploration X` | `1.5` | PUCT's exploration weight c; 0 or more |
+| `--prior-temperature X` | `0.1` | the softmax temperature turning ratings or values into a prior, lower following the best more closely; above 0 |
+| `--knowledge DIR` | `data/knowledge` | where the knowledge base remembers every game with its models, under `<domain>/` (see `agent/README.md`, `GameMemory`) |
 | `--seed S` | `1` | random seed; round k uses S + k |
 | `--target TARGET` | `search` | what a position is valued at: `search` or `outcome` |
 | `--rollout-actions N` | `10` | rollout actions played before a position is valued with value rules |

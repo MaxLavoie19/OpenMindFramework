@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from openmind.entrypoint.play import main
+from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
+from openmind.agent.service.timekeeper import Timekeeper
+from openmind.entrypoint.play import _play, main
+from openmind.mcts.service.tree_search_tests import Ticking
+from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.timing.model.time_control import TimeControl
 from openmind.testing.service.log_reader import said
 
 X_WINS = ("1", "3", "1", "2", "1")  # X: (1,1) (1,2) (1,3); O: (2,1) (2,2)
@@ -87,3 +92,46 @@ def test_a_negative_rollout_limit_is_rejected(tmp_path: Path) -> None:
 def test_unknown_agent_player_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["tictactoe", "--agent", "Z", "--log-directory", str(tmp_path)])
+
+
+def test_on_a_clock_the_clocks_are_shown_and_a_player_whose_time_runs_out_loses(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every choice takes a second on the referee's clock: with 1.5 seconds each, X runs out on its second move."""
+    replies = iter(("1", "2", "3"))
+    monkeypatch.setattr("builtins.input", lambda prompt: next(replies))
+
+    _play(create_tictactoe_domain(), frozenset(), None, TimeControl(1.5), Timekeeper(create_rule_caller(), Ticking()))
+
+    output = capsys.readouterr().out
+    assert "X 0:01.5  O 0:01.5" in output
+    assert "X 0:00.5  O 0:01.5" in output
+    assert "X's time ran out" in output
+    assert output.endswith("payoff(O) = 1.0\npayoff(X) = 0.0\nturn = 'X'\n")
+
+
+def test_a_game_on_a_clock_plays_to_its_end_when_no_one_runs_out(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    play(monkeypatch, tmp_path, *X_WINS, options=("--time-control", "10+0"))
+
+    output = capsys.readouterr().out
+    assert "X 10:00.0  O 10:00.0" in output
+    assert output.endswith("payoff(O) = 0.0\npayoff(X) = 1.0\nturn = 'O'\n")
+    assert any(" took " in line and " seconds, " in line for line in log_lines(tmp_path))
+
+
+def test_play_refuses_a_prior_the_agent_has_no_rules_for(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    with pytest.raises(SystemExit):
+        play(monkeypatch, tmp_path, options=("--agent", "O", "--selection", "puct", "--prior", "value"))
+
+    assert "--prior value needs rules" in capsys.readouterr().err
+
+
+def test_the_agent_plays_by_puct(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    play(monkeypatch, tmp_path, "5", "1", "9", "3", options=("--agent", "O", "--iterations", "50", "--seed", "1", "--selection", "puct"))
+
+    assert "O chose " in capsys.readouterr().out
+    assert any("puct with the uniform prior" in line for line in log_lines(tmp_path))

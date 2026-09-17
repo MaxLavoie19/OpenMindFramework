@@ -1,6 +1,7 @@
 import json
 
 from openmind.evaluation.model.match_results import MatchResults
+from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 from openmind.training.model.signal_record import SignalRecord
 from openmind.training.model.training_report import TrainingReport
 from openmind.training.model.training_round import TrainingRound
@@ -26,6 +27,14 @@ class TrainingReportJsonMapper:
                     "iterations": distillation.iterations,
                     "seed": distillation.seed,
                     "target": distillation.target,
+                    "time_control": None
+                    if distillation.time_control is None
+                    else TimeControlTextMapper().to_text(distillation.time_control),
+                    "expected_steps": distillation.expected_steps,
+                    "selection": distillation.selection,
+                    "puct_exploration": distillation.puct_exploration,
+                    "prior": distillation.prior,
+                    "prior_temperature": distillation.prior_temperature,
                     "prices": list(values.prices),
                     "max_steps": values.max_steps,
                     "tolerance": values.tolerance,
@@ -123,4 +132,7 @@ class TrainingReportJsonMapper:
             "wins": results.wins,
             "draws": results.draws,
             "losses": results.losses,
+            "time_control": None if results.time_control is None else TimeControlTextMapper().to_text(results.time_control),
+            "wins_on_time": results.wins_on_time,
+            "losses_on_time": results.losses_on_time,
         }

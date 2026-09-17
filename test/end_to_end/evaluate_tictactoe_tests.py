@@ -42,6 +42,12 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
         "rollout_actions": 0,
         "rollout_limit": None,
         "unfinished_payoff": None,
+        "time_control": None,
+        "expected_steps": 30,
+        "selection": "ucb1",
+        "puct_exploration": 1.5,
+        "prior": "uniform",
+        "prior_temperature": 0.1,
     }
     assert [(item["opponent"], item["wins"] + item["draws"] + item["losses"]) for item in report["baselines"]] == [
         ("random", 2),
@@ -219,3 +225,59 @@ def test_invalid_positions_are_rejected(positions: str, tmp_path: Path) -> None:
 def test_invalid_budgets_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["tictactoe", "--budgets", "5,x", "--log-directory", str(tmp_path)])
+
+
+def test_evaluate_on_a_clock_reports_the_time_control_and_the_games_won_and_lost_on_time(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    main(
+        [
+            "tictactoe",
+            *("--games", "2", "--iterations", "10", "--positions", "0", "--seed", "1", "--time-control", "0.05+0"),
+            *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
+            *("--knowledge", str(tmp_path / "knowledge")),
+        ]
+    )
+
+    (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    assert (report["settings"]["time_control"], report["settings"]["expected_steps"]) == ("0.05+0", 30)
+    assert [(item["time_control"], item["wins_on_time"] + item["losses_on_time"] <= 2) for item in report["baselines"]] == [
+        ("0.05+0", True),
+        ("0.05+0", True),
+    ]
+    assert "0.05+0" in capsys.readouterr().out
+    assert (tmp_path / "knowledge" / "tictactoe" / "records.jsonl").is_file()
+
+
+@pytest.mark.parametrize(("flag", "value"), [("--time-control", "3"), ("--time-control", "0+2"), ("--expected-steps", "0")])
+def test_evaluate_refuses_a_time_control_or_expected_steps_it_can_t_read(flag: str, value: str, tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["tictactoe", flag, value, "--log-directory", str(tmp_path / "log")])
+
+
+@pytest.mark.parametrize(("prior", "message"), [("rater", "--prior rater needs --rules"), ("value", "--prior value needs --values")])
+def test_evaluate_refuses_a_prior_without_the_rules_it_reads(
+    prior: str, message: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    with pytest.raises(SystemExit):
+        main(["tictactoe", "--selection", "puct", "--prior", prior, "--log-directory", str(tmp_path / "log")])
+
+    assert message in capsys.readouterr().err
+
+
+def test_evaluate_by_puct_records_the_selection_in_its_report(tmp_path: Path) -> None:
+    main(
+        [
+            "tictactoe",
+            *("--games", "2", "--iterations", "10", "--positions", "0", "--seed", "1", "--selection", "puct"),
+            *("--puct-exploration", "2.0", "--knowledge", str(tmp_path / "knowledge")),
+            *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
+        ]
+    )
+
+    (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
+    settings = json.loads(report_file.read_text(encoding="utf-8"))["settings"]
+    assert (settings["selection"], settings["puct_exploration"], settings["prior"]) == ("puct", 2.0, "uniform")
+    (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
+    assert any(line.endswith(", puct with the uniform prior, tree depth " + line.rsplit(" ", 1)[-1]) for line in said(log_file) if "Searched " in line)

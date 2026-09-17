@@ -23,6 +23,7 @@ the same pieces.
 | `model/clock.py` | `Clock(remaining, increment=0.0, flagged=False)`: `after(spent)` gives the clock after a step |
 | `model/time_budget_estimator.py` | `TimeBudgetEstimator`: `budget(clock, steps_played)`, the seconds a player's next step may take |
 | `service/plain_time_budget_estimator.py` | `PlainTimeBudgetEstimator(expected_steps)`: the plain rule |
+| `constant/timing_constant.py` | `DEFAULT_EXPECTED_STEPS`, 30: the steps the plain rule expects when an entry point isn't told otherwise (`--expected-steps`) |
 | `mapper/time_control_text_mapper.py` | `TimeControlTextMapper`: `from_text("3+2")` and `to_text(control)`, as chess writes a time control |
 
 ## Rules

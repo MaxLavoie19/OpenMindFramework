@@ -9,7 +9,9 @@ from openmind.agent.service.deduction_fallback import DeductionFallback
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.inference.service.position_deducer import PositionDeducer
+from openmind.mcts.constant.mcts_constant import DEFAULT_PUCT_EXPLORATION, UCB1
 from openmind.mcts.model.action_rater import ActionRater
+from openmind.mcts.model.move_prior import MovePrior
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.position_valuer import PositionValuer
@@ -43,6 +45,9 @@ class AgentBuilder:
         self._semi_determinized = False
         self._theory: TheoryOfMind | None = None
         self._estimator: TimeBudgetEstimator | None = None
+        self._selection = UCB1
+        self._puct_exploration = DEFAULT_PUCT_EXPLORATION
+        self._prior: MovePrior | None = None
 
     def with_iterations(self, iterations: int) -> Self:
         self._iterations = iterations
@@ -100,6 +105,17 @@ class AgentBuilder:
         self._estimator = estimator
         return self
 
+    def with_selection(self, selection: str, puct_exploration: float = DEFAULT_PUCT_EXPLORATION) -> Self:
+        """How a tried node picks the action to follow: `ucb1`, the default, or `puct` with its exploration weight."""
+        self._selection = selection
+        self._puct_exploration = puct_exploration
+        return self
+
+    def with_prior(self, prior: MovePrior | None) -> Self:
+        """The prior PUCT follows; None, the default, has every action alike."""
+        self._prior = prior
+        return self
+
     def describe(self, name: str) -> ModelDescription:
         """The agent this builder builds, under that name, as JSON text: every setting but the seed, which changes from
         game to game, and every model it plays with as the model describes itself; a model that can't is written as its
@@ -121,6 +137,9 @@ class AgentBuilder:
                 "theory_of_mind": _described(self._theory) if self._semi_determinized else None,
                 "semi_determinized": self._semi_determinized,
                 "time_budget_estimator": _described(self._estimator),
+                "selection": self._selection,
+                "puct_exploration": self._puct_exploration,
+                "prior": _described(self._prior),
             },
             sort_keys=True,
         )
@@ -163,7 +182,16 @@ class AgentBuilder:
             else None
         )
         valuation = LeafValuation(self._valuer, self._rollout_actions) if self._valuer is not None else None
-        settings = SearchSettings(iterations, exploration, self._seed, self._rollout_limit, self._unfinished_payoff)
+        settings = SearchSettings(
+            iterations,
+            exploration,
+            self._seed,
+            self._rollout_limit,
+            self._unfinished_payoff,
+            selection=self._selection,
+            puct_exploration=self._puct_exploration,
+            prior=self._prior,
+        )
         if not self._semi_determinized:
             return Agent(tree_search, settings, guidance, valuation, fallback, estimator=self._estimator)
         state_observer = create_state_observer()

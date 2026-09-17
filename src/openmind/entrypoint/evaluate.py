@@ -3,11 +3,14 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from openmind.agent.service.game_memory import GameMemory
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
+from openmind.agent.service.game_memory import GameMemory
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.entrypoint.clock_options import add_clock_options, add_knowledge_option
+from openmind.entrypoint.search_options import add_selection_options
+from openmind.mcts.constant.mcts_constant import RATER_PRIOR, VALUE_PRIOR
 from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.evaluation.constant.evaluation_constant import (
     ALL_POSITIONS,
@@ -120,8 +123,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--report-directory", default="data/evaluation", help="where reports are saved (default: data/evaluation)"
     )
+    add_clock_options(parser)
+    add_knowledge_option(parser)
+    add_selection_options(parser)
     arguments = parser.parse_args(argv)
+    if arguments.prior == RATER_PRIOR and arguments.rules is None:
+        parser.error("--prior rater needs --rules")
+    if arguments.prior == VALUE_PRIOR and arguments.values is None:
+        parser.error("--prior value needs --values")
     domain = create_domain(arguments.domain)
+    if arguments.time_control is not None and domain.timeout is None:
+        parser.error(f"{domain.name} can't be played on a clock: it has no timeout rule")
     settings = EvaluationSettings(
         arguments.games,
         arguments.iterations,
@@ -133,6 +145,12 @@ def main(argv: list[str] | None = None) -> None:
         arguments.rollout_actions,
         arguments.rollout_limit,
         None if arguments.rollout_limit is None else arguments.unfinished_payoff,
+        arguments.time_control,
+        arguments.expected_steps,
+        arguments.selection,
+        arguments.puct_exploration,
+        arguments.prior,
+        arguments.prior_temperature,
     )
 
     directory = Path(arguments.log_directory) / domain.name
@@ -162,7 +180,7 @@ def main(argv: list[str] | None = None) -> None:
             values_file = str(arguments.values)
             logger.info("Evaluating with values %s", values_file)
         logger.info("Running games and searches in %d worker processes", arguments.workers)
-        report = create_evaluator(arguments.workers, GameMemory(create_knowledge_base(domain.name))).evaluate(
+        report = create_evaluator(arguments.workers, GameMemory(create_knowledge_base(domain.name, arguments.knowledge))).evaluate(
             domain, agent_builder, settings, rules_file, rater, values_file, valuer
         )
         path = ReportRepository(ReportJsonMapper()).save(report, Path(arguments.report_directory))

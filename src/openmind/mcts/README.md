@@ -12,12 +12,18 @@ rules, can value the positions its rollouts reach instead of playing them to the
 
 | File | What it is |
 |---|---|
-| `model/search_settings.py` | `SearchSettings(iterations, exploration, seed, rollout_limit=None, unfinished_payoff=None, regret_exploration=0.1, seconds=None)`: how long and how widely to search; the search stops at its iterations or its seconds, whichever comes first, and needs at least one of them; `seed=None` is unseeded; a rollout limit stops rollouts after that many actions; `regret_exploration` is the share of uniform choice mixed into regret matching where players act at once |
-| `constant/mcts_constant.py` | `DEFAULT_REGRET_EXPLORATION` (0.1) |
+| `model/search_settings.py` | `SearchSettings(iterations, exploration, seed, rollout_limit=None, unfinished_payoff=None, regret_exploration=0.1, seconds=None, selection='ucb1', puct_exploration=1.5, prior=None)`: how long and how widely to search; `selection` is `ucb1` or `puct`, with PUCT's exploration weight and prior (None: every action alike); the search stops at its iterations or its seconds, whichever comes first, and needs at least one of them; `seed=None` is unseeded; a rollout limit stops rollouts after that many actions; `regret_exploration` is the share of uniform choice mixed into regret matching where players act at once |
+| `constant/mcts_constant.py` | `DEFAULT_REGRET_EXPLORATION` (0.1); the selections `UCB1` and `PUCT`, `DEFAULT_PUCT_EXPLORATION` (1.5) and `DEFAULT_PRIOR_TEMPERATURE` (0.1); the priors entry points name, `uniform`, `rater` and `value` |
+| `model/move_prior.py` | `MovePrior`: the interface of a prior, `priors(state, actions)` giving one share per action summing to 1, and `name` for the logs |
+| `service/uniform_prior.py` | `UniformPrior`: every action alike |
+| `service/rater_prior.py` | `RaterPrior(rater, temperature)`: a rater's ratings through a softmax; an action it doesn't rate takes the mean of those it does |
+| `service/valuation_prior.py` | `ValuationPrior(valuer, predictor, transitions, players, temperature)`: each action's outcomes valued for the player to act, weighed by their probabilities, through a softmax; a finished outcome counts at its payoffs, an action the valuer can't value takes the mean of the others; the RBS's `RuleValuer` works here |
+| `service/softmax.py` | `softmax(values, temperature)`: shares from values, None taking the mean of the known ones |
+| `factory/move_prior_factory.py` | `create_move_prior(kind, temperature, domain, rater=None, valuer=None)`: the prior a name stands for; a name it doesn't know, or a prior without the model it reads, raises `ValueError` |
 | `model/simultaneous_node.py` | `SimultaneousNode`: a state in the tree where players act at once, with each player's legal actions, regrets, summed strategies, visits and payoffs, and the strategies predicted for other players at the root; mutable |
 | `model/action_statistics.py` | `ActionStatistics(action, visits, mean_payoff)`: a root action's visits and mean payoff for the player acting at the root (0.0 when never visited) |
 | `model/action_sample.py` | `ActionSample(state, player, action, visits, mean_payoff)`: an action expanded anywhere in the tree, with its visits and mean payoff for the player to act |
-| `model/search_result.py` | `SearchResult(player, statistics, chosen, samples, hypotheses=(), strategy=(), iterations=0, seconds=0.0)`: every root action's statistics, the action chosen (the most visited, or a semi-determinized search's highest expected payoff), a sample for every expanded action, a semi-determinized search's hypotheses, and the iterations completed in the seconds taken; the seconds don't take part in comparing results |
+| `model/search_result.py` | `SearchResult(player, statistics, chosen, samples, hypotheses=(), strategy=(), iterations=0, seconds=0.0, budget=None, depth=0)`: every root action's statistics, the action chosen (the most visited, or a semi-determinized search's highest expected payoff), a sample for every expanded action, a semi-determinized search's hypotheses, the iterations completed in the seconds taken, on a clock the step's budget, and the tree's depth, the most actions from the root an iteration went; the seconds and the budget don't take part in comparing results |
 | `model/hypothesis.py` | `Hypothesis(label, completions)`: a prediction about what a player can't see, such as another player's hidden move, and the states that could be true under it with their probabilities |
 | `model/hypothesis_result.py` | `HypothesisResult(label, probability, statistics)`: one hypothesis of a semi-determinized search, its probability, and the root actions' statistics of the search made as if it were true |
 | `model/theory_of_mind.py` | `TheoryOfMind`: the interface of what a player believes about what it can't see, `hypotheses(domain, observed, player)` giving hypotheses with probabilities summing to 1, and `strategy(domain, state, player, other)` giving the strategy it predicts another player acting at once will play, or `None`; `agent/service/completion_theory.py` is the first, a doxastic module's beliefs later |
@@ -25,7 +31,7 @@ rules, can value the positions its rollouts reach instead of playing them to the
 | `model/guidance.py` | `Guidance(rater, prior_weight, rollout_temperature, guided_rollouts=True)`: how a rater steers the search, and whether rollouts follow its ratings |
 | `model/position_valuer.py` | `PositionValuer`: the interface of a model valuing positions, `value(state)` giving each player's expected payoff in the order of the players' names, or `None` |
 | `model/leaf_valuation.py` | `LeafValuation(valuer, rollout_actions=0)`: how a valuer ends iterations, valuing the position a rollout reaches after that many actions |
-| `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action, with the rater's ratings when guided; mutable |
+| `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action, with the rater's ratings when guided and its actions' priors under PUCT, worked out once when the node is made; mutable |
 | `model/chance_node.py` | `ChanceNode`: an action, or actions taken at once, in the tree with its possible outcomes; mutable |
 | `service/tree_search.py` | `TreeSearch`: runs the search, guided or not, from what the searching player sees when given an observation, over given completions when given them |
 | `service/semi_determinized_search.py` | `SemiDeterminizedSearch.search(domain, state, settings, theory, guidance=None, valuation=None)`: one information set search per hypothesis of a theory of mind, weighed into expected payoffs |
@@ -69,6 +75,17 @@ Each iteration:
    path counts a visit.
 
 After the iterations, the most visited root action is chosen; ties go to the first action in the solver's order.
+
+**Under PUCT** (`selection='puct'`), selection doesn't try every legal action first. A decision node follows, among all
+its legal actions, tried or not, the one with the highest Q + c · P · √N / (1 + n): Q the action's mean payoff for the
+player to act, or, for an action not visited yet, the node's own mean payoff so far (0 before its first visit); P the
+action's prior; N the node's visits and n the action's. Ties go to the higher prior, then to the first action. An
+untried action chosen is expanded as under UCB1. A move the prior dislikes can stay unvisited while the iterations go
+deep into the ones it likes, and √N still opens it eventually. With an observation, a legal action the node didn't have
+when made takes the mean of its priors. Under PUCT a rater guides through `RaterPrior`, not through UCB1's rating bonus;
+rollouts follow ratings as before. The semi-determinized search searches each hypothesis by PUCT; where players act at
+once, selection stays regret matching. A selection other than `ucb1` or `puct`, or a negative PUCT exploration, raises
+`ValueError`.
 
 Without guidance, untried actions are tried in random order and rollouts pick actions uniformly. With guidance:
 
@@ -169,7 +186,7 @@ Logger `openmind.mcts.service.tree_search`:
 - `INFO <player> sees <n> states that could be true`, with an observation
 - `INFO <action>: <visits> visits, mean payoff <mean> for <player>`, once per root action
 - `INFO Most visited: <action>`
-- `INFO Searched <n> iterations in <s> seconds for <player>`, after the iterations, before the root actions
+- `INFO Searched <n> iterations in <s> seconds for <player>, <ucb1, or puct with the <prior> prior>, tree depth <d>`, after the iterations, before the root actions
 - `DEBUG Iteration <n>: <actions from the root>, rollout of <n> actions, payoffs <player>=<payoff> ...`, with
   `, then valued` or `, then stopped at the rollout limit` after the rollout's length when a valuer or the limit gave
   the payoffs
@@ -179,7 +196,7 @@ The usage example above logs these INFO lines, and this DEBUG line for iteration
 ```
 INFO  Searching 500 iterations for X
 DEBUG Iteration 17: place(col=2, row=1) > place(col=2, row=2), rollout of 7 actions, payoffs X=0.5 O=0.5
-INFO  Searched 500 iterations in <seconds, as long as it took> seconds for X
+INFO  Searched 500 iterations in <seconds, as long as it took> seconds for X, ucb1, tree depth <d>
 INFO  place(col=1, row=1): 65 visits, mean payoff 0.7 for X
 INFO  place(col=2, row=1): 61 visits, mean payoff 0.6885245901639344 for X
 INFO  place(col=3, row=1): 41 visits, mean payoff 0.5975609756097561 for X
@@ -197,7 +214,7 @@ At DEBUG, every rollout step also logs the solver's candidates and the predictor
 Where players act at once, the same logger writes instead:
 
 - `INFO Searching <limits> for <player>, acting at once with <players>`
-- `INFO Searched <n> iterations in <s> seconds for <player>`
+- `INFO Searched <n> iterations in <s> seconds for <player>, <selection>, tree depth <d>`
 - `INFO <player> is predicted to play <action>=<probability> ...`, per predicted player
 - `INFO <action>: <visits> visits, mean payoff <mean>, average strategy <probability> for <player>`, once per root action
 - `INFO Sampled from the average strategy: <action>`

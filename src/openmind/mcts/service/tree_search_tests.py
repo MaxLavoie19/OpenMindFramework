@@ -9,13 +9,17 @@ from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.problem import Problem
 from openmind.csp.model.variable import Variable
+from openmind.mcts.constant.mcts_constant import PUCT, UCB1
+from openmind.mcts.model.decision_node import DecisionNode
 from openmind.mcts.model.guidance import Guidance
+from openmind.mcts.model.move_prior import MovePrior
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.search_result import SearchResult
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.observation.model.observation import Observation
 from openmind.predictor.factory.predictor_factory import create_predictor
+from openmind.mcts.model.chance_node import ChanceNode
 from openmind.predictor.model.branch import Branch
 from openmind.predictor.model.transition import Transition
 from openmind.predictor.model.transition_model import TransitionModel
@@ -69,13 +73,17 @@ def search(
     completions: tuple[tuple[State, float], ...] | None = None,
     seconds: float | None = None,
     time_source: TimeSource | None = None,
+    selection: str = UCB1,
+    prior: MovePrior | None = None,
 ) -> SearchResult:
     tree_search = TreeSearch(
         create_solver(), create_predictor(), StateReader(), ActionTextMapper(), time_source=ManualTimeSource() if time_source is None else time_source
     )
     problem, transitions, state = game
     players = Players(("me",), "turn", ("payoff",))
-    settings = SearchSettings(iterations, exploration, seed, rollout_limit, unfinished_payoff, seconds=seconds)
+    settings = SearchSettings(
+        iterations, exploration, seed, rollout_limit, unfinished_payoff, seconds=seconds, selection=selection, prior=prior
+    )
     return tree_search.search(problem, transitions, players, state, settings, guidance, valuation, observation, completions)
 
 
@@ -181,7 +189,7 @@ def test_logs_the_search_summary(caplog: pytest.LogCaptureFixture) -> None:
 
     assert [record.getMessage() for record in caplog.records if record.name == "openmind.mcts.service.tree_search"] == [
         "Searching 2 iterations for me",
-        "Searched 2 iterations in 0.000 seconds for me",
+        "Searched 2 iterations in 0.000 seconds for me, ucb1, tree depth 1",
         "lose(): 1 visits, mean payoff 0.0 for me",
         "win(): 1 visits, mean payoff 1.0 for me",
         "Most visited: lose()",
@@ -472,9 +480,9 @@ def test_a_search_on_time_logs_its_limits_and_what_it_did_in_them(caplog: pytest
 
     assert result.seconds == 0.75
     assert "Searching up to 3 iterations or 100 seconds for me" in caplog.messages
-    assert "Searched 3 iterations in 0.750 seconds for me" in caplog.messages
+    assert "Searched 3 iterations in 0.750 seconds for me, ucb1, tree depth 1" in caplog.messages
     assert "Searching for 0.5 seconds for me" in caplog.messages
-    assert "Searched 2 iterations in 0.750 seconds for me" in caplog.messages
+    assert "Searched 2 iterations in 0.750 seconds for me, ucb1, tree depth 1" in caplog.messages
 
 
 @pytest.mark.parametrize(
@@ -486,3 +494,77 @@ def test_a_search_needs_at_least_one_iteration_or_some_seconds(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         search(win_or_lose(), iterations, seconds=seconds)
+
+
+class Favouring:
+    """A prior giving the named action `share` and splitting the rest evenly between the others."""
+
+    name = "favouring"
+
+    def __init__(self, action: str, share: float) -> None:
+        self._action, self._share = action, share
+
+    def priors(self, state: State, actions: tuple[Action, ...]) -> tuple[float, ...]:
+        rest = (1.0 - self._share) / (len(actions) - 1)
+        return tuple(self._share if action.name == self._action else rest for action in actions)
+
+
+def three_even_moves() -> Game:
+    return one_move_game(*(Transition(name, (Branch(1.0, pay(0.5)),)) for name in ("a", "b", "c")))
+
+
+def test_under_puct_moves_the_prior_dislikes_stay_unvisited_until_the_visits_outweigh_their_prior() -> None:
+    few = search(three_even_moves(), 20, 1.5, selection=PUCT, prior=Favouring("a", 0.98))
+    many = search(three_even_moves(), 600, 1.5, selection=PUCT, prior=Favouring("a", 0.98))
+
+    assert {item.action.name: item.visits for item in few.statistics} == {"a": 20, "b": 0, "c": 0}
+    assert all(item.visits > 0 for item in many.statistics)
+
+
+def test_under_puct_an_unvisited_move_is_valued_at_the_node_s_mean_payoff_so_far() -> None:
+    a, b = Action("a", ()), Action("b", ())
+    tried = ChanceNode(a, (), {}, 4, [3.2])
+    node = DecisionNode(State((("turn", "me"),)), (a, b), [], {a: tried}, 4, 0, (), (0.4, 0.6))
+    tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
+
+    # a's mean is 0.8, and so is the node's: b, not yet visited, ties with a at 0.8 and wins on its higher prior
+    assert tree_search._puct(node, (a, b), 0.0) == b
+
+
+def wide_countdown(stages: int = 6, dead_ends: int = 9) -> Game:
+    """At each stage, go moves on and every other action ends the game at 0.5; going past the last stage pays 1.0."""
+    unset = PythonRule("payoff is None")
+    stops = tuple(f"stop{index}" for index in range(dead_ends))
+    problem = Problem(
+        (
+            ActionDefinition("go", (), (unset,)),
+            *(ActionDefinition(stop, (), (unset,)) for stop in stops),
+        )
+    )
+    transitions = TransitionModel(
+        (
+            Transition("go", (Branch(1.0, PythonRule(f"stage = stage + 1\nif stage >= {stages}:\n    payoff = 1.0")),)),
+            *(Transition(stop, (Branch(1.0, pay(0.5)),)) for stop in stops),
+        )
+    )
+    return problem, transitions, State((("payoff", None), ("stage", 0), ("turn", "me")))
+
+
+def test_puct_with_a_sound_prior_builds_a_deeper_tree_than_ucb1_in_the_same_iterations(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+
+    ucb1 = search(wide_countdown(), 40)
+    puct = search(wide_countdown(), 40, 1.5, selection=PUCT, prior=Favouring("go", 0.9))
+
+    assert puct.depth > ucb1.depth
+    assert any(message.endswith(f"puct with the favouring prior, tree depth {puct.depth}") for message in caplog.messages)
+
+
+@pytest.mark.parametrize(("selection", "exploration", "message"), [("greedy", 1.5, "ucb1 or puct"), (PUCT, -1.0, "negative")])
+def test_a_search_selects_by_ucb1_or_puct_with_an_exploration_of_0_or_more(selection: str, exploration: float, message: str) -> None:
+    tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
+    problem, transitions, state = win_or_lose()
+    settings = SearchSettings(10, 1.4, 1, selection=selection, puct_exploration=exploration)
+
+    with pytest.raises(ValueError, match=message):
+        tree_search.search(problem, transitions, Players(("me",), "turn", ("payoff",)), state, settings)

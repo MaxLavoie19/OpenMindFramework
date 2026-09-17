@@ -41,10 +41,16 @@ def test_to_json_holds_every_measure() -> None:
             "rollout_actions": 0,
             "rollout_limit": None,
             "unfinished_payoff": None,
+            "time_control": None,
+            "expected_steps": 30,
+            "selection": "ucb1",
+            "puct_exploration": 1.5,
+            "prior": "uniform",
+            "prior_temperature": 0.1,
         },
         "baselines": [
-            {"opponent": "random", "games": 4, "wins": 3, "draws": 1, "losses": 0},
-            {"opponent": "untrained MCTS", "games": 4, "wins": 0, "draws": 4, "losses": 0},
+            {"opponent": "random", "games": 4, "wins": 3, "draws": 1, "losses": 0, "time_control": None, "wins_on_time": 0, "losses_on_time": 0},
+            {"opponent": "untrained MCTS", "games": 4, "wins": 0, "draws": 4, "losses": 0, "time_control": None, "wins_on_time": 0, "losses_on_time": 0},
         ],
         "every_action_optimal": 2,
         "agreement": [

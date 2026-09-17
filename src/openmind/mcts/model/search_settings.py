@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
-from openmind.mcts.constant.mcts_constant import DEFAULT_REGRET_EXPLORATION
+from openmind.mcts.constant.mcts_constant import DEFAULT_PUCT_EXPLORATION, DEFAULT_REGRET_EXPLORATION, UCB1
+from openmind.mcts.model.move_prior import MovePrior
 
 
 @dataclass(frozen=True, slots=True)
@@ -9,7 +10,8 @@ class SearchSettings:
     unseeded), how many actions a rollout plays at most before every player gets the unfinished payoff (None plays
     rollouts to the end), the share of uniform choice mixed into regret matching where players act at once, and the
     seconds the search may take (None has no time limit). A search stops at its iterations or its seconds, whichever
-    comes first, and needs at least one of them."""
+    comes first, and needs at least one of them. Then how a tried node picks the action to follow: `ucb1`, or `puct`
+    with its exploration weight and the prior (None under PUCT: every action alike)."""
 
     iterations: int | None
     exploration: float
@@ -18,3 +20,6 @@ class SearchSettings:
     unfinished_payoff: float | None = None
     regret_exploration: float = DEFAULT_REGRET_EXPLORATION
     seconds: float | None = None
+    selection: str = UCB1
+    puct_exploration: float = DEFAULT_PUCT_EXPLORATION
+    prior: MovePrior | None = None

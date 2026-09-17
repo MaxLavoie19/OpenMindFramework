@@ -81,3 +81,19 @@ def test_a_rollout_limit_stops_the_self_play_rollouts(tmp_path: Path) -> None:
 def test_negative_prices_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["tictactoe", "--prices", "0.1,-1", "--log-directory", str(tmp_path)])
+
+
+def test_distill_values_on_a_training_clock_remembers_its_games_where_it_is_told(tmp_path: Path) -> None:
+    main(
+        [
+            "tictactoe",
+            *SMALL,
+            *("--training-time-control", "0.05+0", "--knowledge", str(tmp_path / "knowledge")),
+            *("--workers", "1", "--log-directory", str(tmp_path / "log"), "--values-directory", str(tmp_path / "values")),
+        ]
+    )
+
+    records = (tmp_path / "knowledge" / "tictactoe" / "records.jsonl").read_text(encoding="utf-8")
+    assert records.count('\\"time_control\\": \\"0.05+0\\"') == 3 + 2
+    (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
+    assert sum(1 for line in said(log_file) if " on 0.05+0, clocks " in line) == 3 + 2

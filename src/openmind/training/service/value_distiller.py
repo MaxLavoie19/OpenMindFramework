@@ -19,6 +19,7 @@ from openmind.rbs.service.rule_valuer import RuleValuer
 from openmind.rbs.service.value_generator import ValueGenerator
 from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner
+from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
 from openmind.training.constant.signal_constant import UNIFORM, WEIGHTED, WIN
 from openmind.training.constant.training_constant import SEARCH_TARGET, SIGNALS_TARGET
 from openmind.training.mapper.played_game_summary_mapper import PlayedGameSummaryMapper
@@ -104,11 +105,16 @@ class ValueDistiller:
         self-play agent is called, name the games a game memory remembers."""
         rng = random.Random(settings.seed)
         agent_builder.with_iterations(settings.iterations)
+        clocked = settings.time_control is not None
+        if clocked:
+            agent_builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps))
         if settings.target == SIGNALS_TARGET and arm_builders is not None and len(arm_builders) >= 2:
             exploration = (settings.signals or SignalSettings()).exploration
             library = library or SignalLibrary(domain.name)
             for builder in arm_builders.values():
                 builder.with_iterations(settings.iterations)
+                if clocked:
+                    builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps))
             arms = {name: builder.describe(name) for name, builder in arm_builders.items()}
             training_games = self._self_play.play_arms(
                 domain,
@@ -119,6 +125,7 @@ class ValueDistiller:
                 exploration,
                 rng,
                 keep_samples=False,
+                time_control=settings.time_control,
                 on_game=self._remembering(domain, ARMS_GAME, round_number, lambda game: tuple(arms[arm] for arm in game.arms)),
             )
             library = self._signal_library_updater.score(library, training_games)
@@ -131,6 +138,7 @@ class ValueDistiller:
                 exploration,
                 rng,
                 keep_samples=False,
+                time_control=settings.time_control,
                 on_game=self._remembering(
                     domain, HELD_OUT_ARMS_GAME, round_number, lambda game: tuple(arms[arm] for arm in game.arms)
                 ),
@@ -145,6 +153,7 @@ class ValueDistiller:
             settings.games,
             rng,
             keep_samples=False,
+            time_control=settings.time_control,
             on_game=self._remembering(domain, SELF_PLAY_GAME, round_number, lambda game: (model,) * players),
         )
         held_out_games = self._self_play.play(
@@ -153,6 +162,7 @@ class ValueDistiller:
             settings.held_out_games,
             rng,
             keep_samples=False,
+            time_control=settings.time_control,
             on_game=self._remembering(domain, HELD_OUT_SELF_PLAY_GAME, round_number, lambda game: (model,) * players),
         )
         if settings.target == SIGNALS_TARGET:

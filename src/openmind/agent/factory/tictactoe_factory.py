@@ -1,6 +1,7 @@
 import textwrap
 
 from openmind.agent.builder.domain_builder import DomainBuilder
+from openmind.agent.constant.agent_constant import FLAGGED
 from openmind.agent.constant.tictactoe_constant import (
     CELL,
     CERTAIN,
@@ -133,6 +134,11 @@ def create_tictactoe_transitions(variant: TicTacToeVariant = STANDARD) -> Transi
     )
 
 
+def create_tictactoe_timeout() -> PythonRule:
+    """On a clock, the player whose time ran out loses and the other wins."""
+    return PythonRule(f"{PAYOFF}[{FLAGGED}] = LOSS\n{PAYOFF}[other({FLAGGED})] = WIN")
+
+
 def create_tictactoe_players() -> Players:
     """X and O; turn names the player to act; payoff(X) and payoff(O) hold their payoffs."""
     variable_name_mapper = VariableNameMapper()
@@ -142,8 +148,8 @@ def create_tictactoe_players() -> Players:
 
 
 def create_tictactoe_domain(variant: TicTacToeVariant = STANDARD) -> Domain:
-    """Tic-tac-toe or one of its variants: its initial state, constraints, transitions and players. The standard game is
-    named "tictactoe", any other variant "tictactoe/<variant>"."""
+    """Tic-tac-toe or one of its variants: its initial state, constraints, transitions, players, and what running out of
+    time does on a clock. The standard game is named "tictactoe", any other variant "tictactoe/<variant>"."""
     return (
         DomainBuilder()
         .with_name(NAME if variant == STANDARD else SEPARATOR.join((NAME, variant.name)))
@@ -151,6 +157,7 @@ def create_tictactoe_domain(variant: TicTacToeVariant = STANDARD) -> Domain:
         .with_problem(create_tictactoe_problem(variant))
         .with_transitions(create_tictactoe_transitions(variant))
         .with_players(create_tictactoe_players())
+        .with_timeout(create_tictactoe_timeout())
         .build()
     )
 

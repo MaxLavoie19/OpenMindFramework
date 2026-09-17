@@ -12,7 +12,8 @@ class SearchResult:
     semi-determinized search the highest expected payoff, or where players act at once one sampled from the average
     strategy), every tree sample, a semi-determinized search's hypotheses, where players act at once the searching
     player's average strategy over its root actions, and the iterations the search completed in the seconds it took
-    (a semi-determinized search's totals over its hypotheses), and on a clock the budget the step was given. The
+    (a semi-determinized search's totals over its hypotheses), and on a clock the budget the step was given. `depth` is
+    the most actions from the root its tree reached (a semi-determinized search's deepest over its hypotheses). The
     seconds and the budget measure a run and don't take part in comparing results, so the same seed gives equal
     results."""
 
@@ -25,3 +26,4 @@ class SearchResult:
     iterations: int = 0
     seconds: float = field(default=0.0, compare=False)
     budget: float | None = field(default=None, compare=False)
+    depth: int = 0

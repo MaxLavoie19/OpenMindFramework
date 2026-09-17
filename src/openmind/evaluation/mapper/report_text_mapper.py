@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from openmind.evaluation.model.agreement import Agreement
 from openmind.evaluation.model.evaluation_report import EvaluationReport
+from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 
 
 class ReportTextMapper:
@@ -13,6 +14,12 @@ class ReportTextMapper:
         lines = [
             f"Against {results.opponent}: {results.games} games, {results.wins} wins, {results.draws} draws, "
             f"{results.losses} losses"
+            + (
+                ""
+                if results.time_control is None
+                else f", on {TimeControlTextMapper().to_text(results.time_control)}: {results.wins_on_time} wins and "
+                f"{results.losses_on_time} losses on time"
+            )
             for results in report.baselines
         ]
         if not report.agreement:

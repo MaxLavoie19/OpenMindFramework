@@ -23,7 +23,7 @@ ROUND_START = re.compile(r"^Round (?P<round>\d+) of (?P<rounds>\d+): (?P<note>.*
 PAYOFFS = re.compile(r"payoffs (?P<payoffs>(?:\S+=\S+)(?: \S+=\S+)*)$")
 #: How long a finished game took and, where the domain says so, why it ended: `finished in 37 plies by threefold
 #: repetition:` or `finished in 9 plies:`.
-FINISHED = re.compile(r"finished in (?P<plies>\d+) plies(?: by (?P<ending>[^:]+))?:")
+FINISHED = re.compile(r"finished in (?P<plies>\d+) plies(?: by (?P<ending>[^:]+?))?(?: on \S+, clocks [^:]*)?:")
 
 
 class LogProgressReader:

@@ -162,3 +162,13 @@ def test_once_the_time_is_up_each_hypothesis_left_gets_one_iteration(caplog: pyt
     assert caplog.messages.count("me's time is up, so this hypothesis gets 1 iteration") == 2
     assert result.iterations == 2
     assert sum(item.visits for item in result.statistics) == 2
+
+
+def test_the_semi_determinized_search_searches_each_hypothesis_by_puct() -> None:
+    domain = coin_domain("tails", 0.5)
+    settings = SearchSettings(40, math.sqrt(2), 1, selection="puct")
+
+    result = new_search().search(domain, domain.initial_state, settings, Believes(0.8))
+
+    assert result.chosen == HEADS
+    assert result.iterations == 40

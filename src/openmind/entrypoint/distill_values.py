@@ -4,11 +4,15 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
-from openmind.agent.service.game_memory import GameMemory
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
 from openmind.agent.factory.domain_factory import create_domain
+from openmind.agent.service.game_memory import GameMemory
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.entrypoint.clock_options import add_clock_options, add_knowledge_option
+from openmind.entrypoint.search_options import add_selection_options
+from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR
+from openmind.mcts.service.uniform_prior import UniformPrior
 from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.entrypoint.train_values import (
     _add_deduction_options,
@@ -106,10 +110,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--values-directory", default="data/values", help="where value bases are saved (default: data/values)"
     )
+    add_clock_options(parser, "--training-time-control")
+    add_knowledge_option(parser)
+    add_selection_options(parser)
     arguments = parser.parse_args(argv)
+    if arguments.prior != UNIFORM_PRIOR:
+        parser.error(f"--prior {arguments.prior} needs rules the self-play agent doesn't have; use uniform")
     if arguments.target == SIGNALS_TARGET:
         parser.error("--target signals needs openmind-train-values, which keeps the signal library from round to round")
     domain = create_domain(arguments.domain)
+    if arguments.training_time_control is not None and domain.timeout is None:
+        parser.error(f"{domain.name} can't be played on a clock: it has no timeout rule")
     values = ValueSettings(
         arguments.prices,
         arguments.max_steps,
@@ -120,7 +131,20 @@ def main(argv: list[str] | None = None) -> None:
     )
     deduction, pondering = _deduction_settings(parser, arguments)
     settings = ValueDistillationSettings(
-        arguments.games, arguments.held_out_games, arguments.iterations, arguments.seed, arguments.target, values, pondering
+        arguments.games,
+        arguments.held_out_games,
+        arguments.iterations,
+        arguments.seed,
+        arguments.target,
+        values,
+        pondering,
+        None,
+        arguments.training_time_control,
+        arguments.expected_steps,
+        arguments.selection,
+        arguments.puct_exploration,
+        arguments.prior,
+        arguments.prior_temperature,
     )
 
     directory = Path(arguments.log_directory) / domain.name
@@ -150,6 +174,7 @@ def main(argv: list[str] | None = None) -> None:
             "any number of" if values.candidates is None else f"at most {values.candidates}",
         )
         agent_builder = AgentBuilder().with_exploration(EXPLORATION).with_deduction(deduction)
+        agent_builder.with_selection(settings.selection, settings.puct_exploration).with_prior(UniformPrior())
         if deduction is not None:
             logger.info(
                 "Self-play deduces the positions without rules within %d plies and %s seconds; pondering %d positions",
@@ -164,7 +189,7 @@ def main(argv: list[str] | None = None) -> None:
                 arguments.rollout_limit,
                 arguments.unfinished_payoff,
             )
-        result = create_value_distiller(arguments.workers, memory_cap, GameMemory(create_knowledge_base(domain.name))).distill(domain, agent_builder, settings)
+        result = create_value_distiller(arguments.workers, memory_cap, GameMemory(create_knowledge_base(domain.name, arguments.knowledge))).distill(domain, agent_builder, settings)
         path = ValueBaseRepository(ValueBaseJsonMapper()).save(
             result.value_base, Path(arguments.values_directory), datetime.now()
         )

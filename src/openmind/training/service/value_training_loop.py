@@ -22,9 +22,13 @@ from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.rbs.model.value_base import ValueBase
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
 from openmind.rbs.service.rule_valuer import RuleValuer
+from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR, VALUE_PRIOR
+from openmind.mcts.factory.move_prior_factory import create_move_prior
 from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
 from openmind.rule.service.rule_runner import RuleRunner
+from openmind.timing.model.time_control import TimeControl
 from openmind.training.constant.training_constant import SIGNALS_TARGET, START_RULES
 from openmind.training.model.signal_library import SignalLibrary
 from openmind.training.model.signal_settings import SignalSettings
@@ -161,7 +165,16 @@ class ValueTrainingLoop:
                 )
                 baselines = tuple(
                     self._series(
-                        domain, number, evaluated, name, opponent, settings.evaluation_games, rng, evaluated_model, model
+                        domain,
+                        number,
+                        evaluated,
+                        name,
+                        opponent,
+                        settings.evaluation_games,
+                        rng,
+                        evaluated_model,
+                        model,
+                        settings.distillation.time_control,
                     )
                     for name, opponent, model in opponents
                 )
@@ -177,6 +190,7 @@ class ValueTrainingLoop:
                         rng,
                         evaluated_model,
                         previous_builder.describe(previous_name),
+                        settings.distillation.time_control,
                     )
             seconds = time.perf_counter() - started
             logger.info("Round %d took %.0f seconds", number, seconds)
@@ -213,9 +227,17 @@ class ValueTrainingLoop:
         builder = AgentBuilder().with_exploration(EXPLORATION).with_iterations(settings.distillation.iterations)
         builder.with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
         builder.with_deduction(settings.deduction if deduces else None)
+        if settings.distillation.time_control is not None:
+            builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.distillation.expected_steps))
+        distillation = settings.distillation
+        valuer = None
         if value_base is not None:
             valuer = RuleValuer(value_base, domain, self._rule_compiler, self._rule_runner, self._consequence_library)
             builder.with_valuation(valuer).with_rollout_actions(settings.rollout_actions)
+        kind = VALUE_PRIOR if distillation.prior == VALUE_PRIOR and valuer is not None else UNIFORM_PRIOR
+        builder.with_selection(distillation.selection, distillation.puct_exploration).with_prior(
+            create_move_prior(kind, distillation.prior_temperature, domain, None, valuer)
+        )
         return builder
 
     def _series(
@@ -229,6 +251,7 @@ class ValueTrainingLoop:
         rng: random.Random,
         evaluated_model: ModelDescription,
         opponent_model: ModelDescription,
+        time_control: TimeControl | None = None,
     ) -> MatchResults:
         memory = self._game_memory
         on_game = None
@@ -239,12 +262,21 @@ class ValueTrainingLoop:
                 record = self._game_recorder.record(domain, game.actions) if game.actions else None
                 memory.remember(
                     mapper.to_summary(
-                        domain, game, MATCH_GAME, number, index + 1, seat, evaluated_model, opponent_model, record, None
+                        domain,
+                        game,
+                        MATCH_GAME,
+                        number,
+                        index + 1,
+                        seat,
+                        evaluated_model,
+                        opponent_model,
+                        record,
+                        time_control,
                     )
                 )
 
             on_game = remember
-        results = self._match_runner.series(domain, evaluated, opponent, name, games, rng, on_game=on_game)
+        results = self._match_runner.series(domain, evaluated, opponent, name, games, rng, time_control, on_game)
         logger.info(
             "Round %d against %s: %d games, %d wins, %d draws, %d losses",
             number,

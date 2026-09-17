@@ -32,10 +32,15 @@ from openmind.evaluation.service.exact_search import ExactSearch
 from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.evaluation.service.reference_search import ReferenceSearch
 from openmind.evaluation.service.value_measurer import ValueMeasurer
+from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR
+from openmind.mcts.factory.move_prior_factory import create_move_prior
 from openmind.mcts.model.action_rater import ActionRater
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
+from openmind.timing.model.time_control import TimeControl
+from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.state_text_mapper import StateTextMapper
 from openmind.world.model.state import State
@@ -103,6 +108,15 @@ class Evaluator:
             .with_seed(settings.seed)
             .with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
         )
+        agent_builder.with_selection(settings.selection, settings.puct_exploration).with_prior(
+            create_move_prior(settings.prior, settings.prior_temperature, domain, rater, valuer)
+        )
+        untrained.with_selection(settings.selection, settings.puct_exploration).with_prior(
+            create_move_prior(UNIFORM_PRIOR, settings.prior_temperature, domain)
+        )
+        if settings.time_control is not None:
+            for builder in (agent_builder, untrained):
+                builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps))
         opponents: tuple[tuple[str, PolicyFactory, ModelDescription], ...] = (
             (RANDOM_OPPONENT, create_random_policy, ModelDescription(RANDOM_OPPONENT, RANDOM_POLICY_TEXT)),
             (UNTRAINED_OPPONENT, partial(create_built_agent, untrained), untrained.describe(UNTRAINED_OPPONENT)),
@@ -110,7 +124,7 @@ class Evaluator:
         evaluated = partial(create_built_agent, agent_builder)
         evaluated_model = agent_builder.describe(values_file or rules_file or "evaluated agent")
         baselines = tuple(
-            self._series(domain, evaluated, name, opponent, settings.games, rng, evaluated_model, model)
+            self._series(domain, evaluated, name, opponent, settings.games, rng, evaluated_model, model, settings.time_control)
             for name, opponent, model in opponents
         )
         every_action_optimal = 0
@@ -209,6 +223,7 @@ class Evaluator:
         rng: random.Random,
         evaluated_model: ModelDescription,
         opponent_model: ModelDescription,
+        time_control: TimeControl | None = None,
     ) -> MatchResults:
         memory = self._game_memory
         on_game = None
@@ -218,18 +233,21 @@ class Evaluator:
             def remember(index: int, seat: int, game: MatchGame) -> None:
                 record = self._game_recorder.record(domain, game.actions) if game.actions else None
                 memory.remember(
-                    mapper.to_summary(domain, game, MATCH_GAME, None, index + 1, seat, evaluated_model, opponent_model, record, None)
+                    mapper.to_summary(
+                        domain, game, MATCH_GAME, None, index + 1, seat, evaluated_model, opponent_model, record, time_control
+                    )
                 )
 
             on_game = remember
-        results = self._match_runner.series(domain, evaluated, opponent, name, games, rng, on_game=on_game)
+        results = self._match_runner.series(domain, evaluated, opponent, name, games, rng, time_control, on_game)
         logger.info(
-            "Against %s: %d games, %d wins, %d draws, %d losses",
+            "Against %s: %d games, %d wins, %d draws, %d losses%s",
             name,
             results.games,
             results.wins,
             results.draws,
             results.losses,
+            _on_time(results),
         )
         return results
 
@@ -405,3 +423,11 @@ class Evaluator:
             value_measure.mean_regret,
         )
         return value_measure
+
+
+def _on_time(results: MatchResults) -> str:
+    """`, on <time control>: <n> wins and <m> losses on time` for a series played on a clock; nothing otherwise."""
+    if results.time_control is None:
+        return ""
+    control = TimeControlTextMapper().to_text(results.time_control)
+    return f", on {control}: {results.wins_on_time} wins and {results.losses_on_time} losses on time"

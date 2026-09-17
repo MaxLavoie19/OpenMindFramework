@@ -2,6 +2,7 @@ import json
 
 from openmind.evaluation.model.agreement import Agreement
 from openmind.evaluation.model.evaluation_report import EvaluationReport
+from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 
 
 class ReportJsonMapper:
@@ -27,6 +28,12 @@ class ReportJsonMapper:
                     "rollout_actions": settings.rollout_actions,
                     "rollout_limit": settings.rollout_limit,
                     "unfinished_payoff": settings.unfinished_payoff,
+                    "time_control": None if settings.time_control is None else TimeControlTextMapper().to_text(settings.time_control),
+                    "expected_steps": settings.expected_steps,
+                    "selection": settings.selection,
+                    "puct_exploration": settings.puct_exploration,
+                    "prior": settings.prior,
+                    "prior_temperature": settings.prior_temperature,
                 },
                 "baselines": [
                     {
@@ -35,6 +42,11 @@ class ReportJsonMapper:
                         "wins": results.wins,
                         "draws": results.draws,
                         "losses": results.losses,
+                        "time_control": None
+                        if results.time_control is None
+                        else TimeControlTextMapper().to_text(results.time_control),
+                        "wins_on_time": results.wins_on_time,
+                        "losses_on_time": results.losses_on_time,
                     }
                     for results in report.baselines
                 ],

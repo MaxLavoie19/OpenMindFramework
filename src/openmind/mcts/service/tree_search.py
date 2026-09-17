@@ -8,6 +8,7 @@ from openmind.csp.service.joint_solver import JointSolver
 from openmind.csp.service.solver import Solver
 from openmind.mcts.model.action_sample import ActionSample
 from openmind.mcts.model.action_statistics import ActionStatistics
+from openmind.mcts.constant.mcts_constant import PUCT, SELECTIONS
 from openmind.mcts.model.chance_node import ChanceNode
 from openmind.mcts.model.decision_node import DecisionNode
 from openmind.mcts.model.guidance import Guidance
@@ -92,6 +93,10 @@ class TreeSearch:
             raise ValueError(f"A search needs at least 1 iteration, not {settings.iterations}")
         if settings.seconds is not None and settings.seconds <= 0.0:
             raise ValueError(f"A search needs more than 0 seconds, not {settings.seconds}")
+        if settings.selection not in SELECTIONS:
+            raise ValueError(f"A search selects by {' or '.join(SELECTIONS)}, not {settings.selection!r}")
+        if settings.puct_exploration < 0.0:
+            raise ValueError(f"PUCT's exploration can't be negative, not {settings.puct_exploration}")
         if completions is not None and (observation is None or not completions):
             raise ValueError("Completions need an observation and at least one state")
         if settings.rollout_limit is not None:
@@ -112,14 +117,14 @@ class TreeSearch:
             state = self._state_observer.observe(observation, state, searching)
             possible = self._state_observer.completions(observation, state, searching) if completions is None else completions
             view = (observation, searching, possible)
-        root = self._decision_node(problem, players, state, guidance, rng)
+        root = self._decision_node(problem, players, state, guidance, rng, settings)
         if root.player is None:
             raise ValueError("No legal action to search from")
         player = players.names[root.player]
         logger.info("Searching %s for %s", _limits(settings), player)
         if view is not None:
             logger.info("%s sees %d states that could be true", player, len(view[2]))
-        iterations, seconds = self._run(
+        iterations, seconds, depth = self._run(
             settings,
             player,
             lambda iteration: self._iterate(
@@ -138,25 +143,40 @@ class TreeSearch:
             )
         logger.info("Most visited: %s", self._action_text_mapper.to_text(chosen))
         return SearchResult(
-            player, statistics, chosen, tuple(self._samples(root, view is not None)), iterations=iterations, seconds=seconds
+            player,
+            statistics,
+            chosen,
+            tuple(self._samples(root, view is not None)),
+            iterations=iterations,
+            seconds=seconds,
+            depth=depth,
         )
 
-    def _run(self, settings: SearchSettings, player: str, iterate: Callable[[int], None]) -> tuple[int, float]:
+    def _run(self, settings: SearchSettings, player: str, iterate: Callable[[int], int]) -> tuple[int, float, int]:
         """Runs iterations until the settings' iterations are done or their seconds have passed, whichever comes first,
-        checking the time between iterations and completing at least one; the iterations done and the seconds taken."""
+        checking the time between iterations and completing at least one; the iterations done, the seconds taken and the
+        most actions from the root an iteration went."""
         started = self._time_source.now()
         deadline = None if settings.seconds is None else Deadline(started + settings.seconds, self._time_source)
-        iterations = 0
+        iterations = depth = 0
         while True:
             iterations += 1
-            iterate(iterations)
+            depth = max(depth, iterate(iterations))
             if settings.iterations is not None and iterations >= settings.iterations:
                 break
             if deadline is not None and deadline.passed():
                 break
         seconds = self._time_source.now() - started
-        logger.info("Searched %d iterations in %.3f seconds for %s", iterations, seconds, player)
-        return iterations, seconds
+        prior = settings.prior.name if settings.prior is not None else "uniform"
+        logger.info(
+            "Searched %d iterations in %.3f seconds for %s, %s, tree depth %d",
+            iterations,
+            seconds,
+            player,
+            f"puct with the {prior} prior" if settings.selection == PUCT else settings.selection,
+            depth,
+        )
+        return iterations, seconds, depth
 
     def _iterate(
         self,
@@ -170,19 +190,31 @@ class TreeSearch:
         valuation: LeafValuation | None,
         rng: random.Random,
         view: View | None,
-    ) -> None:
-        """One iteration. With a view, it draws a state that could be true at the root and plays on it: legal actions and
+    ) -> int:
+        """One iteration, giving how many actions from the root it went. With a view, it draws a state that could be true at the root and plays on it: legal actions and
         outcomes come from that state, and a node is what the searching player sees of the states reaching it."""
         node = root
         state = root.state if view is None else self._draw(view[2], rng)
         decisions = [root]
         chances: list[ChanceNode] = []
         while actions := node.actions if view is None else self._solver.solve(problem, state):
-            action = self._untried(node, actions, view is not None, rng)
+            picked: Action | None = None
+            if settings.selection == PUCT:
+                picked = self._puct(node, actions, settings.puct_exploration)
+                action = None if picked in node.children else picked
+            else:
+                action = self._untried(node, actions, view is not None, rng)
             if action is not None:
                 outcomes = self._predictor.predict(transitions, state, action).outcomes
                 chance = ChanceNode(action, outcomes, {}, 0, [0.0] * len(players.names))
                 node.children[action] = chance
+            elif picked is not None:
+                chance = node.children[picked]
+                outcomes = (
+                    chance.outcomes
+                    if view is None
+                    else self._predictor.predict(transitions, state, chance.action).outcomes
+                )
             else:
                 chance = node.children[self._select(node, actions, settings.exploration, guidance)]
                 outcomes = (
@@ -192,7 +224,7 @@ class TreeSearch:
                 )
             chances.append(chance)
             state = self._draw(outcomes, rng)
-            node = self._outcome(chance, state, problem, players, guidance, rng, view)
+            node = self._outcome(chance, state, problem, players, guidance, rng, view, settings)
             decisions.append(node)
             if node.visits == 0:
                 actions = node.actions
@@ -221,6 +253,7 @@ class TreeSearch:
                 ending,
                 " ".join(f"{name}={payoff}" for name, payoff in zip(players.names, payoffs)),
             )
+        return len(chances)
 
     def _untried(
         self, node: DecisionNode, actions: tuple[Action, ...], observed: bool, rng: random.Random
@@ -264,6 +297,28 @@ class TreeSearch:
             key=lambda action: score(action, rating_of.get(action, 0.0)),
         )
 
+    def _puct(self, node: DecisionNode, actions: tuple[Action, ...], exploration: float) -> Action:
+        """The action with the highest Q + c · P · √N / (1 + n) among the legal ones, tried or not: Q is the action's mean
+        payoff for the player to act, or the node's own mean so far for an action not visited yet, 0 before the node's
+        first visit; P its prior, the mean prior for an action the node didn't have when made; N the node's visits and
+        n the action's. Ties go to the higher prior, then to the first action."""
+        player = node.player
+        visited = [chance for chance in node.children.values() if chance.visits]
+        visits = sum(chance.visits for chance in visited)
+        mean = math.fsum(chance.payoff_sums[player] for chance in visited) / visits if visits else 0.0  # type: ignore[index]
+        prior_of = dict(zip(node.actions, node.priors, strict=True))
+        fallback = math.fsum(node.priors) / len(node.priors) if node.priors else 1.0 / len(actions)
+        root = math.sqrt(node.visits)
+
+        def score(action: Action) -> tuple[float, float]:
+            chance = node.children.get(action)
+            count = 0 if chance is None else chance.visits
+            q = chance.payoff_sums[player] / count if chance is not None and count else mean  # type: ignore[index]
+            prior = prior_of.get(action, fallback)
+            return q + exploration * prior * root / (1 + count), prior
+
+        return max(actions, key=score)
+
     def _outcome(
         self,
         chance: ChanceNode,
@@ -273,11 +328,12 @@ class TreeSearch:
         guidance: Guidance | None,
         rng: random.Random,
         view: View | None,
+        settings: SearchSettings,
     ) -> DecisionNode:
         seen = state if view is None else self._state_observer.observe(view[0], state, view[1])
         child = chance.children.get(seen)
         if child is None:
-            child = self._decision_node(problem, players, state, guidance, rng, seen)
+            child = self._decision_node(problem, players, state, guidance, rng, settings, seen)
             chance.children[seen] = child
         return child
 
@@ -288,9 +344,11 @@ class TreeSearch:
         state: State,
         guidance: Guidance | None,
         rng: random.Random,
+        settings: SearchSettings,
         seen: State | None = None,
     ) -> DecisionNode:
-        """A node for the state, holding what the searching player sees of it, rated on that."""
+        """A node for the state, holding what the searching player sees of it, rated on that, and under PUCT with its
+        actions' priors, every action alike without a prior."""
         actions = self._solver.solve(problem, state)
         shown = state if seen is None else seen
         ratings = self._ratings(guidance, shown, actions) if actions else ()
@@ -300,7 +358,14 @@ class TreeSearch:
             rating_of = dict(zip(actions, ratings, strict=True))
             untried.sort(key=rating_of.__getitem__)
         player = self._state_reader.player_to_act(state, players) if actions else None
-        return DecisionNode(shown, actions, untried, {}, 0, player, ratings)
+        priors: tuple[float, ...] = ()
+        if settings.selection == PUCT and actions:
+            priors = (
+                tuple(1.0 / len(actions) for _ in actions)
+                if settings.prior is None
+                else settings.prior.priors(shown, actions)
+            )
+        return DecisionNode(shown, actions, untried, {}, 0, player, ratings, priors)
 
     def _ratings(self, guidance: Guidance | None, state: State, actions: tuple[Action, ...]) -> tuple[float, ...]:
         """The rater's ratings, with the mean of the known ones for actions it can't rate; empty when unguided."""
@@ -427,7 +492,7 @@ class TreeSearch:
                     for action, probability in zip(root.actions[position], strategy, strict=True)
                 ),
             )
-        iterations, seconds = self._run(
+        iterations, seconds, depth = self._run(
             settings,
             player,  # type: ignore[arg-type]
             lambda iteration: self._iterate_at_once(iteration, root, problem, transitions, players, settings, valuation, rng),
@@ -461,6 +526,7 @@ class TreeSearch:
             strategy,
             iterations,
             seconds,
+            depth=depth,
         )
 
     def _predicted(
@@ -501,8 +567,8 @@ class TreeSearch:
         settings: SearchSettings,
         valuation: LeafValuation | None,
         rng: random.Random,
-    ) -> None:
-        """One iteration where players act at once: every player to act picks by regret matching, the joint action's
+    ) -> int:
+        """One iteration where players act at once, giving how many joint actions from the root it went: every player to act picks by regret matching, the joint action's
         outcome is drawn, and from the first new node a rollout of uniformly drawn joint actions plays on; then each
         node's regrets, strategies and statistics take the payoffs."""
         node, state = root, root.state
@@ -557,6 +623,7 @@ class TreeSearch:
                 ending,
                 " ".join(f"{name}={payoff}" for name, payoff in zip(players.names, payoffs)),
             )
+        return len(chances)
 
     def _node_at_once(self, problem: Problem, players: Players, state: State) -> SimultaneousNode:
         legal = self._joint_solver.legal(problem, state, players)

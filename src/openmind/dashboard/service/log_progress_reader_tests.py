@@ -162,3 +162,22 @@ def test_the_notable_lines_keep_the_date_and_time_they_were_produced_at(tmp_path
     assert progress is not None
     assert progress.round == 1
     assert progress.recent[0] == "2026-09-16 19:03:08 INFO value_training_loop: Round 1 of 100000: self-play without value rules"
+
+
+def test_a_game_played_on_a_clock_counts_and_its_ending_is_read_without_the_clocks(tmp_path: Path) -> None:
+    write(
+        tmp_path / "run.log",
+        [
+            "2026-09-16 19:03:08,700 INFO  openmind.training.service.value_training_loop Round 1 of 100000: self-play without value rules",
+            "2026-09-16 19:04:08,700 INFO  openmind.training.service.self_play Self-play game with seeds 1 and 2 finished in 48 plies by white's flag on 1+0, clocks white=-0.21 black=23.40: 4800 samples, payoffs white=0.0 black=1.0",
+            "2026-09-16 19:05:08,700 INFO  openmind.training.service.self_play Self-play game with seeds 3 and 4 finished in 20 plies on 1+0, clocks white=12.00 black=23.40: 2000 samples, payoffs white=0.5 black=0.5",
+        ],
+    )
+    reader = LogProgressReader(IncrementalLineReader())
+
+    progress = reader.progress(tmp_path)
+
+    assert progress is not None and (progress.games, progress.decisive, progress.draws) == (2, 1, 1)
+    (played,) = reader.played()
+    assert (played.games, played.plies) == (2, 68)
+    assert dict(played.endings) == {"white's flag": 1}

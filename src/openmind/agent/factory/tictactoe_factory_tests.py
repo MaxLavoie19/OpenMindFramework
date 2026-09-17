@@ -8,6 +8,7 @@ from openmind.agent.factory.tictactoe_factory import (
     create_tictactoe_domain,
     create_tictactoe_initial_state,
     create_tictactoe_players,
+    create_tictactoe_timeout,
     create_tictactoe_problem,
     create_tictactoe_transitions,
 )
@@ -108,6 +109,7 @@ def test_domain_holds_the_tictactoe_recipes() -> None:
         create_tictactoe_problem(),
         create_tictactoe_transitions(),
         create_tictactoe_players(),
+        timeout=create_tictactoe_timeout(),
     )
 
 
@@ -120,6 +122,7 @@ def test_a_variant_is_named_after_the_game_and_the_standard_game_keeps_its_name(
         create_tictactoe_problem(fourinarow),
         create_tictactoe_transitions(fourinarow),
         create_tictactoe_players(),
+        timeout=create_tictactoe_timeout(),
     )
     assert create_tictactoe_domain(VARIANTS["standard"]).name == "tictactoe"
 

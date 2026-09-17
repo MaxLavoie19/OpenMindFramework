@@ -3,10 +3,13 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from openmind.agent.service.game_memory import GameMemory
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF
 from openmind.agent.factory.domain_factory import create_domain
+from openmind.agent.service.game_memory import GameMemory
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.entrypoint.clock_options import add_clock_options, add_knowledge_option
+from openmind.entrypoint.search_options import add_selection_options
+from openmind.mcts.constant.mcts_constant import RATER_PRIOR
 from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.inference.constant.inference_constant import (
     DEFAULT_DEDUCTION_SECONDS,
@@ -214,10 +217,17 @@ def main(argv: list[str] | None = None) -> None:
         default=DEFAULT_EXPLANATIONS_DIRECTORY,
         help=f"where the model's sentences are cached (default: {DEFAULT_EXPLANATIONS_DIRECTORY})",
     )
+    add_clock_options(parser, "--training-time-control")
+    add_knowledge_option(parser)
+    add_selection_options(parser)
     arguments = parser.parse_args(argv)
+    if arguments.prior == RATER_PRIOR:
+        parser.error("--prior rater needs rules that rate actions, which training doesn't have; use value or uniform")
     if (arguments.explainer_url is None) != (arguments.explainer_model is None):
         parser.error("--explainer-url and --explainer-model go together")
     domain = create_domain(arguments.domain)
+    if arguments.training_time_control is not None and domain.timeout is None:
+        parser.error(f"{domain.name} can't be played on a clock: it has no timeout rule")
     value_bases = ValueBaseRepository(ValueBaseJsonMapper())
     start = None if arguments.start is None else value_bases.load(arguments.start)
     if start is not None and start.domain != domain.name:
@@ -255,6 +265,12 @@ def main(argv: list[str] | None = None) -> None:
             SignalSettings(arguments.arms, arguments.signal_horizon, arguments.arm_exploration, arguments.goal_limit)
             if signaled
             else None,
+            arguments.training_time_control,
+            arguments.expected_steps,
+            arguments.selection,
+            arguments.puct_exploration,
+            arguments.prior,
+            arguments.prior_temperature,
         ),
         arguments.rollout_actions,
         arguments.rollout_limit,
@@ -325,7 +341,7 @@ def main(argv: list[str] | None = None) -> None:
                 arguments.goal_limit,
                 arguments.signal_library or "a new signal library",
             )
-        report = create_value_training_loop(arguments.workers, memory_cap, GameMemory(create_knowledge_base(domain.name))).train(domain, start, settings, save, library)
+        report = create_value_training_loop(arguments.workers, memory_cap, GameMemory(create_knowledge_base(domain.name, arguments.knowledge))).train(domain, start, settings, save, library)
         print(TrainingReportTextMapper().to_text(report))
         for number, path in round_files.items():
             print(f"Saved round {number} values {path}")
