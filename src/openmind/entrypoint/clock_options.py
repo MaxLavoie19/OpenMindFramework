@@ -3,7 +3,7 @@
 import argparse
 
 from openmind.doxastic.constant.doxastic_constant import KNOWLEDGE_DIRECTORY
-from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS
+from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS, DEFAULT_TIME_RESERVE
 from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 from openmind.timing.model.time_control import TimeControl
 
@@ -25,6 +25,13 @@ def add_clock_options(parser: argparse.ArgumentParser, flag: str = "--time-contr
         help="steps a player expects to be left at any point of a game on a clock, the time left being shared between "
         f"them (default: {DEFAULT_EXPECTED_STEPS})",
     )
+    parser.add_argument(
+        "--time-reserve",
+        type=time_reserve,
+        default=DEFAULT_TIME_RESERVE,
+        help="the share of a player's base time kept in reserve on a clock: below it, a player only plays random moves, so "
+        f"its clock never runs out; from 0 to below 1 (default: {DEFAULT_TIME_RESERVE})",
+    )
 
 
 def add_knowledge_option(parser: argparse.ArgumentParser) -> None:
@@ -40,6 +47,16 @@ def time_control(text: str) -> TimeControl:
         return TimeControlTextMapper().from_text(text)
     except ValueError as error:
         raise argparse.ArgumentTypeError(str(error)) from None
+
+
+def time_reserve(text: str) -> float:
+    try:
+        share = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, not {text!r}") from None
+    if not 0.0 <= share < 1.0:
+        raise argparse.ArgumentTypeError(f"needs a share from 0 to below 1, not {share}")
+    return share
 
 
 def expected_steps(text: str) -> int:

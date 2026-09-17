@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from openmind.mcts.constant.mcts_constant import DEFAULT_PRIOR_TEMPERATURE, DEFAULT_PUCT_EXPLORATION, UCB1, UNIFORM_PRIOR
-from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS
+from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS, DEFAULT_TIME_RESERVE
 from openmind.timing.model.time_control import TimeControl
 
 
@@ -13,7 +13,7 @@ class EvaluationSettings:
     ratings, how many rollout actions a valuing agent plays before valuing a position, and, for every agent the
     evaluation builds, the most actions a rollout plays before every player gets the unfinished payoff (None plays
     rollouts to the end); and the time control the baseline series play on (None plays without a clock, the iterations
-    being the budget; with one, they cap each move), with the steps every agent's time budget estimator expects; and how
+    being the budget; with one, they cap each move), with the steps every agent's time budget estimator expects and the share of the base time it keeps in reserve; and how
     every agent's search selects: `ucb1` or `puct` with its exploration weight, and the prior named (`uniform`, `rater`
     or `value`) with its temperature, the untrained agent always following the uniform prior."""
 
@@ -29,6 +29,7 @@ class EvaluationSettings:
     unfinished_payoff: float | None = None
     time_control: TimeControl | None = None
     expected_steps: int = DEFAULT_EXPECTED_STEPS
+    time_reserve: float = DEFAULT_TIME_RESERVE
     selection: str = UCB1
     puct_exploration: float = DEFAULT_PUCT_EXPLORATION
     prior: str = UNIFORM_PRIOR

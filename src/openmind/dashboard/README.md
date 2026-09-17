@@ -24,8 +24,9 @@ the process file system and the system log.
 | `service/log_progress_reader.py` | `LogProgressReader.progress(directory)` and `.played()`: the newest log's round, the round's self-play games and how many were drawn or decisive, games against opponents, searched and deduced moves, and the latest notable lines |
 | `model/model_score.py` | `ModelScore(name, id, games, wins, draws, losses, last_game)`: what a model's games came to; `score` is points per game |
 | `service/model_score_reader.py` | `ModelScoreReader.scores(directory, domain)`: every model the knowledge base remembers with its games, the latest to play first |
-| `model/game_view.py` | `GameView(label, ended, players, payoffs, ending, record, moves, pictures, pictured)`: a game as the page shows it, one picture per position |
-| `service/latest_game_reader.py` | `LatestGameReader(domain_factory=create_domain).latest_decisive(directory, domain)`: the latest decisive game the knowledge base remembers, replayed and drawn position by position with the domain's picture rule, or laid out as text without one; the game last drawn is kept until a newer one is remembered |
+| `model/game_view.py` | `GameView(label, ended, players, payoffs, ending, record, moves, pictures, pictured, id='', previous_id=None, next_id=None)`: a game as a page shows it, one picture per position, with its record id and its neighbours' |
+| `model/game_listing.py` | `GameListing(id, label, ended, players, payoffs, ending, plies)`: a decisive game as the list shows it, without its positions |
+| `service/game_browser.py` | `GameBrowser(domain_factory=create_domain)`: `decisive(directory, domain)` lists every decisive game the knowledge base remembers, newest first, without replaying any; `game(directory, domain, id)` replays and draws the one under that record id, position by position with the domain's picture rule or laid out as text, with the ids of the decisive games just before and after it, None for no such game; `latest(directory, domain)` draws the newest; the game last drawn is kept |
 | `service/report_reader.py` | `ReportReader.summary(directory)`: the newest report's rounds and latest rules |
 | `service/machine_reader.py` | `MachineReader.status(proc, syslog)`: memory and swap, the training's processes, earlyoom's latest kills |
 | `service/dashboard_service.py` | `DashboardService.snapshot(settings)`: a snapshot from the three readers, which keep their places between snapshots |
@@ -61,7 +62,13 @@ the process file system and the system log.
   for the first, previous, next and last position (the left and right arrow keys step too), and the record, such as the
   PGN. Every picture travels in the page, so stepping asks the dashboard for nothing; the position shown is kept for
   that game in the browser's session, so the page reloading itself comes back to it. A chess game's boards weigh about
-  31 KB each: a 140-move game makes a page of about 4.5 MB, sent at every reload.
+  31 KB each: a 140-move game makes a page of about 4.5 MB, sent at every reload. The section links to every decisive
+  game.
+- **Decisive games.** `/games` lists every decisive game, newest first, under a header: the game, when it ended, the
+  model each player played, the payoffs, why it ended and its plies, each game linking to its own page. `/game/<id>`,
+  the id being the game's record id in the knowledge base, shows that game as the training's page does, with links to
+  the decisive games just before and after it and to the list; an id with no decisive game gets a 404 page. A game
+  page carries only that game's boards, and the list none.
 - **Machine.** `meminfo` gives memory and swap; every process's command line, parent, start and resident memory give the
   training's processes: the loop script (`bash ...continue_training...`), the training entrypoint, and the workers
   whose parent is a training. The system log is read a piece at a time for earlyoom's `sending SIG...` lines, the

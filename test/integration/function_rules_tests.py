@@ -135,3 +135,22 @@ def test_a_domain_of_functions_travels_to_another_process() -> None:
     solver = SolverBuilder().build()
     assert copy == domain
     assert solver.solve(copy.problem, position({1: "X"}, "O")) == solver.solve(domain.problem, position({1: "X"}, "O"))
+
+
+def older_record(state: State, actions: tuple) -> str:  # type: ignore[type-arg]
+    """A record rule written before the flag and the payoffs were offered."""
+    return str(len(actions))
+
+
+def keyword_record(state: State, **parameters: object) -> str:
+    """A record rule taking whatever it's given."""
+    return ",".join(sorted(parameters))
+
+
+def test_a_function_gets_only_the_parameters_its_signature_names_or_all_of_them_when_it_takes_any_keyword() -> None:
+    caller = create_rule_caller()
+    state = State((("turn", "X"),))
+    offered = {"actions": (), "flagged": None, "payoffs": None}
+
+    assert caller.value(older_record, state, offered) == "0"
+    assert caller.value(keyword_record, state, offered) == "actions,flagged,payoffs"

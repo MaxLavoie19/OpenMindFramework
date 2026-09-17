@@ -1,7 +1,13 @@
+import logging
+import random
 from dataclasses import replace
 
+from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF
 from openmind.agent.model.domain import Domain
+from openmind.agent.service.move_planner import MovePlanner
+from openmind.agent.service.one_ply_chooser import OnePlyChooser
 from openmind.agent.service.deduction_fallback import DeductionFallback
+from openmind.mcts.constant.mcts_constant import FULL_OPTION, ONE_PLY_OPTION, RANDOM_OPTION
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.search_result import SearchResult
@@ -10,10 +16,13 @@ from openmind.mcts.model.theory_of_mind import TheoryOfMind
 from openmind.mcts.service.semi_determinized_search import SemiDeterminizedSearch
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.timing.model.clock import Clock
+from openmind.timing.model.deadline import Deadline
 from openmind.timing.model.time_budget_estimator import TimeBudgetEstimator
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
+
+logger = logging.getLogger(__name__)
 
 
 class Agent:
@@ -22,9 +31,14 @@ class Agent:
     of mind, it searches semi-determinized, once per hypothesis its theory gives. With a deduction fallback, a position
     its rules have no clue about is deduced first, and a proven choice is made without searching. Where players act at
     once, it searches for the player it's given, the other players playing the strategies its theory of mind predicts,
-    if any, and samples its action from its average strategy. Given a clock, it asks its time budget estimator how long
-    the step may take and searches for that long, any iterations it was built with kept as a cap; without one, it
-    searches its iterations."""
+    if any, and samples its action from its average strategy.
+
+    Given a clock, it asks its time budget estimator how long the move may take, and the whole move keeps to that
+    budget: one deadline, from the moment it starts choosing, that the fallback's valuing, its deduction and the search
+    all draw on, any iterations it was built with kept as a cap. Where every player sees everything and players take
+    turns, its planner picks the richest way to choose that fits the budget, from what each way has cost so far in the
+    game: the fallback then the search, the search alone, each legal move valued once (one-ply), or a random legal move,
+    which is also what a budget of 0 gets. Without a clock, it searches its iterations as it always has."""
 
     def __init__(
         self,
@@ -37,7 +51,11 @@ class Agent:
         theory: TheoryOfMind | None = None,
         state_reader: StateReader | None = None,
         estimator: TimeBudgetEstimator | None = None,
+        one_ply: OnePlyChooser | None = None,
+        planner: MovePlanner | None = None,
     ) -> None:
+        self._one_ply = one_ply
+        self._planner = MovePlanner() if planner is None else planner
         self._tree_search = tree_search
         self._settings = settings
         self._guidance = guidance
@@ -54,8 +72,68 @@ class Agent:
         """`player` names the searching player where players act at once; elsewhere it's the player to act. A clock
         without an estimator, or no clock for an agent built without iterations, raise ValueError."""
         settings = self._settings_for(clock, steps_played)
-        result = self._search(domain, state, player, settings)
-        return result if clock is None else replace(result, budget=settings.seconds)
+        if clock is None:
+            return self._search(domain, state, player, settings)
+        budget = settings.seconds or 0.0
+        if self._one_ply is None or domain.observation is not None or self._state_reader.acts_at_once(state, domain.players):
+            return replace(self._search(domain, state, player, settings), budget=budget)
+        return self._on_clock(domain, state, player, settings, budget, clock, steps_played)
+
+    def _on_clock(
+        self,
+        domain: Domain,
+        state: State,
+        player: str | None,
+        settings: SearchSettings,
+        budget: float,
+        clock: Clock,
+        steps_played: int,
+    ) -> SearchResult:
+        """A move on a clock, by the option the planner picks, all of it within one deadline."""
+        one_ply = self._one_ply
+        assert one_ply is not None
+        source = self._tree_search.time_source
+        started = source.now()
+        deadline = Deadline(started + budget, source)
+        moves = len(one_ply.legal(domain, state))
+        valuer = None if self._valuation is None else self._valuation.valuer
+        option = self._planner.plan(budget, moves, self._fallback is not None, valuer is not None)
+        rng = random.Random(None if settings.seed is None else settings.seed + steps_played)
+        result: SearchResult | None = None
+        if option == ONE_PLY_OPTION and valuer is not None:
+            result = one_ply.best(domain, state, valuer, rng, deadline)
+            self._planner.observe("valuation", source.now() - started, moves)
+        elif option != RANDOM_OPTION:
+            if option == FULL_OPTION and self._fallback is not None:
+                fallback_started = source.now()
+                deduced = self._fallback.result(domain, state, self._valuation, deadline)
+                self._planner.observe("fallback", source.now() - fallback_started, moves)
+                result = None if deduced is None else replace(deduced, option=FULL_OPTION)
+            left = deadline.remaining()
+            if result is None and left > 0.0:
+                searched = self._search_only(domain, state, player, replace(settings, seconds=left))
+                self._planner.observe("iteration", searched.seconds, searched.iterations)
+                result = replace(searched, option=option)
+        if result is None:
+            option = RANDOM_OPTION
+            unknown = DEFAULT_UNFINISHED_PAYOFF if settings.unfinished_payoff is None else settings.unfinished_payoff
+            result = one_ply.random(domain, state, rng, unknown)
+        spent = source.now() - started
+        logger.info(
+            "%s plays by %s within a %.3f second budget: %.3f seconds, %.1f left",
+            result.player,
+            option,
+            budget,
+            spent,
+            clock.remaining - spent,
+        )
+        return replace(result, budget=budget, option=option)
+
+    def _search_only(self, domain: Domain, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
+        """The search, without the fallback."""
+        return self._tree_search.search(
+            domain.problem, domain.transitions, domain.players, state, settings, self._guidance, self._valuation, None
+        )
 
     def _search(self, domain: Domain, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
         if self._state_reader.acts_at_once(state, domain.players):

@@ -5,8 +5,9 @@ from dataclasses import dataclass
 class GameView:
     """A game as a page shows it: its label and when it ended; each player with the model it played, in the order of the
     players' names; the payoffs and why it ended, when the domain says; its record, such as a chess game's PGN; its moves
-    as text; and one picture per position, from the start to the last move's, each an SVG image or, for a domain that
-    doesn't draw its positions, the position as text, `pictured` telling which."""
+    as text; one picture per position, from the start to the last move's, each an SVG image or, for a domain that
+    doesn't draw its positions, the position as text, `pictured` telling which; and its record id in the knowledge base
+    with those of the decisive games just before and just after it (None at either end of the list)."""
 
     label: str
     ended: str
@@ -17,3 +18,6 @@ class GameView:
     moves: tuple[str, ...]
     pictures: tuple[str, ...]
     pictured: bool
+    id: str = ""
+    previous_id: str | None = None
+    next_id: str | None = None

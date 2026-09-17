@@ -44,6 +44,7 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
         "unfinished_payoff": None,
         "time_control": None,
         "expected_steps": 30,
+        "time_reserve": 0.05,
         "selection": "ucb1",
         "puct_exploration": 1.5,
         "prior": "uniform",

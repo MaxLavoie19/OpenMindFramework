@@ -1,16 +1,16 @@
 import math
-from collections.abc import Sequence
+from dataclasses import replace
 
 from openmind.agent.model.domain import Domain
+from openmind.agent.service.one_ply_chooser import OnePlyChooser
 from openmind.csp.service.solver import Solver
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.mcts.model.action_statistics import ActionStatistics
 from openmind.mcts.model.leaf_valuation import LeafValuation
-from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.model.search_result import SearchResult
 from openmind.predictor.service.predictor import Predictor
-from openmind.world.model.action import Action
+from openmind.timing.model.deadline import Deadline
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
 
@@ -28,42 +28,41 @@ class DeductionFallback:
         predictor: Predictor,
         state_reader: StateReader,
         budget: DeductionBudget,
+        one_ply: OnePlyChooser | None = None,
     ) -> None:
+        self._one_ply = OnePlyChooser(solver, predictor, state_reader) if one_ply is None else one_ply
         self._position_deducer = position_deducer
         self._solver = solver
         self._predictor = predictor
         self._state_reader = state_reader
         self._budget = budget
 
-    def result(self, domain: Domain, state: State, valuation: LeafValuation | None) -> SearchResult | None:
-        """The proven choice, or None when the rules have a clue or nothing was proven."""
+    def result(
+        self, domain: Domain, state: State, valuation: LeafValuation | None, deadline: Deadline | None = None
+    ) -> SearchResult | None:
+        """The proven choice, or None when the rules have a clue or nothing was proven. With a deadline, valuing the legal
+        moves stops once it passes, the rules then taken to have a clue, and the deduction gets no more than the time
+        left."""
         if domain.observation is not None:
             return None
         actions = self._solver.solve(domain.problem, state)
         if not actions:
             return None
         player = self._state_reader.player_to_act(state, domain.players)
-        if valuation is not None and self._distinguishes(domain, state, actions, player, valuation.valuer):
-            return None
-        deduction = self._position_deducer.deduce(domain, state, self._budget)
+        if valuation is not None:
+            values = self._one_ply.values(domain, state, actions, valuation.valuer, deadline)
+            if values is None and deadline is not None and deadline.passed():
+                return None
+            if values is not None and not all(math.isclose(value, values[0]) for value in values):
+                return None
+        budget = self._budget
+        if deadline is not None:
+            left = deadline.remaining()
+            if left <= 0.0:
+                return None
+            budget = replace(budget, seconds=min(budget.seconds, left))
+        deduction = self._position_deducer.deduce(domain, state, budget)
         if deduction.action is None or deduction.payoffs is None:
             return None
         statistics = (ActionStatistics(deduction.action, 1, deduction.payoffs[player]),)
         return SearchResult(domain.players.names[player], statistics, deduction.action, ())
-
-    def _distinguishes(
-        self, domain: Domain, state: State, actions: Sequence[Action], player: int, valuer: PositionValuer
-    ) -> bool:
-        values: list[float] = []
-        for action in actions:
-            worth: list[float] = []
-            for outcome, probability in self._predictor.predict(domain.transitions, state, action).outcomes:
-                if self._solver.solve(domain.problem, outcome):
-                    valued = valuer.value(outcome)
-                    if valued is None:
-                        return False
-                    worth.append(probability * valued[player])
-                else:
-                    worth.append(probability * self._state_reader.payoffs(outcome, domain.players)[player])
-            values.append(math.fsum(worth))
-        return not all(math.isclose(value, values[0]) for value in values)

@@ -1,9 +1,20 @@
 import math
+import time
 
 import pytest
 
 from openmind.agent.factory.rock_paper_scissors_factory import create_rock_paper_scissors_domain
+from openmind.agent.builder.agent_builder import AgentBuilder
+from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.agent.model.domain import Domain
+from openmind.agent.service.move_planner import MovePlanner
+from openmind.agent.service.one_ply_chooser import OnePlyChooser
+from openmind.evaluation.service.match_runner import MatchRunner
+from openmind.inference.model.deduction_budget import DeductionBudget
+from openmind.mcts.model.leaf_valuation import LeafValuation
+from openmind.mcts.service.valuation_prior_tests import CenterValued
+from openmind.parallel.service.task_runner import TaskRunner
+from openmind.timing.model.time_control import TimeControl
 from openmind.agent.service.agent import Agent
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.action_definition import ActionDefinition
@@ -130,3 +141,63 @@ def test_an_agent_acting_at_once_searches_for_the_step_s_budget() -> None:
     domain = create_rock_paper_scissors_domain()
 
     assert timed_agent(None).search(domain, domain.initial_state, "A", Clock(5.0)).iterations == 5
+
+
+def clocked_agent() -> Agent:
+    """An agent on a time source moving on 10 ms a reading, whose planner has seen a search iteration cost 0.1 s and a
+    valuation 0.01 s, estimating a move's budget as the time left above a 1 s reserve."""
+    tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper(), time_source=Ticking(0.01))
+    planner = MovePlanner()
+    planner.observe("iteration", 1.0, 10)
+    planner.observe("valuation", 0.09, 9)
+    return Agent(
+        tree_search,
+        SearchSettings(None, math.sqrt(2), 1),
+        valuation=LeafValuation(CenterValued()),
+        estimator=PlainTimeBudgetEstimator(1, 1.0),
+        one_ply=OnePlyChooser(create_solver(), create_predictor(), StateReader()),
+        planner=planner,
+    )
+
+
+def test_an_agent_on_a_clock_plays_by_the_option_its_budget_affords_down_to_a_random_move(caplog: pytest.LogCaptureFixture) -> None:
+    domain = create_tictactoe_domain()
+
+    # 9 legal moves: the search needs 0.9 s, one-ply 0.09 s
+    searched = clocked_agent().search(domain, domain.initial_state, clock=Clock(3.0))
+    one_ply = clocked_agent().search(domain, domain.initial_state, clock=Clock(1.5))
+    random_move = clocked_agent().search(domain, domain.initial_state, clock=Clock(0.9))
+
+    assert (searched.option, searched.budget, searched.iterations > 0) == ("search", 2.0, True)
+    assert (one_ply.option, one_ply.chosen) == ("one-ply", Action("place", (("col", 2), ("row", 2))))
+    assert (random_move.option, random_move.budget) == ("random", 0.0)
+    assert any(message.startswith("X plays by random within a 0.000 second budget: ") for message in caplog.messages)
+
+
+def test_an_agent_on_a_tight_clock_with_slow_valuations_never_runs_out_of_time() -> None:
+    domain = create_tictactoe_domain()
+
+    def slow_agent(seed: int) -> Agent:
+        return (
+            AgentBuilder()
+            .with_exploration(1.4)
+            .with_iterations(1000)
+            .with_seed(seed)
+            .with_valuation(SlowCenterValued())
+            .with_deduction(DeductionBudget(2, 1.0))
+            .with_time_budget_estimator(PlainTimeBudgetEstimator(3, 0.2))
+            .build()
+        )
+
+    runner = MatchRunner(create_solver(), create_predictor(), StateReader(), TaskRunner(1))
+    games = [runner.play_game(domain, slow_agent, slow_agent, seat, seed, seed, TimeControl(2.0)) for seat, seed in ((0, 1), (1, 2))]
+
+    assert [game.flagged for game in games] == [None, None]
+
+
+class SlowCenterValued(CenterValued):
+    """Values as CenterValued, taking 20 milliseconds a position."""
+
+    def value(self, state: State) -> tuple[float, ...] | None:
+        time.sleep(0.02)
+        return super().value(state)

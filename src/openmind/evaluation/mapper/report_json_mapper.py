@@ -30,6 +30,7 @@ class ReportJsonMapper:
                     "unfinished_payoff": settings.unfinished_payoff,
                     "time_control": None if settings.time_control is None else TimeControlTextMapper().to_text(settings.time_control),
                     "expected_steps": settings.expected_steps,
+                    "time_reserve": settings.time_reserve,
                     "selection": settings.selection,
                     "puct_exploration": settings.puct_exploration,
                     "prior": settings.prior,

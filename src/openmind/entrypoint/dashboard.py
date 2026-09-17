@@ -14,10 +14,14 @@ from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 
 logger = logging.getLogger(__name__)
 
+#: Where a decisive game's page is served, followed by its record id.
+GAME_PATH = "/game/"
+
 
 def main(argv: list[str] | None = None) -> None:
-    """Serves a page following a domain's value training: the current round's progress, the machine, every round and
-    the latest rules, taking a fresh snapshot for every request."""
+    """Serves pages following a domain's value training: the training's page (its progress, the machine, every round,
+    the latest rules and the latest decisive game), the list of decisive games at /games, and each decisive game at
+    /game/<id>, reading afresh for every request."""
     parser = argparse.ArgumentParser(prog="openmind-dashboard", description="Serve a page following a value training.")
     parser.add_argument("domain", help="domain whose training to follow, such as chess")
     parser.add_argument(
@@ -69,15 +73,27 @@ def main(argv: list[str] | None = None) -> None:
         handler.close()
 
 
-def page(settings: DashboardSettings, refresh: int) -> tuple[int, bytes]:
-    """A status code and the page for one request, from a snapshot taken now; a snapshot that fails gives a short error
-    page, logged."""
+def page(settings: DashboardSettings, refresh: int, path: str = "/") -> tuple[int, bytes]:
+    """A status code and the page a request's path asks for: `/` the training's page, from a snapshot taken now;
+    `/games` the list of decisive games; `/game/<id>` one decisive game, 404 when there's no such game; anything else
+    404. A page that fails gives a short error page, logged."""
+    mapper = DashboardHtmlMapper()
     try:
-        snapshot = _SERVICE.snapshot(settings)
-        return 200, DashboardHtmlMapper().to_html(snapshot, refresh).encode("utf-8")
+        if path in ("/", "/index.html"):
+            return 200, mapper.to_html(_SERVICE.snapshot(settings), refresh).encode("utf-8")
+        browser = _SERVICE.game_browser
+        if path == "/games":
+            games = browser.decisive(settings.knowledge_directory, settings.domain)
+            return 200, mapper.games_page(settings.domain, games, refresh).encode("utf-8")
+        if path.startswith(GAME_PATH) and len(path) > len(GAME_PATH):
+            game = browser.game(settings.knowledge_directory, settings.domain, path[len(GAME_PATH):])
+            if game is not None:
+                return 200, mapper.game_page(settings.domain, game, refresh).encode("utf-8")
+            return 404, mapper.missing_page(settings.domain).encode("utf-8")
+        return 404, b"<!doctype html><title>Not found</title><p>Not found.</p>"
     except Exception:
-        logger.exception("The snapshot failed")
-        return 500, b"<!doctype html><title>Dashboard error</title><p>The snapshot failed; see the dashboard's log.</p>"
+        logger.exception("The page for %s failed", path)
+        return 500, b"<!doctype html><title>Dashboard error</title><p>The page failed; see the dashboard's log.</p>"
 
 
 _SERVICE = create_dashboard_service()
@@ -87,11 +103,8 @@ _LOCK = Lock()
 def _handler(settings: DashboardSettings, refresh: int) -> type[BaseHTTPRequestHandler]:
     class DashboardHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
-            if self.path not in ("/", "/index.html"):
-                self.send_error(404)
-                return
             with _LOCK:
-                status, body = page(settings, refresh)
+                status, body = page(settings, refresh, self.path.split("?", 1)[0])
             self.send_response(status)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

@@ -116,7 +116,9 @@ class Evaluator:
         )
         if settings.time_control is not None:
             for builder in (agent_builder, untrained):
-                builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps))
+                builder.with_time_budget_estimator(
+                    PlainTimeBudgetEstimator(settings.expected_steps, settings.time_control.base_seconds * settings.time_reserve)
+                )
         opponents: tuple[tuple[str, PolicyFactory, ModelDescription], ...] = (
             (RANDOM_OPPONENT, create_random_policy, ModelDescription(RANDOM_OPPONENT, RANDOM_POLICY_TEXT)),
             (UNTRAINED_OPPONENT, partial(create_built_agent, untrained), untrained.describe(UNTRAINED_OPPONENT)),
@@ -231,7 +233,7 @@ class Evaluator:
             mapper = MatchGameSummaryMapper()
 
             def remember(index: int, seat: int, game: MatchGame) -> None:
-                record = self._game_recorder.record(domain, game.actions) if game.actions else None
+                record = self._game_recorder.record(domain, game.actions, game.flagged, game.payoffs) if game.actions else None
                 memory.remember(
                     mapper.to_summary(
                         domain, game, MATCH_GAME, None, index + 1, seat, evaluated_model, opponent_model, record, time_control

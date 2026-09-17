@@ -22,7 +22,8 @@ the same pieces.
 | `model/time_control.py` | `TimeControl(base_seconds, increment_seconds=0.0)`: what each player starts with and gains per step; `clock()` gives the starting clock |
 | `model/clock.py` | `Clock(remaining, increment=0.0, flagged=False)`: `after(spent)` gives the clock after a step |
 | `model/time_budget_estimator.py` | `TimeBudgetEstimator`: `budget(clock, steps_played)`, the seconds a player's next step may take |
-| `service/plain_time_budget_estimator.py` | `PlainTimeBudgetEstimator(expected_steps)`: the plain rule |
+| `service/plain_time_budget_estimator.py` | `PlainTimeBudgetEstimator(expected_steps, reserve_seconds=0.0)`: the plain rule, keeping a reserve out of every budget |
+| `constant/timing_constant.py` (reserve) | `DEFAULT_TIME_RESERVE`, 0.05: the share of the base time kept in reserve unless an entry point is told otherwise (`--time-reserve`) |
 | `constant/timing_constant.py` | `DEFAULT_EXPECTED_STEPS`, 30: the steps the plain rule expects when an entry point isn't told otherwise (`--expected-steps`) |
 | `mapper/time_control_text_mapper.py` | `TimeControlTextMapper`: `from_text("3+2")` and `to_text(control)`, as chess writes a time control |
 
@@ -39,8 +40,10 @@ the same pieces.
   gives the time left over the steps still expected, plus the increment, but never more than the time left, since the
   increment only comes once the step is done: 180 seconds left over 30 steps with a 2 second increment is 8 seconds.
   `expected_steps` is how many steps are still expected at any point of a game, not a game's length, so a game running
-  long never divides by zero. It has no floor and no cap of its own. A flagged clock, negative steps played, or fewer
-  than 1 step expected raise `ValueError`.
+  long never divides by zero. It has no floor and no cap of its own. A reserve is kept out of it: the rule shares only
+  the time left above the reserve, and a clock at or below the reserve gets a budget of 0, which an agent plays with a
+  random move, so its clock never runs out. A flagged clock, negative steps played, fewer than 1 step expected, or a
+  negative reserve raise `ValueError`.
 
 ## Usage
 
@@ -62,8 +65,9 @@ while not deadline.passed():
 
 ## Notes
 
-- Logger `openmind.timing.service.plain_time_budget_estimator`: `INFO A step may take <s> seconds: <s> seconds left over
-  <n> steps expected, plus a <s> second increment`, ending `, limited to the time left` where that limit gave the budget.
+- Logger `openmind.timing.service.plain_time_budget_estimator`: `INFO A step may take <s> seconds: <s> seconds left above a
+  <s> second reserve over <n> steps expected, plus a <s> second increment`, ending `, limited to the time left` where
+  that limit gave the budget; `INFO A step may take 0 seconds: <s> seconds left, at or below the <s> second reserve`.
   Nothing else here logs.
 - Tests: `model/clock_tests.py`, `model/time_control_tests.py`, `model/deadline_tests.py`,
   `service/wall_time_source_tests.py`, `service/manual_time_source_tests.py`, `service/plain_time_budget_estimator_tests.py`, `mapper/time_control_text_mapper_tests.py`.

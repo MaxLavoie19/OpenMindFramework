@@ -111,3 +111,12 @@ def test_remembered_games_come_back_in_the_order_they_ended_and_are_counted_by_k
 
     assert GameMemory(create_knowledge_base("chess", tmp_path)).games("arms") == (game(1, (1.0, 0.0)), game(2, (0.5, 0.5)))
     assert (memory.count("arms"), memory.count("match")) == (2, 0)
+
+
+def test_new_games_are_numbered_after_the_highest_number_remembered_whatever_how_many(tmp_path: Path) -> None:
+    memory = GameMemory(create_knowledge_base("chess", tmp_path))
+    assert memory.last_number("arms") == 0
+
+    memory.remember(game(6, (1.0, 0.0)))
+
+    assert (memory.count("arms"), memory.last_number("arms")) == (1, 6)

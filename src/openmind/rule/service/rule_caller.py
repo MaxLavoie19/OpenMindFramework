@@ -26,11 +26,22 @@ class RuleCaller:
         self._rule_runner = rule_runner
 
     def prepare(self, rule: Rule, parameters: Sequence[str] = (), definitions: PythonRule | None = None) -> CalledRule:
-        """The rule ready to call. Source says which of the parameters it reads; a function is taken to read them all."""
+        """The rule ready to call. Source says which of the parameters it reads; a function reads those its signature
+        names, or all of them when it takes any keyword, so a function written before a parameter was offered still
+        gets only what it asks for."""
         if isinstance(rule, PythonRule):
             compiled = self._rule_compiler.compile_value(rule, parameters, definitions)
             return CalledRule(rule, compiled, compiled.arguments, rule.source)
-        return CalledRule(rule, None, tuple(parameters), self.source(rule))
+        return CalledRule(rule, None, self._accepted(rule, parameters), self.source(rule))
+
+    def _accepted(self, rule: Rule, parameters: Sequence[str]) -> tuple[str, ...]:
+        try:
+            signature = inspect.signature(rule)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return tuple(parameters)
+        if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()):
+            return tuple(parameters)
+        return tuple(name for name in parameters if name in signature.parameters)
 
     def call(
         self,

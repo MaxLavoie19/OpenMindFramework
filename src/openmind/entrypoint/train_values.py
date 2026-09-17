@@ -191,6 +191,7 @@ def main(argv: list[str] | None = None) -> None:
         arguments.learning_rate,
         arguments.training_time_control,
         arguments.expected_steps,
+        arguments.time_reserve,
         arguments.selection,
         arguments.puct_exploration,
         arguments.prior,

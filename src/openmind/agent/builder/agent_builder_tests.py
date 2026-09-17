@@ -279,5 +279,5 @@ def test_a_rule_valuer_is_described_by_its_value_base_and_a_part_that_can_t_desc
 
     assert ValueBaseJsonMapper().from_json(json.dumps(text["valuation"])) == base
     assert text["guidance"] == {"class": "openmind.agent.builder.agent_builder_tests.FavourCenter", "not rebuildable": True}
-    assert text["time_budget_estimator"] == {"rule": "plain", "expected_steps": 30}
+    assert text["time_budget_estimator"] == {"rule": "plain", "expected_steps": 30, "reserve_seconds": 0.0}
     assert changed.describe("rules").id != AgentBuilder().with_iterations(10).with_exploration(1.4).with_valuation(valuer).describe("rules").id

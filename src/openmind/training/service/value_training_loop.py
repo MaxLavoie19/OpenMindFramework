@@ -228,7 +228,12 @@ class ValueTrainingLoop:
         builder.with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
         builder.with_deduction(settings.deduction if deduces else None)
         if settings.distillation.time_control is not None:
-            builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.distillation.expected_steps))
+            builder.with_time_budget_estimator(
+                PlainTimeBudgetEstimator(
+                    settings.distillation.expected_steps,
+                    settings.distillation.time_control.base_seconds * settings.distillation.time_reserve,
+                )
+            )
         distillation = settings.distillation
         valuer = None
         if value_base is not None:
@@ -259,7 +264,7 @@ class ValueTrainingLoop:
             mapper = MatchGameSummaryMapper()
 
             def remember(index: int, seat: int, game: MatchGame) -> None:
-                record = self._game_recorder.record(domain, game.actions) if game.actions else None
+                record = self._game_recorder.record(domain, game.actions, game.flagged, game.payoffs) if game.actions else None
                 memory.remember(
                     mapper.to_summary(
                         domain,

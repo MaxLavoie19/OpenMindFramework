@@ -98,7 +98,7 @@ class ContinuousTrainer:
             library = replace(prepared, records=records, supports=() if library is None else library.supports)
         rng = random.Random(settings.seed)
         state = {"library": library}
-        first = self._game_memory.count(CONTINUOUS_GAME)
+        first = self._game_memory.last_number(CONTINUOUS_GAME)
         pending: dict[str, int] = {}
         seated: dict[int, tuple[tuple[str, str], tuple[ModelDescription, ...]]] = {}
         logger.info(
@@ -174,7 +174,9 @@ class ContinuousTrainer:
             .with_rollout_actions(settings.rollout_actions)
         )
         if settings.time_control is not None:
-            builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps))
+            builder.with_time_budget_estimator(
+                PlainTimeBudgetEstimator(settings.expected_steps, settings.time_control.base_seconds * settings.time_reserve)
+            )
         kind = VALUE_PRIOR if settings.prior == VALUE_PRIOR else UNIFORM_PRIOR
         builder.with_selection(settings.selection, settings.puct_exploration).with_prior(
             create_move_prior(kind, settings.prior_temperature, domain, None, valuer)

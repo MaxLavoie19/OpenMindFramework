@@ -6,6 +6,7 @@ from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.agent import Agent
 from openmind.agent.service.completion_theory import CompletionTheory
 from openmind.agent.service.deduction_fallback import DeductionFallback
+from openmind.agent.service.one_ply_chooser import OnePlyChooser
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.inference.service.position_deducer import PositionDeducer
@@ -193,12 +194,28 @@ class AgentBuilder:
             prior=self._prior,
         )
         if not self._semi_determinized:
-            return Agent(tree_search, settings, guidance, valuation, fallback, estimator=self._estimator)
+            return Agent(
+                tree_search,
+                settings,
+                guidance,
+                valuation,
+                fallback,
+                estimator=self._estimator,
+                one_ply=OnePlyChooser(solver, predictor, state_reader),
+            )
         state_observer = create_state_observer()
         theory = self._theory or CompletionTheory(state_observer, create_rule_caller())
         semi_determinized = SemiDeterminizedSearch(tree_search, state_observer, state_reader, action_text_mapper)
         return Agent(
-            tree_search, settings, guidance, valuation, fallback, semi_determinized, theory, estimator=self._estimator
+            tree_search,
+            settings,
+            guidance,
+            valuation,
+            fallback,
+            semi_determinized,
+            theory,
+            estimator=self._estimator,
+            one_ply=OnePlyChooser(solver, predictor, state_reader),
         )
 
 

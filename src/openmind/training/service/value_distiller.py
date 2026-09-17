@@ -108,14 +108,14 @@ class ValueDistiller:
         agent_builder.with_iterations(settings.iterations)
         clocked = settings.time_control is not None
         if clocked:
-            agent_builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps))
+            agent_builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps, self._reserve(settings)))
         if settings.target == SIGNALS_TARGET and arm_builders is not None and len(arm_builders) >= 2:
             exploration = (settings.signals or SignalSettings()).exploration
             library = library or SignalLibrary(domain.name)
             for builder in arm_builders.values():
                 builder.with_iterations(settings.iterations)
                 if clocked:
-                    builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps))
+                    builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps, self._reserve(settings)))
             arms = {name: builder.describe(name) for name, builder in arm_builders.items()}
             training_games = self._self_play.play_arms(
                 domain,
@@ -316,6 +316,10 @@ class ValueDistiller:
             records[best].games,
         )
         return best
+
+    def _reserve(self, settings: ValueDistillationSettings) -> float:
+        """The seconds of the base time an agent keeps in reserve on the settings' clock; 0 without one."""
+        return 0.0 if settings.time_control is None else settings.time_control.base_seconds * settings.time_reserve
 
     def _scores(self, library: SignalLibrary, arms: Mapping[str, AgentBuilder]) -> dict[str, tuple[int, float]]:
         """Every arm's games and points so far, by signal name: counted from the game memory's outcomes when there is

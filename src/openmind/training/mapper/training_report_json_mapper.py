@@ -31,6 +31,7 @@ class TrainingReportJsonMapper:
                     if distillation.time_control is None
                     else TimeControlTextMapper().to_text(distillation.time_control),
                     "expected_steps": distillation.expected_steps,
+                    "time_reserve": distillation.time_reserve,
                     "selection": distillation.selection,
                     "puct_exploration": distillation.puct_exploration,
                     "prior": distillation.prior,

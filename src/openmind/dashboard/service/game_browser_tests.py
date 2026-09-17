@@ -6,7 +6,7 @@ from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.agent.model.domain import Domain
 from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.game_memory import GameMemory
-from openmind.dashboard.service.latest_game_reader import LatestGameReader
+from openmind.dashboard.service.game_browser import GameBrowser
 from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.rule.model.python_rule import PythonRule
@@ -36,7 +36,7 @@ def test_the_latest_decisive_game_is_read_position_by_position_and_a_draw_after_
     decisive = play(domain, memory, 2, True)
     play(domain, memory, 3, False)
 
-    view = LatestGameReader().latest_decisive(tmp_path, "tictactoe")
+    view = GameBrowser().latest(tmp_path, "tictactoe")
 
     assert view is not None
     assert (view.label, view.players, view.payoffs, view.record) == ("arms game 2", (("X", "first"), ("O", "second")), decisive.payoffs, "1. a b")
@@ -49,7 +49,7 @@ def test_a_domain_that_draws_its_positions_gives_a_picture_of_each(tmp_path: Pat
     memory = GameMemory(create_knowledge_base("tictactoe", tmp_path))
     game = play(drawn, memory, 1, True)
 
-    view = LatestGameReader(lambda name: drawn).latest_decisive(tmp_path, "tictactoe")
+    view = GameBrowser(lambda name: drawn).latest(tmp_path, "tictactoe")
 
     assert view is not None and view.pictured
     assert view.pictures[0] == "<svg>start</svg>" and view.pictures[1] == f"<svg>{game.actions[0].name}</svg>"
@@ -59,6 +59,37 @@ def test_a_domain_that_draws_its_positions_gives_a_picture_of_each(tmp_path: Pat
 
 def test_without_a_knowledge_base_or_a_decisive_game_there_is_nothing_to_show(tmp_path: Path) -> None:
     domain = create_tictactoe_domain()
-    assert LatestGameReader().latest_decisive(tmp_path, "tictactoe") is None
+    assert GameBrowser().latest(tmp_path, "tictactoe") is None
     play(domain, GameMemory(create_knowledge_base("tictactoe", tmp_path)), 1, False)
-    assert LatestGameReader().latest_decisive(tmp_path, "tictactoe") is None
+    assert GameBrowser().latest(tmp_path, "tictactoe") is None
+
+
+def test_the_decisive_games_are_listed_newest_first_without_the_draws(tmp_path: Path) -> None:
+    domain = create_tictactoe_domain()
+    memory = GameMemory(create_knowledge_base("tictactoe", tmp_path))
+    first = play(domain, memory, 1, True)
+    play(domain, memory, 2, False)
+    second = play(domain, memory, 3, True)
+
+    listings = GameBrowser().decisive(tmp_path, "tictactoe")
+
+    assert [listing.label for listing in listings] == ["arms game 3", "arms game 1"]
+    assert [listing.plies for listing in listings] == [len(second.actions), len(first.actions)]
+    assert listings[0].players == (("X", "first"), ("O", "second")) and listings[0].payoffs == second.payoffs
+    assert GameBrowser().decisive(tmp_path / "nowhere", "tictactoe") == ()
+
+
+def test_a_game_is_found_by_its_record_id_with_the_decisive_games_before_and_after_it(tmp_path: Path) -> None:
+    domain = create_tictactoe_domain()
+    memory = GameMemory(create_knowledge_base("tictactoe", tmp_path))
+    for number in (1, 2, 3):
+        play(domain, memory, number, True)
+    browser = GameBrowser()
+    newest, middle, oldest = browser.decisive(tmp_path, "tictactoe")
+
+    view = browser.game(tmp_path, "tictactoe", middle.id)
+
+    assert view is not None and (view.label, view.id) == ("arms game 2", middle.id)
+    assert (view.previous_id, view.next_id) == (oldest.id, newest.id)
+    assert browser.game(tmp_path, "tictactoe", oldest.id).previous_id is None  # type: ignore[union-attr]
+    assert browser.game(tmp_path, "tictactoe", "999999") is None

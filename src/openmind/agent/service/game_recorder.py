@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Sequence
 
-from openmind.agent.constant.game_record_constant import ACTIONS
+from openmind.agent.constant.game_record_constant import ACTIONS, FLAGGED_PLAYER, PAYOFFS
 from openmind.agent.model.domain import Domain
 from openmind.rule.service.rule_caller import RuleCaller
 from openmind.world.model.action import Action
@@ -28,13 +28,22 @@ class GameRecorder:
             return None
         return None if value is None else str(value)
 
-    def record(self, domain: Domain, actions: Sequence[Action]) -> str | None:
-        """The game's record, or None when the domain doesn't say or the rule gives nothing."""
+    def record(
+        self,
+        domain: Domain,
+        actions: Sequence[Action],
+        flagged: str | None = None,
+        payoffs: Sequence[float] | None = None,
+    ) -> str | None:
+        """The game's record, or None when the domain doesn't say or the rule gives nothing. The rule is also given the
+        player whose time ran out, `flagged` (None when none did), and the final `payoffs` (None when unknown), since a
+        game ended on time can't be told from its moves."""
         if domain.record is None:
             return None
+        parameters = {ACTIONS: tuple(actions), FLAGGED_PLAYER: flagged, PAYOFFS: None if payoffs is None else tuple(payoffs)}
         try:
             value = self._rule_caller.value(
-                domain.record, domain.initial_state, {ACTIONS: tuple(actions)}, None, domain.transitions.definitions
+                domain.record, domain.initial_state, parameters, None, domain.transitions.definitions
             )
         except Exception:  # noqa: BLE001 - a domain's rule is the project's code; the logs must survive it
             logger.warning("The %s record rule raised", domain.name, exc_info=True)

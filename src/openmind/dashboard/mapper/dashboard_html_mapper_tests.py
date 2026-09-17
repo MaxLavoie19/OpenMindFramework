@@ -3,6 +3,7 @@ from pathlib import Path
 
 from openmind.dashboard.mapper.dashboard_html_mapper import DashboardHtmlMapper
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
+from openmind.dashboard.model.game_listing import GameListing
 from openmind.dashboard.model.game_view import GameView
 from openmind.dashboard.model.log_progress import LogProgress
 from openmind.dashboard.model.machine_status import MachineStatus
@@ -97,9 +98,12 @@ def test_the_page_shows_the_latest_decisive_game_with_its_record_and_buttons_to_
         ("f2f3", "e7e5"),
         ("<svg>start</svg>", "<svg>f3</svg>", "<svg>e5</svg>"),
         True,
+        "000012",
+        "000009",
+        None,
     )
 
-    page = DashboardHtmlMapper().to_html(replace(snapshot(), latest_game=game), 30)
+    page = DashboardHtmlMapper().to_html(replace(snapshot(), latest_game=game, decisive_games=5), 30)
 
     assert "<h2>Latest decisive game</h2>" in page
     assert "arms game 212, ended 2026-09-16 23:41:00: deduced, losing color doubled (white) 1, deduced, fork color doubled (black) 0 by checkmate" in page
@@ -107,7 +111,27 @@ def test_the_page_shows_the_latest_decisive_game_with_its_record_and_buttons_to_
     assert "<pre class='record'>[Result &quot;1-0&quot;] 1. f3 e5 1-0</pre>" in page
     assert all(f"<button id='{name}'" in page for name in ("first", "previous", "next", "last"))
     assert '"moves": ["f2f3", "e7e5"]' in page and "<\\/svg>" in page
+    assert "<a href='/games'>All decisive games (5)</a>" in page
+
+    single = DashboardHtmlMapper().game_page("chess", game, 30)
+    assert "<a href='/game/000009'>Previous decisive game</a>" in single and "Next decisive game" not in single
+    assert "<div id='position'><svg>start</svg></div>" in single
 
 
 def test_a_page_without_a_decisive_game_has_no_game_section() -> None:
     assert "Latest decisive game" not in DashboardHtmlMapper().to_html(snapshot(), 30)
+
+
+def test_the_list_of_decisive_games_links_each_to_its_page_under_a_header() -> None:
+    games = (
+        GameListing("000012", "arms game 212", "2026-09-16 23:41:00", (("white", "losing"), ("black", "fork")), (1.0, 0.0), "checkmate", 48),
+        GameListing("000009", "arms game 207", "2026-09-16 23:30:00", (("white", "fork"), ("black", "losing")), (0.0, 1.0), None, 30),
+    )
+
+    page = DashboardHtmlMapper().games_page("chess", games, 30)
+
+    assert "<h2>Decisive games (2)</h2>" in page
+    assert "<th>game</th><th>ended</th><th>white</th><th>black</th><th>payoffs</th><th>ending</th><th>plies</th>" in page
+    assert "<td><a href='/game/000012'>arms game 212</a></td><td>2026-09-16 23:41:00</td><td>losing</td><td>fork</td><td>1 0</td><td>checkmate</td><td>48</td>" in page
+    assert "<td>none</td><td>30</td>" in page
+    assert "No decisive game yet." in DashboardHtmlMapper().games_page("chess", (), 30)

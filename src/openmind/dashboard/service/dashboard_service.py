@@ -2,7 +2,7 @@ from datetime import datetime
 
 from openmind.dashboard.model.dashboard_settings import DashboardSettings
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
-from openmind.dashboard.service.latest_game_reader import LatestGameReader
+from openmind.dashboard.service.game_browser import GameBrowser
 from openmind.dashboard.service.log_progress_reader import LogProgressReader
 from openmind.dashboard.service.machine_reader import MachineReader
 from openmind.dashboard.service.model_score_reader import ModelScoreReader
@@ -19,9 +19,9 @@ class DashboardService:
         log_progress_reader: LogProgressReader,
         machine_reader: MachineReader,
         model_score_reader: ModelScoreReader | None = None,
-        latest_game_reader: LatestGameReader | None = None,
+        game_browser: GameBrowser | None = None,
     ) -> None:
-        self._latest_game_reader = LatestGameReader() if latest_game_reader is None else latest_game_reader
+        self._game_browser = GameBrowser() if game_browser is None else game_browser
         self._model_score_reader = ModelScoreReader() if model_score_reader is None else model_score_reader
         self._report_reader = report_reader
         self._log_progress_reader = log_progress_reader
@@ -36,5 +36,11 @@ class DashboardService:
             self._machine_reader.status(settings.proc, settings.syslog),
             self._log_progress_reader.played(),
             self._model_score_reader.scores(settings.knowledge_directory, settings.domain),
-            self._latest_game_reader.latest_decisive(settings.knowledge_directory, settings.domain),
+            self._game_browser.latest(settings.knowledge_directory, settings.domain),
+            len(self._game_browser.decisive(settings.knowledge_directory, settings.domain)),
         )
+
+    @property
+    def game_browser(self) -> GameBrowser:
+        """What browses the decisive games, for the pages listing and showing them."""
+        return self._game_browser

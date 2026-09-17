@@ -88,6 +88,11 @@ class GameMemory:
         """How many games of that kind are remembered."""
         return len(self._knowledge_base.recall(keyword=kind))
 
+    def last_number(self, kind: str) -> int:
+        """The highest number a remembered game of that kind has, 0 without one: numbering new games after it keeps every
+        label its own, whichever games a stopped training managed to remember."""
+        return max((game.number for game in self.games(kind)), default=0)
+
     def models(self) -> tuple[ModelDescription, ...]:
         """Every model remembered, in the order they first played."""
         return tuple(

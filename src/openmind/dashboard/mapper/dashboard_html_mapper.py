@@ -4,6 +4,8 @@ from collections.abc import Sequence
 
 from openmind.dashboard.mapper.svg_chart_mapper import SvgChartMapper
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
+from openmind.dashboard.model.game_listing import GameListing
+from openmind.dashboard.model.game_view import GameView
 
 GIGABYTE = 1024**3
 
@@ -307,18 +309,67 @@ class DashboardHtmlMapper:
         header = ("signal", "agreements", "disagreements", "accuracy", "reliability", "games", "wins", "draws", "losses", "score")
         return f"<h2>Latest round's signals</h2>{explanation}{self._table(header, rows)}"
 
+    def _page(self, title: str, refresh_seconds: int, body: str) -> str:
+        """A page of its own, under the title, reloading itself every so many seconds (never at 0)."""
+        refresh = f"<meta http-equiv='refresh' content='{refresh_seconds}'>" if refresh_seconds > 0 else ""
+        return (
+            "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+            f"{refresh}<title>{html.escape(title)}</title><style>{STYLE}</style></head><body>"
+            f"<h1>{html.escape(title)}</h1>{body}</body></html>"
+        )
+
+    def games_page(self, domain: str, games: Sequence[GameListing], refresh_seconds: int) -> str:
+        """The page listing every decisive game, newest first, each linking to its own page."""
+        rows = [
+            (
+                f"<a href='/game/{html.escape(game.id)}'>{html.escape(game.label)}</a>",
+                html.escape(game.ended),
+                *(html.escape(model) for _, model in game.players),
+                html.escape(" ".join(f"{payoff:g}" for payoff in game.payoffs)),
+                html.escape(game.ending or "none"),
+                str(game.plies),
+            )
+            for game in games
+        ]
+        players = games[0].players if games else ()
+        header = ("game", "ended", *(player for player, _ in players), "payoffs", "ending", "plies")
+        body = self._table(header, rows, escaped=True) if rows else "<p>No decisive game yet.</p>"
+        return self._page(
+            f"{domain} decisive games",
+            refresh_seconds,
+            f"<div class='muted'><a href='/'>Back to the training</a></div><h2>Decisive games ({len(games)})</h2>{body}",
+        )
+
+    def game_page(self, domain: str, game: GameView, refresh_seconds: int) -> str:
+        """The page showing one decisive game, with links to the decisive games just before and after it."""
+        links = [
+            "<a href='/games'>All decisive games</a>",
+            *(() if game.previous_id is None else (f"<a href='/game/{html.escape(game.previous_id)}'>Previous decisive game</a>",)),
+            *(() if game.next_id is None else (f"<a href='/game/{html.escape(game.next_id)}'>Next decisive game</a>",)),
+            "<a href='/'>Back to the training</a>",
+        ]
+        return self._page(f"{domain} {game.label}", refresh_seconds, self._game_section(game, game.label, " · ".join(links)))
+
+    def missing_page(self, domain: str) -> str:
+        return self._page(f"{domain} decisive games", 0, "<p>No such decisive game. <a href='/games'>All decisive games</a></p>")
+
     def _latest_game(self, snapshot: DashboardSnapshot) -> str:
         game = snapshot.latest_game
         if game is None:
             return ""
+        link = f"<a href='/games'>All decisive games ({snapshot.decisive_games})</a>"
+        return self._game_section(game, "Latest decisive game", link)
+
+    def _game_section(self, game: GameView, heading: str, links: str) -> str:
         players = ", ".join(f"{html.escape(model)} ({html.escape(player)}) {payoff:g}" for (player, model), payoff in zip(game.players, game.payoffs, strict=True))
         ending = "" if game.ending is None else f" by {html.escape(game.ending)}"
         first = game.pictures[0] if game.pictured else f"<pre>{html.escape(game.pictures[0])}</pre>"
         data = json.dumps({"key": f"{game.label} {game.ended}", "moves": list(game.moves), "pictures": list(game.pictures), "pictured": game.pictured})
         record = "" if game.record is None else f"<pre class='record'>{html.escape(game.record)}</pre>"
         return (
-            f"<h2>Latest decisive game</h2><div class='muted'>{html.escape(game.label)}, ended {html.escape(game.ended)}: "
-            f"{players}{ending}</div><div class='game'><div class='board'><div id='position'>{first}</div>"
+            f"<h2>{html.escape(heading)}</h2><div class='muted'>{html.escape(game.label)}, ended {html.escape(game.ended)}: "
+            f"{players}{ending}</div><div class='muted'>{links}</div><div class='game'><div class='board'><div id='position'>{first}</div>"
             "<div class='steps'><button id='first' title='first position'>⏮</button><button id='previous' title='previous move'>◀</button>"
             "<button id='next' title='next move'>▶</button><button id='last' title='last move'>⏭</button>"
             f"<span id='caption' class='muted'>start, {len(game.moves)} moves</span></div></div>{record}</div>"
@@ -355,9 +406,11 @@ class DashboardHtmlMapper:
             return ""
         return f"<h2>Latest log lines</h2><pre>{html.escape(chr(10).join(snapshot.progress.recent))}</pre>"
 
-    def _table(self, header: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
+    def _table(self, header: Sequence[str], rows: Sequence[Sequence[str]], escaped: bool = False) -> str:
+        """A table under its header; `escaped` cells are already HTML, such as links, and go in as they are."""
         head = "".join(f"<th>{html.escape(cell)}</th>" for cell in header)
-        body = "".join("<tr>" + "".join(f"<td>{html.escape(cell)}</td>" for cell in row) + "</tr>" for row in rows)
+        cell_text = (lambda cell: cell) if escaped else html.escape
+        body = "".join("<tr>" + "".join(f"<td>{cell_text(cell)}</td>" for cell in row) + "</tr>" for row in rows)
         return f"<div class='scroll'><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
 
     def _duration(self, seconds: float) -> str:

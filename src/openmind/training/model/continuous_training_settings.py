@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.mcts.constant.mcts_constant import DEFAULT_PRIOR_TEMPERATURE, DEFAULT_PUCT_EXPLORATION, UCB1, UNIFORM_PRIOR
 from openmind.rbs.model.value_settings import ValueSettings
-from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS
+from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS, DEFAULT_TIME_RESERVE
 from openmind.timing.model.time_control import TimeControl
 from openmind.training.constant.continuous_constant import DEFAULT_LEARNING_RATE
 from openmind.training.model.signal_settings import SignalSettings
@@ -16,7 +16,7 @@ class ContinuousTrainingSettings:
     signals are followed; the rollout actions played before a position is valued, the rollout limit and unfinished
     payoff; the deduction agents fall back on (None: never), which pondering needs; the positions each game's study
     ponders, those the rules missed most, and the positions of each decisive game walked back from its end; how far each
-    weight moves after a game; the time control games play on and the steps an agent's estimator expects; and how every
+    weight moves after a game; the time control games play on, the steps an agent's estimator expects and the share of the base time it keeps in reserve; and how every
     agent's search selects."""
 
     games: int | None
@@ -33,6 +33,7 @@ class ContinuousTrainingSettings:
     learning_rate: float = DEFAULT_LEARNING_RATE
     time_control: TimeControl | None = None
     expected_steps: int = DEFAULT_EXPECTED_STEPS
+    time_reserve: float = DEFAULT_TIME_RESERVE
     selection: str = UCB1
     puct_exploration: float = DEFAULT_PUCT_EXPLORATION
     prior: str = UNIFORM_PRIOR

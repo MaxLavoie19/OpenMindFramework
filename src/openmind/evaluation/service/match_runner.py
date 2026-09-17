@@ -189,7 +189,7 @@ class MatchRunner:
             domain.players.names[seat],
             " ".join(f"{name}={payoff}" for name, payoff in zip(domain.players.names, payoffs)),
         )
-        record = self._game_recorder.record(domain, actions) if actions else None
+        record = self._game_recorder.record(domain, actions, flagged[0] if flagged else None, payoffs) if actions else None
         if record is not None:
             logger.info("Game with seeds %d and %d record: %s", policy_seed, outcome_seed, record)
         return MatchGame(

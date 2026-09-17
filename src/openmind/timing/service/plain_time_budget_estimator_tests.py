@@ -46,7 +46,19 @@ def test_logs_the_budget_and_how_it_was_reached(caplog: pytest.LogCaptureFixture
     estimator.budget(Clock(1.0, 2.0), 40)
 
     assert caplog.messages == [
-        "A step may take 4.033 seconds: 61.0 seconds left over 30 steps expected, plus a 2 second increment",
-        "A step may take 1.000 seconds: 1.0 seconds left over 30 steps expected, plus a 2 second increment, limited to the "
-        "time left",
+        "A step may take 4.033 seconds: 61.0 seconds left above a 0 second reserve over 30 steps expected, plus a 2 second increment",
+        "A step may take 1.000 seconds: 1.0 seconds left above a 0 second reserve over 30 steps expected, plus a 2 second "
+        "increment, limited to the time left",
     ]
+
+
+def test_the_reserve_is_kept_out_of_every_budget_and_a_clock_at_or_below_it_gets_none(caplog: pytest.LogCaptureFixture) -> None:
+    estimator = PlainTimeBudgetEstimator(10, 15.0)
+
+    assert estimator.budget(Clock(115.0, 1.0), 0) == 11.0
+    assert estimator.budget(Clock(15.5, 2.0), 0) == 0.5
+    assert estimator.budget(Clock(15.0, 2.0), 0) == 0.0
+    assert estimator.budget(Clock(3.0), 0) == 0.0
+    assert "A step may take 0 seconds: 3.0 seconds left, at or below the 15 second reserve" in caplog.messages
+    with pytest.raises(ValueError, match="reserve can't be negative"):
+        PlainTimeBudgetEstimator(10, -1.0)

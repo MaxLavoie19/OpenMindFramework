@@ -93,7 +93,9 @@ def main(argv: list[str] | None = None) -> None:
         .with_prior(UniformPrior())
     )
     if arguments.time_control is not None:
-        builder.with_time_budget_estimator(PlainTimeBudgetEstimator(arguments.expected_steps))
+        builder.with_time_budget_estimator(
+            PlainTimeBudgetEstimator(arguments.expected_steps, arguments.time_control.base_seconds * arguments.time_reserve)
+        )
     agent = builder.build() if arguments.agent else None
 
     directory = Path(arguments.log_directory) / domain.name

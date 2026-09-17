@@ -13,3 +13,7 @@ DEFAULT_PRIOR_TEMPERATURE = 0.1
 #: The priors an entry point can name: every action alike, the agent's rules' ratings, or its value rules' values.
 UNIFORM_PRIOR, RATER_PRIOR, VALUE_PRIOR = "uniform", "rater", "value"
 PRIORS = (UNIFORM_PRIOR, RATER_PRIOR, VALUE_PRIOR)
+#: How an agent chose a move on a clock, cheapest last: its deduction fallback then the search, the search alone, each
+#: legal move valued once, or a random legal move. Without a clock, or where the fallback proved a move, the options
+#: read the same way.
+FULL_OPTION, SEARCH_OPTION, ONE_PLY_OPTION, RANDOM_OPTION = "fallback and search", "search", "one-ply", "random"

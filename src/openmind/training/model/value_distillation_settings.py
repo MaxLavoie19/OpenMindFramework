@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from openmind.mcts.constant.mcts_constant import DEFAULT_PRIOR_TEMPERATURE, DEFAULT_PUCT_EXPLORATION, UCB1, UNIFORM_PRIOR
 from openmind.rbs.model.value_settings import ValueSettings
-from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS
+from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS, DEFAULT_TIME_RESERVE
 from openmind.timing.model.time_control import TimeControl
 from openmind.training.model.pondering_settings import PonderingSettings
 from openmind.training.model.signal_settings import SignalSettings
@@ -29,6 +29,7 @@ class ValueDistillationSettings:
     signals: SignalSettings | None = None
     time_control: TimeControl | None = None
     expected_steps: int = DEFAULT_EXPECTED_STEPS
+    time_reserve: float = DEFAULT_TIME_RESERVE
     selection: str = UCB1
     puct_exploration: float = DEFAULT_PUCT_EXPLORATION
     prior: str = UNIFORM_PRIOR
