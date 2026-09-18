@@ -183,7 +183,8 @@ policy, and precisions and processing times are measured, never assumed.
      game's rules, facts and so on to emit credible heuristics.
 3. Infer the heuristics, assuming the user gave only minimal instructions. Two ways:
    - **Relaxed problems**: remove constraints and measure how far a win is. For example: how far am I from a win if I
-     can teleport my pieces? If the other player can't play?
+     can teleport my pieces? If the other player can't play? Relaxations aren't a fixed list. They emerge from the
+     constraint sets an agent builds, to generate heuristics or to simplify a problem it is studying.
    - **Guiding principles**: for example, of two positions, prefer the one with the most options.
 4. As OMF plays, train better-fitted or faster models of each task:
    - a lookup table;
@@ -551,6 +552,11 @@ Every belief carries:
   - **Interpreted, inferred, deduced or estimated**: the source is the method used and its parameters.
 
 Everything is kept word for word, and nothing is overwritten.
+
+**Storage.**
+- OMF stores the knowledge base in JSON by default.
+- The default is meant to be overridden by the integrator's long-term storage solution.
+- The integrator is responsible for the data lifecycle, not OMF.
 
 ## Debug and logs
 
