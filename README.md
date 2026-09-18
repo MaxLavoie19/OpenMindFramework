@@ -3,8 +3,8 @@
 An AI framework in which an agent works within a domain by searching with Monte-Carlo Tree Search (MCTS). A constraint
 satisfaction problem generates the possible actions and their parameters, a predictor gives the probability of each
 outcome, and a strategy rule-based system distills best play, weighted by expected value. The domains so far are
-tic-tac-toe with its variants (4 in a row, gomoku) and sudoku. The framework grows in small increments;
-[doc/architecture.md](doc/architecture.md) describes what exists so far.
+tic-tac-toe with its variants (4 in a row, gomoku) and sudoku. The framework is being reworked into the design in
+[doc/architecture.md](doc/architecture.md); [doc/refactoring-todo.md](doc/refactoring-todo.md) tracks the steps.
 
 Copyright (c) 2016 Maxime Lavoie. Released under the [MIT License](LICENSE).
 OpenMind Framework is registered with the Canadian Intellectual Property Office, copyright registration No. 1127739

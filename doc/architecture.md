@@ -1,82 +1,689 @@
 # Architecture
 
+This is the design OMF is being reworked into. `doc/refactoring-todo.md` tracks which parts are built.
+`doc/open-questions.md` lists the parts not yet confirmed, and the contradictions and unknowns still to be decided.
+
+## Purpose and user
+
+OMF is a framework for solving AI problems, such as playing any kind of game from its rules.
+
+An OMF user is a programmer who imports OMF and defines a game in it with rules and constraints. The instructions can
+be minimal. OMF then learns to play the game by:
+- inference;
+- self-play;
+- studying games;
+- training models;
+- reading literature.
+
+OMF ships without the libraries a problem needs. A problem lives in its own project, which installs OMF, imports any
+library its rules need, and registers its games under the `openmind.domains` entry points. Chess lives in the
+OpenMindChess project, with python-chess.
+
 ## Vocabulary
 
 - **State**: a set of named variables with values, such as `cell(2,3) = "X"` or `turn = "O"`.
-- **Action**: the thing performed (dance, sing, move, …) with its parameters, such as `place(row=2, col=3)`.
-- **Outcome**: the new state after an action.
-- **Outcome probability distribution**: each possible outcome of an action with its probability, given by the
-  predictor.
-- **Payoff**: what each player gets when the game ends; a predicted outcome of a transition to a win or a draw.
-- **Game**: a problem the agent works on, such as tic-tac-toe, as the rules the knowledge base holds for its context.
-  OMF simulates games from these rules; it doesn't run them. It is not a domain in the code.
-- **Context**: what a rule is relevant to, with its weight there: a game, a variant, a relaxation, a round of training,
-  an arm. An RBS is built for a context from the rules relevant to it.
-- **Variant**: a game that differs from another in some of its sizes or rules, such as 4 in a row from tic-tac-toe.
-  A variant is data read by the game's factory, which declares it under the context `<game>/<variant>`, such as
-  `tictactoe/fourinarow`. A relaxation is a variant with fewer constraints.
+- **Action**: what an agent does, with its parameters, such as `place(row=2, col=3)` or `move(directionDegree=90)`. An
+  action can take time to perform and can have a cooldown.
+- **Joint action**: the actions every agent performs at once. In a game played in turns, only one agent acts.
+- **Outcome**: the new state the agents are in after a joint action.
+- **Outcome distribution**: each possible outcome with its probability, given by the predictor. In a deterministic
+  game there is a single outcome.
+- **Payoff**: what each agent gets from an outcome, as the game defines it.
+- **Utility**: what an outcome is worth to one agent, over all of its goals, weighed by that agent's goal weights.
+- **Goal**: something an agent wants, with a weight for its role and situation. An agent may pursue several at once.
+- **Preference**: the weight an agent gives a goal.
+- **Context**: a compartment of knowledge, and a level in the hierarchy: a game, a variant, a relaxation, an agent
+  model, macromanagement or micromanagement. Rules, beliefs, heuristics, models and tasks belong to a context, with
+  their weight there.
+- **Tactic**: a general direction that guides the optimizer, such as charge, kite sideways or retreat.
+- **Heuristic**: a fast estimate. OMF uses three kinds:
+  - the **position value**: what a state is worth to each agent;
+  - the **move value**: what an action is worth in a state;
+  - the **tactic value**: which tactic is worth exploring.
+- **Task**: something OMF can spend time on, such as valuing a position, predicting an outcome, self-play or reviewing
+  a game.
+- **Model**: one way to perform a task: rules, a lookup table, a decision tree, an ensemble, a DNN, … Models are
+  chosen by:
+  - their measured accuracy;
+  - their cost, in processing time;
+  - their explainability, if necessary.
+- **Budget**: the real time available to act.
+- **Belief**: a claim held by some holder, with a degree of certainty based on the supporting evidence, and with its
+  accuracy, precision and source.
+- **Opinion**: a subjective judgement by its holder, such as "good", "bad", "cheap" or "expensive". It uses any
+  qualifier, and it is its holder's direct experience. What an agent thinks another agent's opinion is, is a belief.
+- **Source**: how a belief was reached. It is either direct experience or a method with its parameters.
+- **Agent model**: what OMF knows of one agent (heuristics, beliefs, goals), from a generic player down to one instance.
 
-## Rules of a domain
+## OMF runs continuously, always doing the next best task
 
-| Rule | Lives in |
+OMF never waits idle. At every moment it performs the task worth the most right now. The candidates are:
+- ponder the game: possible inferences, heuristics, tactics or any other important aspect;
+- play itself;
+- review its games;
+- study literature: imported games, texts decoded into rules, and other models' output such as engine evaluations;
+- train models;
+- play a game.
+
+A game a player starts comes first. OMF plays its moves or plans within that game's clock, and goes back to other tasks
+when time allows.
+
+**Tasks live in the knowledge base.** Each task is recorded with:
+- its value, over several measures weighed together by preferences:
+  - utility gained;
+  - precision gained;
+  - time saved;
+- its expected time;
+- the evidence behind them.
+
+**Values drift.** A task's value is a belief, updated from what each run of the task actually brought. Interpreting
+low-level games can be very useful at first and useless once OMF is proficient.
+
+**Deferring.** An important task may need more time than is available, because of conflicting goals. It is kept
+pending, not dropped. For example, analysing an interesting position isn't worth it during a bullet game, but it
+becomes worth it a few minutes later, instead of starting a new game right away.
+
+**Roles** change what is valuable:
+- A player maximizes its utility.
+- A coach analyses games and gives useful feedback, as it plays or between games.
+
+## Hierarchy of contexts
+
+OMF works on a hierarchy of contexts. Each level is a problem of its own, with:
+- its own state, actions and rules;
+- its own tactics, heuristics and models;
+- its own time scale.
+
+**A level can be simpler than its parent.** Life is real time, and OMF processes high-level events in real time. Inside
+a chess game, much of that complexity is eliminated: the state is the board, time is the clock, and play goes in
+turns.
+
+**A parent delegates to a child.** For example, a real-time strategy game is split into levels:
+- **The parent** is high-level macromanagement, such as economy, expansion and army composition. It sets the child's
+  goals and budget:
+  - The budget is either carved out of the parent's own or run alongside it. The parent decides which.
+  - The goal of a sub-task is provided by the parent, for example coaching rather than winning.
+- **The child** is unit micromanagement, such as moving and targeting units. It pursues those goals within its own
+  context, and reports its outcome back to the parent.
+
+**Payoff and rhetorical gain live at different levels.**
+- Inside a game's context, the game's payoff is what counts.
+- At the parent level, the result becomes rhetorical gain: progress toward the distance the agent wants, on the
+  questions it finds problematic. By winning at chess, the winner creates distance: he is a winner, not a loser.
+
+**Contexts are compartmentalized.** Rules, beliefs, heuristics, models and tasks belong to their context. Chess and
+checkers don't mix, and macromanagement doesn't mix with micromanagement.
+
+**Knowledge crosses between contexts only on purpose:**
+- A variant inherits from its game.
+- A model can be tried in another context, and is kept there only if it proves itself.
+- A generic principle, such as mobility, can be tested in several games, each with its own measured value.
+
+Each level runs the same machinery: the agent loop, the time management policy, tactics and the optimizer. The
+next-best-task choice runs at the top, across contexts.
+
+**State abstraction.** A level sees an abstraction of the state, not every detail. In a coding agent, the full state is
+very large: the file tree, the diff, the libraries, the environment, … The high level may hold a file's path but not
+its content, and fetch the specifics only when a tactic needs them, such as reading a file to edit it. Abstractions
+are made by models, like any other task: decoders, summaries, or relaxations that drop detail.
+
+**Planning fits the level.** Search is one model of planning, not a requirement:
+- In chess, MCTS fits well.
+- A coding agent's high level plans with tactics such as testing, debugging and refactoring. The state is too large
+  and the outcomes too uncertain for a tree search to pay off. How it plans instead is still open.
+
+The time management policy picks the planning model for each level, like any other model.
+
+## The agent loop under a real-time budget
+
+OMF is a real-time AI. Each step draws on one budget:
+
+| Step | What happens |
 |---|---|
-| Constraints on actions and their parameters | the domain's constraint satisfaction problem (CSP) |
-| Transitions, end of game and payoffs | the predictor |
-| Strategy, weighted by expected value | the strategy rule-based system (RBS) |
-| Players and initial state | the domain's factory |
+| Perceive | decoders turn inputs into structured data |
+| Process | inference and belief updates in the knowledge base |
+| Plan | tactics, the optimizer and the search choose an action |
+| Communicate | rhetoric plans messages, encoders word them |
+| Act | encoders turn the chosen action into an output |
 
-Rules are Python: every constraint, effect and RBS condition is the source of a Python expression or script, compiled
-once and run against states (see `src/openmind/rbs/README.md`). Any Python is allowed, imports and libraries included,
-because OpenMind is a general-purpose framework that people use to write the rules of their own problems; nothing in
-the framework is specific to one game. A domain's definitions script runs once and gives all of its rules shared
-names. Factories write rules for now; later, a decoder will turn unstructured data into rules.
+### The time management policy
 
-## Code domains
+At every step, OMF can choose between several models for a task. It might use a fast heuristic when time-constrained,
+or a slower, more accurate model when time allows.
 
-| Domain | Owns | Status |
-|---|---|---|
-| `world` | `Value`, `State`, `Action`, and their readable text | iterations 1 and 8 |
-| `csp` | Constraint satisfaction, the RBS's solver for legal moves: one action at a time over its values and constraint rules, with propagation and backtracking | iterations 1, 7, 9 and 12 |
-| `agent` | The agent and the games it knows: tic-tac-toe with its variants, sudoku, the repeated prisoner's dilemma with its variants, rock paper scissors, each declared as rules, and the games installed projects register | iterations 4, 7, 8 and 12 |
-| `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-select`, `openmind-distill-values`, `openmind-solve` | iterations 3–7, 10 and 11 |
-| `predictor` | What an action leads to, from its effects rules: outcome probability distributions | iterations 2 and 9 |
-| `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater`, valuing positions with a model behind `PositionValuer`, and stopping rollouts at a limit | iterations 4–6, 11 and 12 |
-| `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play or a reference search, paired tests of guidance, rules and values alone | iterations 5, 8, 10 and 11 |
-| `rbs` | The home of rules and what a game is made of: an RBS is a game, as the rules retrieved for a context; declaring rules, relaxing a game into a variant, Python rules compiled once and run against states, and heuristics — position and move rules, fitted sparsely — that value positions and rate moves | iterations 6, 9, 10 and 11, and 2026-09-17 |
-| `inference` | The inference engine: views of positions that look ahead with a domain's own actions, a search growing expressions of them (patterns of any size, thresholds, combinations, look-aheads) within a time and memory budget, and deduction on one position with induction of candidate expressions from what it proved | iteration 14 |
-| `training` | Self-play, distillation of models from search, selection of the rules that play no worse than all of them, distillation of value rules, and a loop training value rules round after round | iterations 6, 10, 11 and 13 |
-| `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded; each process's caches cleared by memory, and workers capped, ended with a diagnosis and replaced when they stay over | iteration 10, 2026-09-15 |
-| `dashboard` | A page following a value training while it runs: the round's progress, every round, the latest rules, the machine's memory and earlyoom's kills | 2026-09-15 |
-| `timing` | Time as agents and referees see it: time sources, deadlines, time controls and each player's clock; seconds on a timeline, not counts of moves | 2026-09-16 |
-| `doxastic` | What the agent remembers, word for word with where it came from, looked up by subject, name, keyword, claim, teller or source; and where each claim stands, the evidence for it and the evidence against it kept apart | 2026-09-15 |
-| `testing` | Test support shared with problem projects: a pytest plugin saving each test's logs | iteration 12 |
-| `optimizer` | Strategic discrete actions from continuous action spaces | later |
+The **time management policy** makes that choice from:
+- the time available;
+- the tradeoff between precision and processing time.
+
+It works at every level:
+- theory of mind: how many agent models and nested beliefs to consider;
+- inferences: how much deduction or relaxation;
+- the position value heuristic;
+- the move value heuristic;
+- the tactic value heuristic;
+- the predictor;
+- binning;
+- the number of SDMCTS nodes to explore;
+- which task to perform next.
+
+The policy is trainable. It learns which choices paid off under which time pressure. It starts from a simple bootstrap
+policy, and precisions and processing times are measured, never assumed.
+
+## Bootstrap
+
+1. Load the game's definition. In chess, it includes:
+   - the pieces' movement patterns;
+   - their constraints: knights can jump over pieces and bishops can't;
+   - when the king can castle;
+   - when a pawn can take en passant or promote.
+2. Load the game's tactics. If it has none, create a default tactic.
+   - The default tactic is an unnamed tactic whose sub-goal must be populated.
+   - At worst, it plays randomly.
+   - A chess agent with free time should deduce by itself that it will need to prepare a tactic. It then analyses the
+     game's rules, facts and so on to emit credible heuristics.
+3. Infer the heuristics, assuming the user gave only minimal instructions. Two ways:
+   - **Relaxed problems**: remove constraints and measure how far a win is. For example: how far am I from a win if I
+     can teleport my pieces? If the other player can't play?
+   - **Guiding principles**: for example, of two positions, prefer the one with the most options.
+4. As OMF plays, train better-fitted or faster models of each task:
+   - a lookup table;
+   - a decision tree;
+   - an ensemble;
+   - a DNN;
+   - or any other technique.
+
+Bootstrapping may itself need training. The **bootstrapper** is a model that learns which ways of bootstrapping pay
+off:
+- which relaxations;
+- which guiding principles;
+- which default tactics;
+- which starting models;
+- in what order to do the early tasks.
+
+It learns across games and over time, so later games start better.
+
+## Defining a game
+
+The programmer defines a game with rules in the knowledge base, under the game's context:
+
+| Rule | Says |
+|---|---|
+| Players and initial state | who plays, and where the game starts |
+| Values and constraints | which parameter values an action may take, and which combinations are legal |
+| Effects | what an action leads to, with its probability |
+| Simultaneous resolution | what joint actions lead to, when agents act at once |
+| Durations and cooldowns | how long an action takes to perform, and how long before it is available again |
+| End and payoffs | when the game is over and what each agent gets |
+| Tactics | the game's tactics, if the programmer gives any |
+
+Rules are Python: every constraint, effect and heuristic is the source of a Python expression or script, compiled once
+and run against states. Any Python is allowed, imports and libraries included.
+
+**Frozen and open rules.**
+- **Rules hardcoded by an application** that implements OMF are frozen as they are by default. OMF never edits them.
+- **Rules OMF deduced** can be edited freely. A new observation can justify replacing them with a model that better
+  explains the data.
+- **Open rules.** A rule or a ruleset can be declared open for modification. OMF then revises it like a deduced rule.
+- **Conflicts with a frozen rule.** When an observation conflicts with a frozen rule, OMF doesn't revise the rule. It
+  raises a warning for the developer through the debug and logs module.
+
+  Example: the developer forgot to implement en passant, but the engine running the game implements it. OMF can't
+  foresee an en passant capture, and then one is played.
+
+A **variant** or a **relaxation** is another context. It inherits the game's rules, except the ones it drops, and adds
+its own.
+
+### Data structures
+
+OMF provides data structure definitions with the methods and actions relevant to them, which a game definition imports.
+The grid comes first, since it is common in games. It provides:
+- cells, neighbours and adjacency;
+- rows, columns, diagonals and lines;
+- directions and rays until blocked;
+- distances;
+- regions and boxes;
+- symmetries;
+- placing, moving and removing pieces.
+
+Constraints, effects and heuristics use these methods, and inference can read them to generate heuristics. Other
+structures are added when a game needs one.
+
+### Actions in time
+
+- An action can take time to perform, such as a motor moving into position.
+- An action can have a cooldown: after a jump, you must fall back down before jumping again.
+- The CSP excludes actions still cooling down.
+- The predictor gives outcomes over time, including actions still in progress.
+- Time is seconds on a timeline, not a count of moves, so actions can last and overlap.
+
+### Several kinds of play
+
+OMF must play games of every kind:
+- **Played in turns**, like chess: an agent can't move when it isn't its turn.
+- **Simultaneous**, like rock paper scissors: agents decide at once.
+- **Non-deterministic**: an action has several outcomes, each with its probability.
+- **With hidden information**: agents see only part of the state.
+- **Zero-sum or not**. Payoffs are per agent, so OMF supports non-adversarial play. In a zero-sum game, a minimizing
+  opponent is one model of the opponent among others (see "Agent models").
+
+## Valid actions: the constraint satisfaction solver
+
+The CSP finds the valid values of an action's parameters in a state, from the game's value and constraint rules:
+- **Discrete actions:** it gives every legal move.
+- **Continuous actions:** it gives the valid ranges, and the optimizer searches within them.
+
+## The predictor
+
+The predictor takes:
+- the current state;
+- the agents' actions.
+
+It emits an outcome distribution. In a deterministic game like chess, a move in a given state always leads to the same
+outcome.
+
+The predictor is a task like any other. It has several models:
+- the game's declared effects rules;
+- a lookup table;
+- a decision tree;
+- a DNN;
+- any other learned model, trained from observed transitions.
+
+The time management policy picks among them.
+
+## Tactics and the optimizer
+
+A tactic is a general direction that guides the optimizer.
+
+For example, a soldier can move in any direction with `move(directionDegree)`. It might have three tactics that
+determine which direction it goes:
+- charge forward;
+- kite sideways;
+- retreat.
+
+**What a tactic is made of.** A tactic has:
+- a sub-goal;
+- a move generator;
+- an evaluator.
+
+The generator and the evaluator are consistent with the sub-goal. For example, a "flee" tactic might ignore attacking
+moves, and weigh directions by how much distance each one puts between itself and the enemy.
+
+For a tactic:
+1. The CSP determines the valid values for the action.
+2. The optimizer uses the state to find the best action and parameters for that tactic.
+
+In a discrete game with only the default tactic, before its sub-goal is populated, the optimizer's candidates are the
+legal moves.
+
+**Generative optimizers.** When the action space is too large to list, such as the text of an NLP agent or the edits
+of a coding agent, the optimizer does not list the possible actions. It proposes solutions instead:
+- A coding agent might have tactics for testing, debugging, reviewing, tracing, writing and editing.
+- The selected tactic generates the edit that best fits its needs.
+- The CSP then checks that proposal against the constraints, rather than enumerating every valid value.
+
+Optimizers are models of the same task, from cheap to costly. The time management policy picks among them:
+- a random picker, among the valid values or a generator's proposals: the cheapest;
+- listing the candidates and valuing each one;
+- proposing solutions.
+
+The **tactic value heuristic** picks which tactics are worth exploring. A tactic takes the utility of the move it
+decided on, and that utility trains the tactic value heuristic.
+
+## Utility
+
+A move's utility is the value of each of its outcomes multiplied by that outcome's probability, summed.
+
+In a continuous probability space, outcomes are binned, and each bin's value is multiplied by its likelihood. Take a
+trip to the casino:
+- winning 0–100 $ means it wasn't worth the trip;
+- 100–200 $ is break-even;
+- 200–1000 $ means it was worth it.
+
+Each bin multiplied by its likelihood shows the trip isn't worth it.
+
+**Binning is a task with its own models:**
+- uniform probability bins, sufficient for most decisions;
+- bins placed around a decision threshold, such as three bins around the casino's break-even range;
+- an RBS;
+- any other model.
+
+**Several goals at once.** An agent may weigh several goals at once. A chess coach might play to barely win, while
+prioritizing teachable moments. An outcome's value is its value on each goal, weighed by the agent's goal weights for
+its role and situation. The weights are preferences, and they can be learned.
+
+**Values are gauged in words, not numbers.** Values are gauged the way we gauge temperature: freezing, cold, lukewarm,
+warm, hot, burning.
+- What each word means is learned, for one agent or in general.
+- It depends on the context, the audience, and so on. The same outcome may be gauged differently for different
+  agents.
+- Gauging another agent's valuation is a guess. Finding out whether it was right is a negotiation. The guess may have:
+  - been right;
+  - neglected a factor;
+  - over-valued an existing factor;
+  - under-valued an existing factor.
+
+**Words are fuzzy sets over an underlying scale.**
+- Each word has a membership curve on a scale, learned per agent or context.
+- The search and utility compute on the scale, with fuzzy arithmetic: backups, averages, value × probability.
+- The results are turned back into words when communicating or deciding.
+- Fuzzy arithmetic is still arithmetic: one insult against two compliments can be computed, as a best-effort estimate.
+- Values are estimated from incomplete information. They change from agent to agent, from time to time, and from
+  context to context. Every value is a best effort.
+
+**Soft goals.** Some goals are hard, like a checkmate or a passing test. Others are soft and fuzzy, like code quality
+or user satisfaction:
+- A soft goal has no exact measure. Its value is an opinion, held by the one who judges, often the user.
+- Reaching a soft goal becomes a rhetorical problem. The agent must make a case, to the one who judges, that its work
+  is at the best quality-for-effort ratio.
+- An agent can edit its own opinions, which are its direct experience. It can't edit someone else's opinion.
+- It can form beliefs about someone else's opinion, and update those beliefs, such as after hearing the judge.
+
+## Search: semi-determinized Monte-Carlo tree search
+
+SDMCTS is OMF's search, for the levels where a tree search fits (see "Planning fits the level"). It is guided by two
+heuristics, as in AlphaZero:
+- The **move value** heuristic is the prior of PUCT.
+- The **position value** heuristic values the leaves.
+
+There are no playouts to the end of the game.
+
+- **Chance:** chance nodes branch on the predictor's outcome distribution.
+- **Simultaneous play:** simultaneous nodes use regret matching.
+- **Hidden information:** the search is semi-determinized. It runs over hypotheses about the hidden parts of the state,
+  each weighted by the knowledge base's belief in it.
+- **Other agents:** their replies come from their agent models' heuristics.
+- **Budget:** the number of nodes to explore is set by the time management policy.
+
+## Agent models, and theory of mind as an emergent property
+
+Agents have different skill levels, knowledge and preferences, so OMF models specific agents when it can. The models
+range from a generic player, through a class of players, down to one specific instance.
+
+An agent model consists of:
+- that agent's heuristics;
+- that agent's goals;
+- that agent's beliefs, held in the knowledge base with the agent as holder.
+
+**Conflicting models are the norm.** The minimizer is only one model of an opponent:
+- It suffers from projection: it plays the moves the agent would play itself.
+- That might work against Stockfish, but it won't do for a low-level agent.
+
+If another agent model better predicts an agent's actions and leads to better results, that model is preferred. As
+with every model, the choice is based on:
+- accuracy;
+- cost;
+- explainability, if necessary.
+
+There is no theory-of-mind component. Theory of mind emerges from the knowledge base, the doxastic system and the agent
+models' heuristics:
+- what OMF believes another agent believes;
+- what OMF believes that agent would value;
+- how OMF predicts that agent would play.
+
+## Detectors and explanations
+
+Detectors recognize topics in a state, and serve as sources for them. In chess, detectors find patterns such as:
+- a fork;
+- a pin;
+- a skewer;
+- an x-ray.
+
+A coach needs to be able to explain the board. Even when a move comes from an engine's evaluation, a self-made DNN or
+another black-box model, OMF must be able to provide relevant information to rationalize the move. Detectors provide
+that information.
+
+**Detectors are decoders**, whose source is a state.
+
+**Grounding is emergent** from decoders plus epistemology. There is no grounding module. The goal is to prevent
+hallucination, such as an LLM producing a board analysis with no grounding in the move played or the board, sometimes
+even making up pieces.
+
+Chess tactics, such as a fork or a pin, are a different idiom from OMF tactics. The first belongs to chess; the second
+is a general direction that guides the optimizer.
+
+## Encoders and decoders
+
+Several encoders and decoders can be connected to OMF:
+- A **decoder** takes information from a source and converts it into structured data.
+- An **encoder** takes structured data and turns it into an output.
+
+Sources and outputs can be of any kind, such as:
+- text;
+- images;
+- sound;
+- temperature;
+- radar;
+- motor commands.
+
+A decoder may give several interpretations of an input, each with its probability. That is where puns, ambiguity and
+sarcasm come from.
+
+## Rhetoric
+
+Rhetoric is a built-in module that lets a player communicate with another. It follows Michel Meyer's rhetoric.
+
+### How a message travels
+
+1. A decoder turns a received message into structured data.
+2. The player plans a reply.
+3. An encoder turns the reply's structured data into natural language.
+4. **Validation gate:** the encoder's output is first decoded, to ensure that the message at least sounds as intended.
+
+### Meyer's model
+
+- **Ethos** is the speaker. The effective ethos is who the speaker is; the projective ethos is who the speaker is
+  perceived to be.
+- **Pathos** is the audience. The effective pathos is who the audience member is; the projective pathos is who the
+  speaker perceives them to be.
+- **Positions** are answers to questions.
+- A **distance** separates two positions on a question.
+- **Problematicity** is how bad a distance is in itself:
+  - A high problematicity means that the more distance there is, the more conflict there is.
+  - A negative problematicity means that the more distance there is, the better. A teacher ought to have a much better
+    understanding than their student; the more, the better.
+
+### Tactics
+
+Rhetoric's pre-defined tactics each negotiate a distance in a given direction. They are permutations of:
+- which distance: between the projective ethos, effective ethos, projective pathos and effective pathos;
+- what the tactic does to it: increase, affirm or reduce the distance, or its problematicity.
+
+All 36 are pre-defined: 6 pairs of terms × 6 operations. Each tactic learns to perform its specific job.
+
+### Composing a message
+
+Messages are prepared to achieve a balance between goals. An agent might want to stress the distance between their
+soccer team and another agent's team, without stirring problems within their board game group.
+
+A message can be composed of:
+- questions;
+- factoids: information, true or not, presented as fact;
+- inferences;
+- rules.
+
+Its structured data can also contain stage directions: tone, vocabulary, specific phrasing or quotes, emphasis,
+framing, … A decoder can recover some of them and not others.
+
+A decoder may find several interpretations of a message, which gives rise to puns, ambiguity and sarcasm. Sarcasm is a
+message that is clearly not intended as sincere, given the speaker's ethos.
+
+Rhetoric always depends on epistemology. It is the only way to prevent hallucinations.
+
+Rhetoric also serves soft goals (see "Utility"). An agent presenting its work, such as a feature, makes a case to its
+judge that the work is at the best quality-for-effort ratio.
+
+Distances are measured with fuzzy arithmetic (see "Utility"): best-effort estimates from incomplete information, which
+vary by agent, time and context.
+
+## Knowledge base and doxastic logic
+
+The knowledge base stores:
+- rules;
+- facts;
+- beliefs;
+- opinions;
+- tasks;
+- models.
+
+A doxastic logic system tracks beliefs:
+- the agent's own beliefs;
+- the beliefs of other agents;
+- nested beliefs: what the agent believes black believes white believes.
+
+**Opinions are not beliefs.**
+- An opinion is subjective: its holder's direct experience, with any qualifier, such as "good", "bad", "cheap" or
+  "expensive".
+- It has no certainty to weigh, because it isn't a claim about the world.
+- What an agent thinks another agent's opinion is, is a belief, with its certainty and evidence.
+- The knowledge base keeps opinions apart from beliefs.
+
+A belief is not a label. The evidence for a claim and the evidence against it are kept apart, so an agent can hold poor
+evidence for `p` and solid evidence for `not p`, and know that it does.
+
+Every belief carries:
+- **Certainty**: a degree of how strongly a belief is held. It should depend on evidence, but a belief might not have
+  a known, proper epistemic justification.
+- **Accuracy**: how often beliefs from the same source and method have turned out right.
+- **Precision**: how narrow the belief is, such as the spread of an estimate.
+- **Source**: the method the agent used to reach it:
+  - **Direct experience**, such as the exact text as received: the source is the date, time, input and other
+    relevant information.
+  - **Interpreted, inferred, deduced or estimated**: the source is the method used and its parameters.
+
+Everything is kept word for word, and nothing is overwritten.
+
+## Debug and logs
+
+A module that helps a developer find problems in their game's definition and in OMF's reasoning. It owns logging and
+warnings, and the dashboard is its viewer.
+
+**Logging per session.**
+- The log level depends on the session. Depending on what the user is doing, they might want minimal verbosity or
+  targeted verbosity.
+- This replaces a single global level.
+
+**Debugger.** Given the complexity of the application, the module also provides what a debugger needs:
+- interrupts;
+- a stack, which is both, linked:
+  - the Python call stack;
+  - OMF's reasoning stack, such as task → tactic → search node → evaluation → rule.
+
+  Each reasoning frame points to the code it runs.
+- time while paused, decided by the debug session: OMF's clocks either freeze or keep running;
+- measurements taken across a pause, also decided by the debug session: they are either kept for training and timing
+  statistics or left out;
+- breakpoints, which can be conditional on the game. Example: break when you reach an evaluation for a board position
+  that allows en passant.
+- other debugger features.
+
+**Warnings.** It raises warnings, such as:
+- rules that conflict with each other;
+- observations that a frozen rule can't explain, such as an en passant capture played when the definition lacks it.
+
+## Epistemology: foundherentism
+
+OMF is always learning, so it needs a theory of how its beliefs are justified. It follows foundherentism (Susan Haack),
+which combines foundationalism and coherentism. Justification works like a crossword:
+- the clues are the anchors: observations and fundamental rules;
+- the crossing entries are the other beliefs that interlock with a belief.
+
+**Anchors.** Anchors are what OMF has experienced directly, and the fundamental rules it was given, such as the game's
+definition. They support beliefs without being derived from other beliefs. An anchor can still be wrong:
+- A misperception, or a deduced rule or a rule declared open, is revised when the coherent whole is against it.
+- A frozen rule is never revised. The conflict becomes a warning for the developer (see "Frozen and open rules").
+
+**Coherence.** OMF strives for coherence between:
+- its observations;
+- its models;
+- the fundamental rules.
+
+When they disagree, it is a finding, not noise. The conflict is recorded, weighed, and becomes a task: investigate it,
+test the model, or look for more data.
+
+**No self-supported claims.** A claim can't support itself. A circle of claims supporting each other, with no path back
+to an anchor, gets no confidence from that circle. Support counts only as far as it traces back to anchors.
+
+**Deduction and induction.** OMF uses the information it has to reason:
+- **Deduction**: from rules and facts to what must follow. A deduction is as strong as its premises.
+- **Induction**: from observations to general rules and models. An induction is as strong as its data and method allow.
+
+**Confidence is nuanced by methodology and data.** A belief's confidence depends on how it was derived:
+- the method, and its measured accuracy;
+- how much data it used, and how representative that data was;
+- how independent its supports are from one another.
+
+For example:
+- A rule proved from the game's definition is near certain.
+- A heuristic fitted on a hundred games of self-play is tentative.
+- A claim heard once from an unreliable teller is weak.
+
+Every belief's source names its method and parameters, so its confidence can be re-evaluated when the method's
+accuracy is re-measured.
+
+## Packages
+
+This map is provisional: each package's boundaries are confirmed at its own interfaces stop. The packages are listed
+in dependency order.
+
+| Package | Owns |
+|---|---|
+| `world` | states, actions, joint actions, players, what an agent observes |
+| `knowledge` | the knowledge base, the doxastic system: rules, facts, beliefs with their sources, tasks, models |
+| `epistemology` | justification of beliefs by foundherentism: anchors, coherence, no self-support, confidence from method and data |
+| `structure` | data structures with their methods and actions, the grid first |
+| `game` | the programmer's API to define a game, the registry of games, the game at runtime |
+| `csp` | valid values of an action's parameters |
+| `predictor` | the predictor port and its rule-based model |
+| `model` | models per task, with their measured precision and processing time |
+| `heuristic` | the position, move and tactic value heuristics and their rule-based models |
+| `utility` | a move's utility over its outcomes, goals and their weights, binning |
+| `tactic` | tactics, the default tactic, the optimizer |
+| `agent_model` | models of agents, from a generic player to one instance |
+| `search` | semi-determinized MCTS |
+| `budget` | time, clocks, deadlines, the time management policy |
+| `codec` | encoders and decoders |
+| `rhetoric` | Meyer's model, rhetorical tactics, message composition, the validation gate |
+| `inference` | relaxations, guiding principles, deduction, the bootstrapper |
+| `training` | self-play, reviewing games, studying literature, training models |
+| `agent` | the agent loop, one loop per level of the hierarchy with delegation between them, the continuous next-best-task loop, roles such as player and coach |
+| `debug` | logging with per-session verbosity, warnings (conflicting rules, observations a frozen rule can't explain), a debugger (interrupts, stack, conditional breakpoints); the dashboard is its viewer |
+| `dashboard` | a page to visualize and debug: tasks, time management choices, tactics and the search tree, beliefs and sources, models, games |
+| `entrypoint` | ways to run OMF: `openmind-play`, `openmind-solve` |
+
+`parallel` (worker processes) and `testing` (the pytest plugin that saves logs) are infrastructure that any package may
+use.
 
 ## Conventions
 
-- Code lives in `src/openmind/<domain>/<class type>/`. Class types: `model` (datatypes), `factory` (functions that
-  build an object with a builder and a recipe), `builder`, `service` (operations on data), `repository` (storing and
-  retrieving data), `mapper` (format conversions), `constant` and `plugin` (pytest plugins). Entrypoints live in
-  `src/openmind/entrypoint/`.
-- OpenMind ships without the libraries a problem needs. A problem lives in its own project, which installs OpenMind,
-  imports any library its rules need, and registers its domains under the `openmind.domains` entry points (see
-  `src/openmind/agent/README.md`); chess lives in the OpenMindChess project, with python-chess.
-- Each domain folder has a `README.md` covering its purpose, content, usage and logs.
-- One class per module, named after it; a name that clashes with a Python keyword gets a trailing underscore
-  (`not_.py`).
-- Models are frozen, slotted dataclasses, except the search tree's nodes, which change while searching. Logic lives in
-  services; I/O only in entrypoints.
-- Services log through `logging.getLogger(__name__)`: what was decided and why, with the key values. Actions appear
-  in logs as readable text (`ActionTextMapper`) and rules as their source. Per-call details (solver
-  candidates, predictor effects, search iterations) log at DEBUG; decisions (choices, search results) at INFO.
-- Unit tests sit beside their target as `<module>_tests.py`; integration and end-to-end tests live in `test/`.
-- Work that can run in worker processes goes through `parallel`'s `TaskRunner`. Services that keep caches leave them
-  behind when pickled, so any service can travel to a worker; work in workers draws its seeds up front, so results
-  don't depend on the number of workers.
-- `data/` holds all data (databases, trained models, logs, …); its layout is decided as we go. Evaluation reports go in
-  `data/evaluation/<domain>/`, selection reports in `data/selection/<domain>/`, rule bases in `data/rbs/<domain>/`, value
-  bases in `data/values/<domain>/`, training reports in `data/training/<domain>/` and published sudoku collections in
-  `data/sudoku/`,
-  all ignored by git. Tests save their logs, through the `openmind.testing.plugin.log_saving` plugin,
-  in `data/log/<test file>/<test name>.log`, which git ignores; a test marked `@pytest.mark.log_level("INFO")` saves
-  only INFO and above.
+- **Layout:**
+  - Code lives in `src/openmind/<package>/<class type>/`.
+  - Class types:
+    - `model` (datatypes);
+    - `factory` (functions that build an object with a builder and a recipe);
+    - `builder`;
+    - `service` (operations on data);
+    - `repository` (storing and retrieving data);
+    - `mapper` (format conversions);
+    - `constant`;
+    - `plugin` (pytest plugins).
+  - Entrypoints live in `src/openmind/entrypoint/`.
+  - Each package has a `README.md` covering its purpose, content, usage and logs.
+- **Code:**
+  - One class per module, named after it. A name that clashes with a Python keyword gets a trailing underscore
+    (`not_.py`).
+  - Models are frozen, slotted dataclasses, except the search tree's nodes, which change while searching.
+  - Logic lives in services; I/O lives only in entrypoints.
+  - Nothing in OMF is specific to one game. Constants are learned or inferred, not hardcoded.
+- **Logging:**
+  - Services log through `logging.getLogger(__name__)`: what was decided and why, with the key values.
+  - Actions appear in logs as readable text, and rules as their source.
+  - Per-call details log at DEBUG; decisions log at INFO.
+- **Tests:**
+  - Unit tests sit beside their target as `<module>_tests.py`; integration and end-to-end tests live in `test/`.
+  - Tests pin the desired behaviour.
+  - Tests save their logs in `data/log/<test file>/<test name>.log`.
+- **Documentation:** OMF needs many of them:
+  - `README.md` files, written with each component;
+  - instructions for coding agents that use OMF to write games and applications;
+  - tutorials and examples, in a step of their own once enough works end to end.
+- **Data:** `data/` holds all data (databases, trained models, logs, …) and git ignores it.

@@ -1,0 +1,228 @@
+# Open questions
+
+These are gaps, contradictions and unknowns in `doc/architecture.md`. Each one waits for Maxime's decision. None is
+settled until it is struck from this file and the design says so.
+
+## A. Parts of the design written by Claude, not by Maxime
+
+Claude filled these blanks in `doc/architecture.md` without being asked. For each one, the options are:
+- keep it as written;
+- change it;
+- strike it and leave the point open.
+
+1. **Default tactic.** When a game has no tactics, the doc makes "any legal action" the default.
+   - **Decided (Maxime):**
+     - The default tactic is an unnamed tactic whose sub-goal must be populated. At worst, it plays randomly.
+     - An agent with free time deduces that it needs to prepare a tactic. It analyses the rules, facts and so on to
+       emit credible heuristics.
+2. **Accuracy and precision.**
+   - The doc defines accuracy as how often beliefs from the same source and method turned out right.
+   - It defines precision as how narrow a belief is, such as the spread of an estimate.
+   - **Decided (Maxime):** keep.
+3. **Certainty.** The doc defines certainty as "how strongly it is held".
+   - **Decided (Maxime):** certainty is a degree of how strongly a belief is held. It should depend on evidence, but a
+     belief might not have a known, proper epistemic justification.
+4. **Goal weights are beliefs.** The Utility section calls an agent's own goal weights beliefs. They might instead be
+   opinions, preferences, or something else.
+   - **Decided (Maxime):** they are preferences.
+5. **Time management levels.** The doc adds two levels you didn't name, the tactic value heuristic and binning, and it
+   puts the choice of the next task at the policy's top level.
+   - **Decided (Maxime):** keep all.
+6. **The bootstrap time management policy.** The doc says it starts from a simple bootstrap policy, today's
+   `MovePlanner`. What that policy is remains unsaid.
+   - **Decided (Maxime):** keep: start from `MovePlanner`, generalized.
+7. **CSP and continuous actions.** The doc says the CSP gives valid ranges for continuous actions and checks the
+   proposals of generative optimizers.
+   - **Decided (Maxime):** keep both.
+8. **Hierarchy.**
+   - The doc says knowledge crosses contexts only on purpose, through inheritance, trying a model elsewhere, or testing
+     a principle in several games.
+   - It says every level runs the same machinery.
+   - It says the next-best-task choice runs at the top.
+   - It says a child reports its outcome to its parent.
+   - **Decided (Maxime):**
+     - Keep all four.
+     - The goal of a sub-task is provided by the parent, such as coaching rather than winning.
+9. **State abstraction.** The doc says abstractions are made by models: decoders, summaries, relaxations.
+   - **Decided (Maxime):** keep.
+10. **Planning in a coding agent.** The doc lists the alternatives to tree search as: pick a tactic by its value, follow
+    a plan, propose a plan.
+    - **Decided (Maxime):** struck. How a coding agent plans without tree search stays open.
+11. **Soft goals.** The doc says the judge's opinion updates the agent's beliefs about that judge's opinions.
+    - **Decided (Maxime):**
+      - An agent can edit its own opinions, which are its direct experience. It can't edit someone else's.
+      - It can form and update beliefs about someone else's opinion.
+12. **Epistemology.** These points came from Claude:
+    - the crossword analogy;
+    - anchors can be revised;
+    - conflicts become tasks;
+    - the independence of supports matters;
+    - the three examples of confidence;
+    - confidence is re-evaluated when a method's accuracy is re-measured.
+    - **Decided (Maxime):** keep all.
+      - Revisable anchors are limited by B2: frozen rules are never revised.
+      - Only misperceptions, deduced rules and open rules can be revised.
+13. **Search and hidden information.** The doc weighs each hypothesis by the knowledge base's belief in it.
+    - **Decided (Maxime):** keep.
+14. **The package map.** The packages, their names, their order and their boundaries are all Claude's.
+    - **Decided (Maxime):** it is provisional. Each package's boundaries are confirmed at its own interfaces stop.
+
+## B. Contradictions
+
+1. **Expected utility vs fuzzy distance.**
+   - **Decided (Maxime):**
+     - Values are not numbers as such. They are gauged in words, like temperature (freezing … burning).
+     - Each word's meaning is learned per agent or in general, and depends on context and audience.
+     - Whether another agent's valuation was guessed right is a negotiation: a neglected factor, or an over-valued or
+       under-valued one.
+   - How the search operates on words was decided in B5.
+
+   The original question:
+   - The design computes a move's utility as a sum of value × probability, which is arithmetic.
+   - Rhetoric's distance, by your earlier point, is not arithmetic: one insult doesn't cancel two compliments, so it
+     needs fuzzy logic.
+   - Soft goals are opinions with qualifiers such as "good" or "expensive".
+   - How do fuzzy or qualitative values enter an expected utility?
+   - Options:
+     - Map every qualifier to a number, learned per holder. This is simple, but it reintroduces arithmetic.
+     - Keep expected utility for numeric goals only. Compare fuzzy goals with fuzzy operators, then combine both with a
+       fuzzy aggregation. This is coherent with fuzzy logic, but there are two mechanisms.
+     - Make utility itself fuzzy everywhere, so bins carry fuzzy values. There is one mechanism, but it departs from
+       AlphaZero-style numeric backups in the search.
+     - Something else.
+2. **Anchors that can be wrong.**
+   - **Decided (Maxime):**
+     - Rules hardcoded by an application are frozen by default.
+     - Deduced rules are edited freely when a model that better explains the data is found.
+     - A rule or a ruleset can be declared open for modification.
+     - Conflicts with a frozen rule become warnings in a debug and logs module, such as a missing en passant.
+
+   The original question:
+   - Fundamental rules are anchors.
+   - A game's definition, given by the programmer, is treated as truth by the CSP and the predictor.
+   - Can coherence ever override a given rule, for example after observing a move the rules call illegal? Options:
+     - Given rules are never revised. Observations that contradict them are flagged.
+     - Given rules are revisable like any anchor, with very high certainty.
+     - It depends on the source: rules from the programmer are fixed, and rules decoded from literature are revisable.
+3. **The zero-sum assumption vs agent models.**
+   - In a zero-sum game, the opponent may be assumed to minimize OMF's utility.
+   - But agent models describe opponents with limited skill and their own preferences.
+   - **Decided (Maxime):**
+     - Conflicting models are the norm.
+     - The minimizer suffers from projection: it plays what the agent itself would play. That fits Stockfish, not a
+       low-level agent.
+     - The model that better predicts an agent's actions and leads to better results is preferred.
+     - Every model is selected on accuracy, cost and, if necessary, explainability.
+   - Which wins, and when? Options:
+     - Assume minimization when no agent model exists, and use the model otherwise.
+     - Blend both, weighted by confidence in the model.
+     - Let the time management policy choose, as another model of the opponent.
+4. **Payoff vs utility vs rhetorical gain.**
+   - Earlier (2026-09-14) you said a player's gain is progress toward the distance they want. "Winning makes him above."
+   - The design defines payoff as what the game gives, and utility as the agent's own valuation over goals.
+   - Are payoffs rhetorical gains, a special case of utility, or a separate thing?
+   - **Decided (Maxime):**
+     - Both hold, at different levels.
+     - Inside a game's context, the payoff is what counts.
+     - At the parent level, the result becomes rhetorical gain: progress toward the wanted distance, such as "winning
+       makes him above".
+
+5. **Words in the search.**
+   - SDMCTS backs up and averages values, and utility is "value × probability, summed".
+   - Both are defined on numbers. With values gauged in words, what is:
+     - the average of "warm" and "freezing"?
+     - "hot" at a 30 % chance?
+   - **Decided (Maxime):**
+     - Words are fuzzy sets over a hidden scale, and the search computes with fuzzy arithmetic.
+     - Rejecting arithmetic for distance was a mistake. It is arithmetic, but fuzzy: best-effort estimates from
+       incomplete information, varying by agent, time and context.
+
+## C. Unknowns to investigate
+
+1. **Where the hierarchy lives.** Contexts are in `knowledge`, but no package owns levels, delegation, or the
+   parent–child exchange of goals, budget and outcome.
+   - **Decided (Maxime):**
+     - Contexts stay in `knowledge`.
+     - `agent` runs one loop per level and owns delegation: goals and budget go down, outcomes come back up.
+2. **Opinions held by the agent itself.** Can OMF hold opinions, such as "this move is ugly", or only beliefs about the
+   opinions of others?
+   - **Answered in A11:** yes, an agent holds and edits its own opinions.
+3. **How a tactic is defined.**
+   - What is a tactic in data? A rule, a model, or a goal given to the optimizer?
+   - Who defines one? The programmer, inference, or both?
+   - Known so far (A1): a tactic has a sub-goal, and an agent can prepare tactics itself from the rules and facts.
+   - **Decided (Maxime):**
+     - A tactic has a move generator and an evaluator, both consistent with its goal.
+     - Example: "flee" ignores attacking moves and weighs directions by the distance each one puts from the enemy.
+4. **Rhetorical tactics.**
+   - The permutation of four ethos and pathos terms with six operations gives many tactics.
+   - Which pairs of terms are meaningful? For example, is effective ethos against projective ethos affirming or hiding
+     identity?
+   - **Decided (Maxime):** all 36 are pre-defined (6 pairs × 6 operations). Each tactic learns to perform its specific
+     job.
+5. **What "literature" is.** Imported games only, or also texts decoded into rules?
+   - **Decided (Maxime):** literature is:
+     - imported games;
+     - texts decoded into rules;
+     - the output of other models, such as engine evaluations.
+   - Annotated games were offered and not chosen.
+6. **The budget's unit when levels overlap.** A parent and a child both run in real time. Does the child's budget come
+   out of the parent's, or run in parallel?
+   - **Decided (Maxime):** the parent decides: either carved out of its own budget or run alongside, as part of what it
+     gives the child.
+7. **Task value.** What is a task's value measured in: the utility gained, the precision gained, or the time saved?
+   - **Decided (Maxime):** several measures: utility gained, precision gained and time saved, weighed together by
+     preferences.
+8. **Debug vs dashboard vs logs.**
+   - There is now a debug and logs module, a dashboard "to visualize and debug", and the existing convention that
+     services log their decisions.
+   - Where are the boundaries between them?
+   - **Decided (Maxime):**
+     - `debug` owns logging and warnings, and the dashboard is its viewer.
+     - Log level depends on the session: minimal or targeted verbosity.
+     - It has debugger support: interrupts, a stack, conditional breakpoints (for example, on evaluating a position that
+       allows en passant).
+9. **The debugger's stack and the real-time clock.**
+   - What does "stack" mean in OMF: the Python call stack, OMF's reasoning chain, or both?
+   - What happens to clocks and budgets while execution is paused at a breakpoint?
+   - **Decided (Maxime):**
+     - The stack is both the Python call stack and OMF's reasoning stack, linked.
+     - What time does during a pause is decided by the debug session.
+10. **Measurements taken across a pause.**
+    - When the session lets time run during a pause, processing times and game results measured across the pause are
+      distorted.
+    - Are they kept for training the time management policy and the models' measured processing times?
+    - **Decided (Maxime):** the debug session decides.
+11. **"Tactic" means two things.**
+    - In OMF, a tactic is a general direction that guides the optimizer (charge, kite, retreat; testing, debugging).
+    - In chess, "tactics" are patterns such as a fork, a pin, a skewer or an x-ray, which detectors recognize.
+    - The two will meet in the same code and logs.
+    - **Decided (Maxime):** they are different idioms. Nothing is renamed.
+12. **Detectors: where they come from and where they live.**
+    - Are they written by the programmer, inferred, learned, or all three?
+    - Are they a package of their own?
+    - Are they a model family, with accuracy, cost and explainability like the others?
+    - **Decided (Maxime):**
+      - Detectors are decoders.
+      - Grounding emerges from decoders plus epistemology, with no grounding module.
+      - The goal is to prevent hallucinated analyses, such as ones that invent pieces or ignore the move played.
+13. **Interconnecting modules.**
+    - Rhetoric often needs notions from epistemology, and other modules will need each other in the same way.
+    - How do modules connect?
+    - **Decided (Maxime):**
+      - The question is how running modules exchange work, not how code imports code.
+      - Rhetoric always depends on epistemology. It is the only way to prevent hallucinations.
+    - **Decided (Maxime):**
+      - The idea of forbidding imports between modules is dropped.
+      - Modules should be able to be populated and retrieved.
+      - The details are worked out as we go, and no constraint is added until one is needed.
+    - **Deferred:** how running modules exchange work (direct calls, a message bus, tasks).
+14. **Documentation.**
+    - Maxime: OMF needs many `README.md` files, instructions for coding agents, tutorials and examples.
+    - Open:
+      - Are they written with each component, or as a step of their own?
+      - Who are coding-agent instructions for: agents working on OMF, agents writing games with OMF, or both?
+    - **Decided (Maxime):**
+      - READMEs are written with each component.
+      - Tutorials and examples get a step of their own, once enough works end to end.
+      - Coding-agent instructions are for agents using OMF: writing games and applications with it.
