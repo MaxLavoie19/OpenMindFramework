@@ -126,8 +126,6 @@ class ExpressionMeaningMapper:
                 return {meaning.SIZE_OF: self._meaning(body, views, places, glossary)}
             case ast.Call(func=ast.Name(id="wins"), args=[ast.Name(id=player), *_]) if player in _PLAYERS:
                 return {meaning.WINNING_MOVES_OF: _PLAYERS[player]}
-            case ast.Call(func=ast.Name(id="solo_distance"), args=[ast.Name(id=player), *_]) if player in _PLAYERS:
-                return {meaning.MOVES_TO_A_WIN_FOR: _PLAYERS[player]}
             case ast.Call(func=ast.Name(id="win_chance")):
                 return {meaning.WIN_CHANCE_OF_THE_ACTION: True}
         return None

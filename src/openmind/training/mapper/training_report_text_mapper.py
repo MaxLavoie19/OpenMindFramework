@@ -1,12 +1,7 @@
 from collections.abc import Sequence
 
 from openmind.evaluation.model.match_results import MatchResults
-from openmind.training.model.pondering_summary import PonderingSummary
 from openmind.training.model.training_report import TrainingReport
-
-#: The pondering columns, one count each: positions pondered and proven, seeds, seeds kept by the search, seeds in the
-#: rules, and positions of decisive games deduced walking back from their ends, and proven.
-PONDERING_COLUMNS = ("pondered", "proven", "seeds", "seeds kept", "seeds in rules", "endings deduced", "endings proven")
 
 
 class TrainingReportTextMapper:
@@ -24,7 +19,6 @@ class TrainingReportTextMapper:
         if not report.rounds:
             return "\n".join(lines)
         opponents = list(dict.fromkeys(results.opponent for item in report.rounds for results in item.baselines))
-        pondered = any(item.pondering is not None for item in report.rounds)
         header = (
             "round",
             "rules",
@@ -33,13 +27,12 @@ class TrainingReportTextMapper:
             "held-out error",
             *(f"against {opponent}" for opponent in opponents),
             "against the previous",
-            *(PONDERING_COLUMNS if pondered else ()),
             "seconds",
         )
         rows = [
             (
                 str(item.number),
-                str(len(item.value_base.rules)),
+                str(len(item.rules)),
                 self._loss(None if item.chosen is None else item.chosen.held_out_loss),
                 self._loss(next((fit.held_out_loss for fit in item.fits if fit.terms_kept == 0), None)),
                 "none" if item.held_out_error is None else f"{item.held_out_error:.4f}",
@@ -47,7 +40,6 @@ class TrainingReportTextMapper:
                 "none"
                 if item.against_previous is None
                 else f"{item.against_previous.opponent}: {self._results(item.against_previous)}",
-                *(self._pondering(item.pondering) if pondered else ()),
                 f"{item.seconds:.0f}",
             )
             for item in report.rounds
@@ -59,21 +51,6 @@ class TrainingReportTextMapper:
         """The round's games against the opponent, or none, for a round handed over before its games."""
         found = next((results for results in baselines if results.opponent == opponent), None)
         return "none" if found is None else self._results(found)
-
-    def _pondering(self, summary: PonderingSummary | None) -> tuple[str, ...]:
-        """One cell per count, in the order of PONDERING_COLUMNS."""
-        if summary is None:
-            return ("none",) * len(PONDERING_COLUMNS)
-        counts = (
-            summary.positions,
-            summary.proven,
-            summary.seeds,
-            summary.seeds_kept,
-            summary.seeds_in_rules,
-            summary.endings_deduced,
-            summary.endings_proven,
-        )
-        return tuple(str(count) for count in counts)
 
     def _loss(self, loss: float | None) -> str:
         return "none" if loss is None else f"{loss:.6f}"

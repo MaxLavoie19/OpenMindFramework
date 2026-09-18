@@ -45,7 +45,6 @@ from openmind.inference.constant.sentence_constant import (
     READING_TEMPLATE,
     SIZE_TEMPLATE,
     SMALLER_TEMPLATE,
-    SOLO_DISTANCE_TEMPLATE,
     SOURCE_TEMPLATE,
     THAT_ENTRY,
     THEN_MOVE,
@@ -148,8 +147,6 @@ class ExpressionSentenceMapper:
                 return SIZE_TEMPLATE.format(body=self._phrase(body, views, places))
             case ast.Call(func=ast.Name(id="wins"), args=[ast.Name(id=player), *_]) if player in PLAYER_WORDS:
                 return WINS_TEMPLATE.format(subject=PLAYER_WORDS[player][1])
-            case ast.Call(func=ast.Name(id="solo_distance"), args=[ast.Name(id=player), *_]) if player in PLAYER_WORDS:
-                return SOLO_DISTANCE_TEMPLATE.format(possessive=PLAYER_WORDS[player][0])
             case ast.Call(func=ast.Name(id="win_chance")):
                 return WIN_CHANCE_TEMPLATE
         return None

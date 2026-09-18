@@ -5,62 +5,74 @@ import pytest
 from openmind.agent.service.game_memory import GameMemory
 from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.entrypoint.train_values import main
+from openmind.rbs.model.python_rule import PythonRule
+from openmind.agent.factory.game_factory import declare_game
+from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.testing.service.log_reader import said
-from openmind.training.mapper.signal_library_json_mapper import SignalLibraryJsonMapper
-from openmind.training.repository.signal_library_repository import SignalLibraryRepository
+from openmind.training.constant.continuous_constant import PROOF_KEYWORD
+from openmind.training.mapper.arm_library_json_mapper import ArmLibraryJsonMapper
+from openmind.training.model.arm_library import ArmLibrary
+from openmind.training.repository.arm_library_repository import ArmLibraryRepository
 
 pytestmark = pytest.mark.log_level("INFO")
 
 SMALL = (
-    *("--games", "4", "--iterations", "10", "--seed", "1", "--arms", "2", "--workers", "1"),
-    *("--seconds", "20", "--memory", "1", "--candidates", "300", "--prices", "0.1,0.01", "--max-steps", "100"),
-    *("--rollout-actions", "0", "--deduction-plies", "2", "--deduction-seconds", "1", "--ponder-positions", "2"),
-    *("--ponder-endings", "3"),
+    *("--games", "4", "--iterations", "10", "--seed", "1", "--workers", "1", "--memory", "1"),
+    *("--rollout-actions", "0", "--deduction-plies", "2", "--deduction-seconds", "1", "--ponder-endings", "3"),
 )
 
 
 def directories(tmp_path: Path) -> tuple[str, ...]:
-    return (
-        *("--log-directory", str(tmp_path / "log"), "--signals-directory", str(tmp_path / "signals")),
-        *("--knowledge", str(tmp_path / "knowledge")),
-    )
+    return ("--log-directory", str(tmp_path / "log"), "--knowledge", str(tmp_path / "knowledge"))
 
 
-def test_training_learns_from_every_game_as_it_ends_and_saves_the_library_and_the_games(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path
-) -> None:
+def test_games_are_played_and_remembered_and_decisive_games_proofs_are_remembered(tmp_path: Path) -> None:
     main(["tictactoe", *SMALL, *directories(tmp_path)])
 
-    (library_file,) = (tmp_path / "signals" / "tictactoe").glob("*.json")
-    library = SignalLibraryRepository(SignalLibraryJsonMapper()).load(library_file)
-    assert library.domain == "tictactoe" and len(library.value_bases) >= 2
-    assert any(record.agreements + record.disagreements > 0 for record in library.records)
     memory = GameMemory(create_knowledge_base("tictactoe", tmp_path / "knowledge"))
-    assert len(memory.games("arms")) == 4
-    assert capsys.readouterr().out.endswith(f"Saved signal library {library_file}\n")
+    games = memory.games("arms")
+    assert len(games) == 4
+    # Without an arm library, every game is played by agents without position rules.
+    assert all({model.name for model in game.models} == {"no value rules"} for game in games)
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
-    lines = said(log_file)
-    assert sum(1 for line in lines if " openmind.training.service.lesson_learner Learned from arms game " in line) == 4
-    decisive = sum(1 for line in lines if " was decisive: searching for rules before the next game starts" in line)
-    assert decisive == sum(1 for line in lines if " openmind.training.service.rule_searcher Searched rules on " in line)
+    walked = sum(1 for line in said(log_file) if " openmind.training.service.ending_walker Walked back " in line)
+    decisive = sum(1 for game in games if len(set(game.payoffs)) > 1)
+    assert walked == decisive
+    proofs = create_knowledge_base("tictactoe", tmp_path / "knowledge").recall(keyword=PROOF_KEYWORD)
+    assert all(record.provenance.source == "proved" for record in proofs)
 
 
-def test_training_carries_on_from_a_saved_library_numbering_its_games_after_those_remembered(tmp_path: Path) -> None:
+def arm(tmp_path: Path, name: str, weight: float) -> str:
+    """An arm: a variant of tic-tac-toe valuing positions by the player's mobility at that weight."""
+    base = create_knowledge_base("tictactoe", tmp_path / "knowledge")
+    declarer = RuleDeclarer(base, f"tictactoe {name}")
+    declarer.inherits(declare_game("tictactoe", base))
+    declarer.position("here.mobility(me)", PythonRule("here.mobility(me)"), weight)
+    return declarer.done()
+
+
+def test_the_arms_play_with_the_library_s_contexts_and_games_are_numbered_after_those_remembered(tmp_path: Path) -> None:
+    first, second = arm(tmp_path, "first", 0.1), arm(tmp_path, "second", -0.1)
+    library = ArmLibraryRepository(ArmLibraryJsonMapper()).write(
+        ArmLibrary("tictactoe", (("first", first), ("second", second))), tmp_path / "arms.json"
+    )
     main(["tictactoe", *SMALL, *directories(tmp_path)])
-    (library_file,) = (tmp_path / "signals" / "tictactoe").glob("*.json")
 
-    main(["tictactoe", *SMALL, "--signal-library", str(library_file), *directories(tmp_path)])
+    main(["tictactoe", *SMALL, "--arm-library", str(library), *directories(tmp_path)])
 
     memory = GameMemory(create_knowledge_base("tictactoe", tmp_path / "knowledge"))
     assert sorted(game.number for game in memory.games("arms")) == list(range(1, 9))
+    later = [game for game in memory.games("arms") if game.number > 4]
+    assert {model.name for game in later for model in game.models} == {"first", "second"}
 
 
 @pytest.mark.parametrize(
     ("flags", "message"),
     [
         (("--prior", "rater"), "--prior rater needs rules"),
-        (("--learning-rate", "-0.1"), "--learning-rate needs 0 or more"),
-        (("--ponder-positions", "2"), "need --deduction-plies"),
+        (("--ponder-endings", "2"), "--ponder-endings needs --deduction-plies"),
+        (("--rollout-limit", "5"), "--rollout-limit needs --unfinished-payoff"),
+        (("--unfinished-payoff", "0.5"), "--unfinished-payoff needs --rollout-limit"),
     ],
 )
 def test_train_values_refuses_what_it_can_t_train_with(

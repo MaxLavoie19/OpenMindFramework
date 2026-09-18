@@ -11,7 +11,7 @@ NOTABLE_LOGGERS = (
     "__main__",
     "openmind.training.service.value_training_loop",
     "openmind.training.service.value_distiller",
-    "openmind.training.service.position_ponderer",
+    "openmind.training.service.ending_walker",
     "openmind.inference.service.expression_search",
     "openmind.rbs.service.value_generator",
     "openmind.parallel.service.task_runner",

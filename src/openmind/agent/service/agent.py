@@ -2,11 +2,10 @@ import logging
 import random
 from dataclasses import replace
 
-from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF
-from openmind.agent.model.domain import Domain
+from openmind.agent.service.deduction_fallback import DeductionFallback
 from openmind.agent.service.move_planner import MovePlanner
 from openmind.agent.service.one_ply_chooser import OnePlyChooser
-from openmind.agent.service.deduction_fallback import DeductionFallback
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.mcts.constant.mcts_constant import FULL_OPTION, RANDOM_OPTION, SEARCH_OPTION
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
@@ -26,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class Agent:
-    """Chooses actions in a domain by searching with MCTS, guided by a rater and valuing positions when it has models to.
-    In a domain with an observation, it searches from what the player to act sees of the state it's given; with a theory
+    """Chooses actions in a game by searching with MCTS, guided by a rater and valuing positions when it has models to.
+    With a theory
     of mind, it searches semi-determinized, once per hypothesis its theory gives. With a deduction fallback, a position
     its rules have no clue about is deduced first, and a proven choice is made without searching. Where players act at
     once, it searches for the player it's given, the other players playing the strategies its theory of mind predicts,
@@ -67,22 +66,22 @@ class Agent:
         self._estimator = estimator
 
     def search(
-        self, domain: Domain, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
+        self, rbs: RuleBasedSystem, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
     ) -> SearchResult:
         """`player` names the searching player where players act at once; elsewhere it's the player to act. A clock
         without an estimator, or no clock for an agent built without iterations, raise ValueError."""
         settings = self._settings_for(clock, steps_played)
         if clock is None:
-            return self._search(domain, state, player, settings)
+            return self._search(rbs, state, player, settings)
         budget = settings.seconds or 0.0
-        if self._one_ply is None or domain.observation is not None or self._state_reader.acts_at_once(state, domain.players):
+        if self._one_ply is None or self._state_reader.acts_at_once(state, rbs.players()):
             spent = settings if budget > 0.0 else replace(settings, iterations=1, seconds=None)
-            return replace(self._search(domain, state, player, spent), budget=budget)
-        return self._on_clock(domain, state, player, settings, budget, clock, steps_played)
+            return replace(self._search(rbs, state, player, spent), budget=budget)
+        return self._on_clock(rbs, state, player, settings, budget, clock, steps_played)
 
     def _on_clock(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         state: State,
         player: str | None,
         settings: SearchSettings,
@@ -96,7 +95,7 @@ class Agent:
         source = self._tree_search.time_source
         started = source.now()
         deadline = Deadline(started + budget, source)
-        moves = len(one_ply.legal(domain, state))
+        moves = len(one_ply.legal(rbs, state))
         has_valuer = self._valuation is not None
         option = self._planner.plan(budget, moves, self._fallback is not None, has_valuer)
         rng = random.Random(None if settings.seed is None else settings.seed + steps_played)
@@ -104,19 +103,18 @@ class Agent:
         if option != RANDOM_OPTION:
             if option == FULL_OPTION and self._fallback is not None:
                 fallback_started = source.now()
-                deduced = self._fallback.result(domain, state, self._valuation, deadline)
+                deduced = self._fallback.result(rbs, state, self._valuation, deadline)
                 self._planner.observe("fallback", source.now() - fallback_started, moves)
                 result = None if deduced is None else replace(deduced, option=FULL_OPTION)
             if result is None:
                 left = deadline.remaining()
                 spent = replace(settings, seconds=left) if left > 0.0 else replace(settings, iterations=1, seconds=None)
-                searched = self._search_only(domain, state, player, spent)
+                searched = self._search_only(rbs, state, player, spent)
                 self._planner.observe("iteration", searched.seconds, searched.iterations)
                 result = replace(searched, option=option if option == FULL_OPTION else SEARCH_OPTION)
         if result is None:
             option = RANDOM_OPTION
-            unknown = DEFAULT_UNFINISHED_PAYOFF if settings.unfinished_payoff is None else settings.unfinished_payoff
-            result = one_ply.random(domain, state, rng, unknown)
+            result = one_ply.random(rbs, state, rng)
         spent = source.now() - started
         logger.info(
             "%s plays by %s within a %.3f second budget: %.3f seconds, %.1f left",
@@ -128,50 +126,44 @@ class Agent:
         )
         return replace(result, budget=budget, option=option)
 
-    def _search_only(self, domain: Domain, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
+    def _search_only(self, rbs: RuleBasedSystem, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
         """The search, without the fallback."""
         return self._tree_search.search(
-            domain.problem, domain.transitions, domain.players, state, settings, self._guidance, self._valuation, None
+            rbs, state, settings, self._guidance, self._valuation, None
         )
 
-    def _search(self, domain: Domain, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
-        if self._state_reader.acts_at_once(state, domain.players):
+    def _search(self, rbs: RuleBasedSystem, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
+        if self._state_reader.acts_at_once(state, rbs.players()):
             return self._tree_search.search(
-                domain.problem,
-                domain.transitions,
-                domain.players,
+                rbs,
                 state,
                 settings,
                 self._guidance,
                 self._valuation,
-                domain.observation,
                 None,
                 player,
-                self._predicted(domain, state, player),
+                self._predicted(rbs, state, player),
             )
         if self._fallback is not None:
-            deduced = self._fallback.result(domain, state, self._valuation)
+            deduced = self._fallback.result(rbs, state, self._valuation)
             if deduced is not None:
                 return deduced
-        if domain.observation is not None and self._semi_determinized_search is not None and self._theory is not None:
+        if self._semi_determinized_search is not None and self._theory is not None:
             return self._semi_determinized_search.search(
-                domain, state, settings, self._theory, self._guidance, self._valuation
+                rbs, state, settings, self._theory, self._guidance, self._valuation
             )
         return self._tree_search.search(
-            domain.problem,
-            domain.transitions,
-            domain.players,
+            rbs,
             state,
             settings,
             self._guidance,
             self._valuation,
-            domain.observation,
         )
 
     def choose(
-        self, domain: Domain, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
+        self, rbs: RuleBasedSystem, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
     ) -> Action:
-        return self.search(domain, state, player, clock, steps_played).chosen
+        return self.search(rbs, state, player, clock, steps_played).chosen
 
     def _settings_for(self, clock: Clock | None, steps_played: int) -> SearchSettings:
         """The settings a step searches with: on a clock, the estimator's budget as seconds, in place of any iterations."""
@@ -184,15 +176,15 @@ class Agent:
         return replace(self._settings, iterations=None, seconds=self._estimator.budget(clock, steps_played))
 
     def _predicted(
-        self, domain: Domain, state: State, player: str | None
+        self, rbs: RuleBasedSystem, state: State, player: str | None
     ) -> dict[str, tuple[tuple[Action, float], ...]] | None:
         """The strategies the theory of mind predicts for the other players to act; None without a theory or any
         prediction."""
         if self._theory is None or player is None:
             return None
         predicted: dict[str, tuple[tuple[Action, float], ...]] = {}
-        for index in self._state_reader.players_to_act(state, domain.players):
-            other = domain.players.names[index]
-            if other != player and (strategy := self._theory.strategy(domain, state, player, other)) is not None:
+        for index in self._state_reader.players_to_act(state, rbs.players()):
+            other = rbs.players().names[index]
+            if other != player and (strategy := self._theory.strategy(rbs, state, player, other)) is not None:
                 predicted[other] = strategy
         return predicted or None

@@ -4,9 +4,9 @@ import time
 from collections.abc import Sequence
 
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.model.domain import Domain
 from openmind.evaluation.model.action_values import ActionValues
 from openmind.evaluation.model.choice_measure import ChoiceMeasure
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.state_text_mapper import StateTextMapper
 from openmind.world.model.action import Action
@@ -24,7 +24,7 @@ class ChoiceMeasurer:
 
     def measure(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         agent_builder: AgentBuilder,
         positions: Sequence[tuple[State, ActionValues]],
         tolerance: float,
@@ -37,7 +37,7 @@ class ChoiceMeasurer:
         measures: list[ChoiceMeasure] = []
         for state, action_values in positions:
             started = time.perf_counter()
-            result = agent.search(domain, state)
+            result = agent.search(rbs, state)
             seconds = time.perf_counter() - started
             value_of = dict(action_values)
             optimal_actions = self.optimal(action_values, tolerance)

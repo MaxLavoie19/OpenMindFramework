@@ -6,16 +6,18 @@ from pathlib import Path
 
 from openmind.agent.constant.sudoku_constant import NAME as SUDOKU
 from openmind.agent.constant.sudoku_constant import SEPARATOR
-from openmind.agent.factory.domain_factory import create_domain
-from openmind.agent.factory.sudoku_factory import create_sudoku_domain
+from openmind.agent.factory.game_factory import create_game
+from openmind.agent.factory.sudoku_factory import declare_sudoku
 from openmind.agent.mapper.sudoku_collection_mapper import SudokuCollectionMapper
-from openmind.agent.model.domain import Domain
 from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
 from openmind.agent.repository.sudoku_puzzle_repository import SudokuPuzzleRepository
 from openmind.csp.constant.solver_constant import DEFAULT_SOLUTION_LIMIT
-from openmind.csp.factory.csp_factory import create_solver
+from openmind.entrypoint.clock_options import add_knowledge_option
 from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
-from openmind.predictor.factory.predictor_factory import create_predictor
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.factory.rbs_factory import create_rule_based_system
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.mapper.state_text_mapper import StateTextMapper
 
 logger = logging.getLogger(__name__)
@@ -52,12 +54,14 @@ def main(argv: list[str] | None = None) -> None:
         default="data/sudoku",
         help="where sudoku collections are read from (default: data/sudoku)",
     )
+    add_knowledge_option(parser)
     arguments = parser.parse_args(argv)
     repository = SudokuPuzzleRepository(SudokuCollectionMapper())
-    runs = [_resolve(parser, repository, Path(arguments.puzzle_directory), domain) for domain in arguments.domains]
+    knowledge_base = create_knowledge_base("sudoku", arguments.knowledge)
+    runs = [
+        _resolve(parser, repository, Path(arguments.puzzle_directory), name, knowledge_base) for name in arguments.domains
+    ]
 
-    solver = create_solver()
-    predictor = create_predictor()
     state_text = StateTextMapper()
     for name, domains, is_collection in runs:
         directory = Path(arguments.log_directory) / name
@@ -73,20 +77,20 @@ def main(argv: list[str] | None = None) -> None:
                 logger.info("Solving %s", name)
             solutions = assignments = dead_ends = pruned_values = 0
             total_seconds = 0.0
-            for domain in domains:
-                logger.info("Solving %s", domain.name)
+            for rbs in domains:
+                logger.info("Solving %s", rbs.context)
                 started = time.perf_counter()
-                actions, statistics = solver.solve_with_statistics(domain.problem, domain.initial_state, arguments.limit)
+                actions, statistics = rbs.actions_with_statistics(rbs.start(), arguments.limit)
                 seconds = time.perf_counter() - started
                 if not is_collection:
                     for number, action in enumerate(actions, start=1):
-                        outcomes = predictor.predict(domain.transitions, domain.initial_state, action).outcomes
+                        outcomes = rbs.outcomes(rbs.start(), action).outcomes
                         for outcome, probability in outcomes:
                             print(f"Solution {number} (probability {probability}):")
                             print(state_text.to_text(outcome))
                 limit_reached = " (limit reached)" if len(actions) == arguments.limit else ""
                 _report(
-                    f"{domain.name}: {len(actions)} solution(s), {statistics.assignments} assignments, "
+                    f"{rbs.context}: {len(actions)} solution(s), {statistics.assignments} assignments, "
                     f"{statistics.dead_ends} dead ends, {statistics.pruned_values} values pruned, "
                     f"{seconds:.4f} seconds{limit_reached}"
                 )
@@ -107,13 +111,17 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _resolve(
-    parser: argparse.ArgumentParser, repository: SudokuPuzzleRepository, directory: Path, argument: str
-) -> tuple[str, list[Domain], bool]:
-    """A DOMAIN argument's name, its domains, and whether they are a sudoku collection's puzzles."""
+    parser: argparse.ArgumentParser,
+    repository: SudokuPuzzleRepository,
+    directory: Path,
+    argument: str,
+    knowledge_base: KnowledgeBase,
+) -> tuple[str, list[RuleBasedSystem], bool]:
+    """A GAME argument's name, the games it names, and whether they are a sudoku collection's puzzles."""
     parts = argument.split(SEPARATOR)
     if parts[0] != SUDOKU or len(parts) == 1:
-        domain = create_domain(argument)
-        return domain.name, [domain], False
+        rbs = create_game(argument, knowledge_base)
+        return rbs.context, [rbs], False
     if len(parts) > 3:
         parser.error(f"{argument!r} is not a sudoku collection (sudoku/<collection>) or puzzle (sudoku/<collection>/<number>)")
     collection = parts[1]
@@ -124,16 +132,22 @@ def _resolve(
         )
     puzzles = repository.load(directory, collection)
     if len(parts) == 2:
-        return SEPARATOR.join((SUDOKU, collection)), [_puzzle_domain(puzzle) for puzzle in puzzles], True
+        return (
+            SEPARATOR.join((SUDOKU, collection)),
+            [_puzzle_game(puzzle, knowledge_base) for puzzle in puzzles],
+            True,
+        )
     number = parts[2]
     if not number.isdecimal() or not 1 <= int(number) <= len(puzzles):
         parser.error(f"{argument!r}: {collection} has puzzles 1 to {len(puzzles)}")
-    domain = _puzzle_domain(puzzles[int(number) - 1])
-    return domain.name, [domain], False
+    rbs = _puzzle_game(puzzles[int(number) - 1], knowledge_base)
+    return rbs.context, [rbs], False
 
 
-def _puzzle_domain(puzzle: SudokuPuzzle) -> Domain:
-    return create_sudoku_domain(SEPARATOR.join((SUDOKU, puzzle.collection, str(puzzle.number))), puzzle.grid)
+def _puzzle_game(puzzle: SudokuPuzzle, knowledge_base: KnowledgeBase) -> RuleBasedSystem:
+    """The RBS for one puzzle of a collection, its rules declared under its own context."""
+    context = declare_sudoku(knowledge_base, SEPARATOR.join((SUDOKU, puzzle.collection, str(puzzle.number))), puzzle.grid)
+    return create_rule_based_system(knowledge_base, context)
 
 
 def _report(summary: str) -> None:

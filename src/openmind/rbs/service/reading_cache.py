@@ -2,16 +2,16 @@ import math
 
 import numpy as np
 
-from openmind.agent.model.domain import Domain
 from openmind.inference.constant.inference_constant import AGGREGATE_INDEX, HERE, MEMORY_CHECK_INTERVAL, VIEW
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.parallel.service.memory_meter import MemoryMeter
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.model.position_row import PositionRow
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
-from openmind.rule.model.python_rule import PythonRule
-from openmind.rule.service.rule_compiler import RuleCompiler
-from openmind.rule.service.rule_runner import RuleRunner
+from openmind.rbs.service.rule_compiler import RuleCompiler
+from openmind.rbs.service.rule_runner import RuleRunner
 
 #: What a reading gives where it can't be read, or gives something other than a finite number.
 UNREADABLE = None
@@ -71,20 +71,20 @@ class ReadingCache:
         """Forgets every reading kept."""
         self._values.clear()
 
-    def values(self, domain: Domain, row: PositionRow, base: str, reading: str) -> tuple[float | None, ...]:
+    def values(self, rbs: RuleBasedSystem, row: PositionRow, base: str, reading: str) -> tuple[float | None, ...]:
         """The reading's value at every index of the base, in the base's order, for the row's position read for the row's
         player; kept for that position, player and reading."""
         key = (row.state, row.player, base, reading)
         kept = self._values.get(key)
         if kept is None:
-            kept = self._read(domain, row, base, reading)
+            kept = self._read(rbs, row, base, reading)
             self._remember(key, kept)
         return kept
 
-    def _read(self, domain: Domain, row: PositionRow, base: str, reading: str) -> tuple[float | None, ...]:
+    def _read(self, rbs: RuleBasedSystem, row: PositionRow, base: str, reading: str) -> tuple[float | None, ...]:
         source = f"[{reading} for {AGGREGATE_INDEX} in {VIEW}.{base}]".replace(VIEW, HERE)
         compiled = self._rule_compiler.compile_value(PythonRule(source))
-        names = self._consequence_library.names(domain, row.state, row.player)
+        names = self._consequence_library.names(rbs, row.state, row.player)
         try:
             given = self._rule_runner.value(compiled, row.state, None, names)
         except (LookupError, NameError, TypeError, AttributeError, ValueError, ArithmeticError):

@@ -1,13 +1,13 @@
+from collections.abc import Callable
 import random
 
 import pytest
 
 from openmind.agent.constant.tictactoe_constant import VARIANTS
-from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
-from openmind.csp.factory.csp_factory import create_solver
-from openmind.predictor.factory.predictor_factory import create_predictor
 
 pytestmark = pytest.mark.log_level("INFO")
+
+type Game = Callable[[str], RuleBasedSystem]
 
 
 def every_line(width: int, height: int, length: int) -> list[list[tuple[int, int]]]:
@@ -22,18 +22,16 @@ def every_line(width: int, height: int, length: int) -> list[list[tuple[int, int
 
 
 @pytest.mark.parametrize(("name", "games"), [("standard", 50), ("fourinarow", 30), ("gomoku", 2)])
-def test_random_games_follow_the_rules_after_every_move(name: str, games: int) -> None:
+def test_random_games_follow_the_rules_after_every_move(game: Game, name: str, games: int) -> None:
     variant = VARIANTS[name]
-    domain = create_tictactoe_domain(variant)
+    rbs = game("tictactoe/" + variant.name)
     lines = every_line(variant.width, variant.height, variant.line)
-    solver = create_solver()
-    predictor = create_predictor()
     rng = random.Random(1)
 
     for _ in range(games):
-        state = domain.initial_state
-        while actions := solver.solve(domain.problem, state):
-            ((state, _),) = predictor.predict(domain.transitions, state, rng.choice(actions)).outcomes
+        state = rbs.start()
+        while actions := rbs.actions(state):
+            ((state, _),) = rbs.outcomes(state, rng.choice(actions)).outcomes
             values = dict(state.variables)
             grid = {
                 (row, col): values[f"cell({row},{col})"]

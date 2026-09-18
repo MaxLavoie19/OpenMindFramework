@@ -3,8 +3,8 @@ from openmind.csp.service.arc_consistency import ArcConsistency
 from openmind.csp.service.backtracking_search import BacktrackingSearch
 from openmind.csp.service.constraint_checker import ConstraintChecker
 from openmind.csp.service.solver import Solver
-from openmind.rule.factory.rule_factory import create_rule_caller
-from openmind.rule.mapper.call_operand_mapper import CallOperandMapper
+from openmind.rbs.factory.rule_factory import create_rule_caller
+from openmind.rbs.mapper.call_operand_mapper import CallOperandMapper
 
 
 class SolverBuilder:

@@ -57,7 +57,6 @@ QUALIFIED_TEMPLATE = "{reading} {position}"
 NOT_TEMPLATE = "not ({body})"
 NEGATIVE_TEMPLATE = "minus {body}"
 WINS_TEMPLATE = "how many winning moves {subject} would have"
-SOLO_DISTANCE_TEMPLATE = "how many of {possessive} own moves away a win is"
 WIN_CHANCE_TEMPLATE = "the chance that this action wins"
 SOURCE_TEMPLATE = "`{source}`"
 #: A rule: its effect, then what it measures.

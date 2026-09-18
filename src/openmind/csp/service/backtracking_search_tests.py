@@ -4,18 +4,16 @@ from itertools import permutations
 import pytest
 
 from openmind.csp.model.all_different_group import AllDifferentGroup
-from openmind.csp.model.discrete_domain import DiscreteDomain
 from openmind.csp.model.scoped_constraint import ScopedConstraint
 from openmind.csp.model.search_space import SearchSpace
 from openmind.csp.model.solve_statistics import SolveStatistics
 from openmind.csp.model.support_table import SupportTable
-from openmind.csp.model.variable import Variable
 from openmind.csp.service.all_different_propagator import AllDifferentPropagator
 from openmind.csp.service.arc_consistency import ArcConsistency
 from openmind.csp.service.backtracking_search import BacktrackingSearch
 from openmind.csp.service.constraint_checker import ConstraintChecker
-from openmind.rule.factory.rule_factory import create_rule_caller
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.factory.rule_factory import create_rule_caller
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
 
@@ -29,7 +27,7 @@ def search(
 ) -> tuple[tuple[dict[str, Value], ...], SolveStatistics]:
     space = SearchSpace(
         "set",
-        tuple(Variable(name, DiscreteDomain(values)) for name, values in variables.items()),
+        tuple((name, values) for name, values in variables.items()),
         tables,
         groups,
         constraints,

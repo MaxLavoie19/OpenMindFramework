@@ -4,17 +4,15 @@ from dataclasses import replace
 from pathlib import Path
 
 from openmind.agent.constant.agent_constant import GAME_KEYWORD, LAST_ACTION
-from openmind.agent.factory.domain_factory import create_domain
+from openmind.agent.factory.game_factory import create_game
 from openmind.agent.mapper.game_summary_json_mapper import GameSummaryJsonMapper
-from openmind.agent.model.domain import Domain
 from openmind.agent.service.game_memory import GameMemory
 from openmind.dashboard.model.game_listing import GameListing
 from openmind.dashboard.model.game_view import GameView
 from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.doxastic.model.record import Record
 from openmind.doxastic.service.knowledge_base import KnowledgeBase
-from openmind.predictor.factory.predictor_factory import create_predictor
-from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.training.service.game_replayer import GameReplayer
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
@@ -29,9 +27,9 @@ class GameBrowser:
     picture rule, or laid out as text without one. The game last drawn is kept, so a page reloading doesn't draw it
     again."""
 
-    def __init__(self, domain_factory: Callable[[str], Domain] = create_domain) -> None:
-        self._domain_factory = domain_factory
-        self._domains: dict[str, Domain] = {}
+    def __init__(self, game_factory: Callable[[str, object], RuleBasedSystem] = create_game) -> None:
+        self._game_factory = game_factory
+        self._games: dict[str, RuleBasedSystem] = {}
         self._kept: GameView | None = None
 
     def decisive(self, directory: Path, domain_name: str) -> tuple[GameListing, ...]:
@@ -62,15 +60,12 @@ class GameBrowser:
             return self._kept
         record = records[at]
         summary = GameSummaryJsonMapper().from_json(record.text, GameMemory(knowledge_base).models())
-        domain = self._domain(domain_name)
-        positions = GameReplayer(create_predictor()).positions(domain, summary)
+        rbs = self._game(domain_name, knowledge_base)
+        positions = GameReplayer().positions(rbs, summary)
         actions = (None, *summary.actions)
-        if domain.picture is not None:
-            caller = create_rule_caller()
-            pictures = tuple(
-                str(caller.value(domain.picture, state, {LAST_ACTION: action}, None, domain.transitions.definitions))
-                for state, action in zip(positions, actions, strict=True)
-            )
+        drawn = tuple(rbs.picture(state, **{LAST_ACTION: action}) for state, action in zip(positions, actions, strict=True))
+        if all(picture is not None for picture in drawn):
+            pictures = tuple(str(picture) for picture in drawn)
         else:
             text = GridTextMapper(VariableNameMapper())
             pictures = tuple(text.to_text(state) for state in positions)
@@ -85,7 +80,7 @@ class GameBrowser:
             summary.record,
             tuple(mapper.to_text(action) for action in summary.actions),
             pictures,
-            domain.picture is not None,
+            all(picture is not None for picture in drawn),
             record_id,
             previous_id,
             next_id,
@@ -117,7 +112,8 @@ class GameBrowser:
             int(data["plies"]),
         )
 
-    def _domain(self, name: str) -> Domain:
-        if name not in self._domains:
-            self._domains[name] = self._domain_factory(name)
-        return self._domains[name]
+    def _game(self, name: str, knowledge_base: object) -> RuleBasedSystem:
+        """The RBS for a game, kept once it has been built: its rules don't change while a page is browsed."""
+        if name not in self._games:
+            self._games[name] = self._game_factory(name, knowledge_base)
+        return self._games[name]

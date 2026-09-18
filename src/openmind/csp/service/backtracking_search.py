@@ -35,9 +35,9 @@ class BacktrackingSearch:
         self, space: SearchSpace, state: State, limit: int | None
     ) -> tuple[tuple[dict[str, Value], ...], SolveStatistics]:
         """Every solution, or at most limit, as parameter values, with what the search did."""
-        names = [variable.name for variable in space.variables]
+        names = [name for name, _ in space.variables]
         position = {name: index for index, name in enumerate(names)}
-        order = {variable.name: variable.domain.values for variable in space.variables}
+        order = {name: values for name, values in space.variables}
         degree = dict.fromkeys(names, 0)
         for table in space.tables:
             degree[table.first] += 1
@@ -49,7 +49,7 @@ class BacktrackingSearch:
             for name in constraint.scope:
                 degree[name] += 1
 
-        domains: Domains = {variable.name: frozenset(variable.domain.values) for variable in space.variables}
+        domains: Domains = {name: frozenset(values) for name, values in space.variables}
         size = sum(map(len, domains.values()))
         try:
             for name in names:

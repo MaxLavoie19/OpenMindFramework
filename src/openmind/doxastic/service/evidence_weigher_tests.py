@@ -42,7 +42,7 @@ def test_another_claim_s_records_are_left_out_even_where_the_name_is_the_same() 
 
 
 def test_a_claim_is_weighed_whether_or_not_the_records_carry_the_rule_reading_it() -> None:
-    from openmind.rule.model.python_rule import PythonRule
+    from openmind.rbs.model.python_rule import PythonRule
 
     with_rule = Claim("black holds no spade", PythonRule("here.spades('black') == 0"), about=("black",))
 

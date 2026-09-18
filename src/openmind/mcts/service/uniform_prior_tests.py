@@ -1,16 +1,20 @@
-from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
-from openmind.csp.factory.csp_factory import create_solver
+from collections.abc import Callable
+
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.mcts.service.uniform_prior import UniformPrior
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
 
-def opening() -> tuple[State, tuple[Action, ...]]:
-    domain = create_tictactoe_domain()
-    return domain.initial_state, create_solver().solve(domain.problem, domain.initial_state)
+type Game = Callable[[str], RuleBasedSystem]
 
 
-def test_the_uniform_prior_gives_every_action_the_same_share() -> None:
-    state, actions = opening()
+def opening(game: Game) -> tuple[State, tuple[Action, ...]]:
+    rbs = game("tictactoe")
+    return rbs.start(), rbs.actions(rbs.start())
+
+
+def test_the_uniform_prior_gives_every_action_the_same_share(game: Game) -> None:
+    state, actions = opening(game)
 
     assert UniformPrior().priors(state, actions) == tuple(1 / 9 for _ in range(9))

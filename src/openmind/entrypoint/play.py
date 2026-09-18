@@ -6,20 +6,19 @@ from functools import partial
 from pathlib import Path
 
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.constant.agent_constant import DEFAULT_ITERATIONS, DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
-from openmind.agent.factory.domain_factory import create_domain
-from openmind.agent.model.domain import Domain
+from openmind.agent.constant.agent_constant import DEFAULT_ITERATIONS, EXPLORATION
+from openmind.agent.factory.game_factory import create_game
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.service.agent import Agent
 from openmind.agent.service.timekeeper import Timekeeper
-from openmind.csp.factory.csp_factory import create_solver
-from openmind.entrypoint.clock_options import add_clock_options
+from openmind.entrypoint.clock_options import add_clock_options, add_knowledge_option
+from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
+from openmind.entrypoint.rollout_options import checked_unfinished_payoff
 from openmind.entrypoint.search_options import add_selection_options
 from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR
 from openmind.mcts.service.uniform_prior import UniformPrior
-from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
-from openmind.observation.factory.state_observer_factory import create_state_observer
-from openmind.predictor.factory.predictor_factory import create_predictor
-from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.rbs.factory.rule_factory import create_rule_caller
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.timing.model.clock import Clock
 from openmind.timing.model.time_control import TimeControl
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
@@ -58,9 +57,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--unfinished-payoff",
         type=float,
-        default=DEFAULT_UNFINISHED_PAYOFF,
-        help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF}, a draw in "
-        "games paying 1, 0.5 and 0)",
+        default=None,
+        help="each player's payoff for a rollout stopped at the limit; needed with --rollout-limit",
     )
     parser.add_argument(
         "--log-level",
@@ -72,17 +70,19 @@ def main(argv: list[str] | None = None) -> None:
         "--log-directory", default="data/log/play", help="where game logs are saved (default: data/log/play)"
     )
     add_clock_options(parser)
+    add_knowledge_option(parser)
     add_selection_options(parser)
     arguments = parser.parse_args(argv)
     if arguments.prior != UNIFORM_PRIOR:
         parser.error(f"--prior {arguments.prior} needs rules the agent doesn't have when playing; use uniform")
-    domain = create_domain(arguments.domain)
-    if arguments.time_control is not None and domain.timeout is None:
-        parser.error(f"{domain.name} can't be played on a clock: it has no timeout rule")
-    unknown = [player for player in arguments.agent if player not in domain.players.names]
+    knowledge_base = create_knowledge_base(arguments.domain.split("/")[0], arguments.knowledge)
+    rbs = create_game(arguments.domain, knowledge_base)
+    if arguments.time_control is not None and not rbs.timed():
+        parser.error(f"{rbs.context} can't be played on a clock: it has no timeout rule")
+    unknown = [player for player in arguments.agent if player not in rbs.players().names]
     if unknown:
-        parser.error(f"unknown player {', '.join(unknown)}; {domain.name} players: {', '.join(domain.players.names)}")
-    unfinished_payoff = None if arguments.rollout_limit is None else arguments.unfinished_payoff
+        parser.error(f"unknown player {', '.join(unknown)}; {rbs.context} players: {', '.join(rbs.players().names)}")
+    unfinished_payoff = checked_unfinished_payoff(parser, arguments)
     builder = (
         AgentBuilder()
         .with_iterations(arguments.iterations)
@@ -98,7 +98,7 @@ def main(argv: list[str] | None = None) -> None:
         )
     agent = builder.build() if arguments.agent else None
 
-    directory = Path(arguments.log_directory) / domain.name
+    directory = Path(arguments.log_directory) / rbs.context
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> None:
     root.addHandler(handler)
     root.setLevel(arguments.log_level)
     try:
-        _play(domain, frozenset(arguments.agent), agent, arguments.time_control)
+        _play(rbs, frozenset(arguments.agent), agent, arguments.time_control)
     except EOFError:
         print()
         logger.info("Input ended before the game was over")
@@ -118,46 +118,44 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _play(
-    domain: Domain,
+    rbs: RuleBasedSystem,
     agent_players: frozenset[str],
     agent: Agent | None,
     time_control: TimeControl | None = None,
     timekeeper: Timekeeper | None = None,
 ) -> None:
     action_text = ActionTextMapper()
-    solver = create_solver()
-    predictor = create_predictor()
-    state_text, state_reader, state_observer = GridTextMapper(VariableNameMapper()), StateReader(), create_state_observer()
+    state_text, state_reader = GridTextMapper(VariableNameMapper()), StateReader()
     keeper = Timekeeper(create_rule_caller()) if timekeeper is None else timekeeper
-    names = domain.players.names
-    clocks: dict[str, Clock] = {} if time_control is None else dict(zip(names, keeper.clocks(domain, time_control), strict=True))
+    names = rbs.players().names
+    clocks: dict[str, Clock] = {} if time_control is None else dict(zip(names, keeper.clocks(rbs, time_control), strict=True))
     steps = dict.fromkeys(names, 0)
 
-    logger.info("Playing %s", domain.name)
-    state = domain.initial_state
-    while actions := solver.solve(domain.problem, state):
-        player = str(state_reader.value(state, domain.players.to_act))
-        seen = state if domain.observation is None else state_observer.observe(domain.observation, state, player)
+    logger.info("Playing %s", rbs.context)
+    state = rbs.start()
+    while actions := rbs.actions(state):
+        player = str(state_reader.value(state, rbs.players().to_act))
+        seen = state
         print(state_text.to_text(seen))
         print()
         if clocks:
             print("  ".join(f"{name} {_clock_text(clock)}" for name, clock in clocks.items()))
         if not clocks:
-            action = _choose(domain, player, seen, actions, agent_players, agent, None, 0)
+            action = _choose(rbs, player, seen, actions, agent_players, agent, None, 0)
         else:
             clock, played = clocks[player], steps[player]
-            action, spent = keeper.timed(partial(_choose, domain, player, seen, actions, agent_players, agent, clock, played))
+            action, spent = keeper.timed(partial(_choose, rbs, player, seen, actions, agent_players, agent, clock, played))
             clocks[player], steps[player] = clock.after(spent), played + 1
             logger.info("%s took %.2f seconds, %.1f left", player, spent, clocks[player].remaining)
             if clocks[player].flagged:
-                state = keeper.flag(domain, state, player)
+                state = keeper.flag(rbs, state, player)
                 print(f"{player}'s time ran out")
                 print()
                 print(state_text.to_text(state))
                 logger.info("%s's time ran out: game over", player)
                 return
         logger.info("Chose %s", action_text.to_text(action))
-        outcomes = predictor.predict(domain.transitions, state, action).outcomes
+        outcomes = rbs.outcomes(state, action).outcomes
         (state,) = random.choices(
             [outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes]
         )
@@ -167,7 +165,7 @@ def _play(
 
 
 def _choose(
-    domain: Domain,
+    rbs: RuleBasedSystem,
     player: str,
     seen: State,
     actions: tuple[Action, ...],
@@ -178,7 +176,7 @@ def _choose(
 ) -> Action:
     """The agent's choice for its players, given their clock; a human's, picked by number."""
     if agent is not None and player in agent_players:
-        action = agent.choose(domain, seen, None, clock, steps_played)
+        action = agent.choose(rbs, seen, None, clock, steps_played)
         print(f"{player} chose {ActionTextMapper().to_text(action)}")
         return action
     for number, candidate in enumerate(actions, start=1):

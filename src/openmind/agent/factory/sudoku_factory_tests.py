@@ -1,19 +1,21 @@
+from collections.abc import Callable
+
 import pytest
 
 from openmind.agent.factory.sudoku_factory import (
-    create_sudoku_domain,
     create_sudoku_initial_state,
     create_sudoku_players,
-    create_sudoku_problem,
-    create_sudoku_transitions,
+    declare_sudoku,
 )
-from openmind.agent.model.domain import Domain
-from openmind.csp.model.discrete_domain import DiscreteDomain
-from openmind.csp.model.variable import Variable
-from openmind.rule.model.python_rule import PythonRule
+from openmind.doxastic.constant.rule_kind_constant import CONSTRAINT, EFFECTS, VALUES
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.model.python_rule import PythonRule
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.model.players import Players
 
 TOP95_FIRST = "4.....8.5.3..........7......2.....6.....8.4......1.......6.3.7.5..2.....1.4......"
+
+type Game = Callable[[str], RuleBasedSystem]
 
 
 def test_initial_state_holds_the_clues_and_the_empty_cells() -> None:
@@ -29,23 +31,29 @@ def test_initial_state_holds_the_clues_and_the_empty_cells() -> None:
     assert (variables["turn"], variables["payoff"], len(variables)) == ("solver", None, 83)
 
 
-def test_problem_fills_every_empty_cell_under_one_all_different_per_row_column_and_box() -> None:
-    (fill,) = create_sudoku_problem().actions
+def test_every_empty_cell_is_a_parameter_under_one_all_different_per_row_column_and_box(
+    knowledge: KnowledgeBase,
+) -> None:
+    context = declare_sudoku(knowledge)
 
-    assert (fill.name, len(fill.variables), len(fill.constraints)) == ("fill", 51, 28)
-    assert fill.variables[0] == Variable("cell_1_3", DiscreteDomain((1, 2, 3, 4, 5, 6, 7, 8, 9)))
-    assert fill.constraints[0] == PythonRule("payoff is None")
-    assert fill.constraints[1] == PythonRule(
+    values, constraints = knowledge.rules(context, (VALUES,)), knowledge.rules(context, (CONSTRAINT,))
+
+    assert (len(values), len(constraints)) == (51, 28)
+    assert values[0].parameter == "cell_1_3"
+    assert values[0].rule == PythonRule("(1, 2, 3, 4, 5, 6, 7, 8, 9)")
+    assert constraints[0].rule == PythonRule("payoff is None")
+    assert constraints[1].rule == PythonRule(
         "all_different(cell[1, 1], cell[1, 2], cell_1_3, cell_1_4, cell[1, 5], cell_1_6, cell_1_7, cell_1_8, cell_1_9)"
     )
 
 
-def test_transitions_write_every_parameter_into_its_cell_and_pay_one() -> None:
-    (transition,) = create_sudoku_transitions().transitions
-    (branch,) = transition.branches
-    lines = branch.effects.source.splitlines()
+def test_filling_writes_every_parameter_into_its_cell_and_pays_one(knowledge: KnowledgeBase) -> None:
+    context = declare_sudoku(knowledge)
 
-    assert (transition.action, branch.probability, len(lines)) == ("fill", 1.0, 52)
+    (effects,) = knowledge.rules(context, (EFFECTS,))
+    lines = effects.rule.source.splitlines()
+
+    assert (effects.action, effects.probability, len(lines)) == ("fill", 1.0, 52)
     assert (lines[0], lines[-1]) == ("cell[1, 3] = cell_1_3", "payoff = 1.0")
 
 
@@ -53,25 +61,22 @@ def test_players_are_a_single_solver() -> None:
     assert create_sudoku_players() == Players(("solver",), "turn", ("payoff",))
 
 
-def test_domain_holds_the_sudoku_recipes() -> None:
-    assert create_sudoku_domain() == Domain(
-        "sudoku",
-        create_sudoku_initial_state(),
-        create_sudoku_problem(),
-        create_sudoku_transitions(),
-        create_sudoku_players(),
-    )
+def test_the_declared_game_starts_where_sudoku_starts(game: Game) -> None:
+    rbs = game("sudoku")
+
+    assert rbs.context == "sudoku"
+    assert rbs.start() == create_sudoku_initial_state()
+    assert rbs.empties() == (("cell", None),)
 
 
-def test_a_name_and_a_grid_make_a_domain_of_that_puzzle() -> None:
-    domain = create_sudoku_domain("sudoku/top95/1", TOP95_FIRST)
-    variables = dict(domain.initial_state.variables)
-    (fill,) = domain.problem.actions
-    ((branch,),) = (transition.branches for transition in domain.transitions.transitions)
+def test_a_name_and_a_grid_declare_that_puzzle_under_its_own_context(knowledge: KnowledgeBase) -> None:
+    context = declare_sudoku(knowledge, "sudoku/top95/1", TOP95_FIRST)
+    variables = dict(create_sudoku_initial_state(TOP95_FIRST).variables)
+    (effects,) = knowledge.rules(context, (EFFECTS,))
 
-    assert domain.name == "sudoku/top95/1"
+    assert context == "sudoku/top95/1"
     assert (variables["cell(1,1)"], variables["cell(1,2)"], variables["cell(1,7)"]) == (4, None, 8)
-    assert (len(fill.variables), len(branch.effects.source.splitlines())) == (64, 65)
+    assert (len(knowledge.rules(context, (VALUES,))), len(effects.rule.source.splitlines())) == (64, 65)
 
 
 @pytest.mark.parametrize("grid", [TOP95_FIRST[:80], TOP95_FIRST + ".", TOP95_FIRST.replace(".", "0", 1)])

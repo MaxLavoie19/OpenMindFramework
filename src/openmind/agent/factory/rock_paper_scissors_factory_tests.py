@@ -1,38 +1,39 @@
+from collections.abc import Callable
 import pytest
 
-from openmind.agent.factory.domain_factory import create_domain
-from openmind.agent.factory.rock_paper_scissors_factory import create_rock_paper_scissors_domain
-from openmind.predictor.factory.predictor_factory import create_predictor
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
 from openmind.world.service.state_reader import StateReader
+
+
+type Game = Callable[[str], RuleBasedSystem]
 
 
 def throw(shape: str) -> Action:
     return Action("throw", (("shape", shape),))
 
 
-def test_both_players_are_to_act_at_once_from_the_start() -> None:
-    domain = create_rock_paper_scissors_domain()
+def test_both_players_are_to_act_at_once_from_the_start(game: Game) -> None:
+    rbs = game("rockpaperscissors")
 
-    assert create_domain("rockpaperscissors") == domain
-    assert StateReader().players_to_act(domain.initial_state, domain.players) == (0, 1)
+    assert StateReader().players_to_act(rbs.start(), rbs.players()) == (0, 1)
 
 
 @pytest.mark.parametrize(
     ("first", "second", "payoffs"),
     [("rock", "scissors", (1.0, 0.0)), ("rock", "rock", (0.5, 0.5)), ("rock", "paper", (0.0, 1.0)), ("scissors", "paper", (1.0, 0.0))],
 )
-def test_the_hands_thrown_at_once_decide_the_payoffs_and_end_the_game(
+def test_the_hands_thrown_at_once_decide_the_payoffs_and_end_the_game(game: Game, 
     first: str, second: str, payoffs: tuple[float, float]
 ) -> None:
-    domain = create_rock_paper_scissors_domain()
+    rbs = game("rockpaperscissors")
     joint = JointAction((("A", throw(first)), ("B", throw(second))))
 
-    ((state, probability),) = create_predictor().predict_joint(domain.transitions, domain.initial_state, joint).outcomes
+    ((state, probability),) = rbs.joint_outcomes(rbs.start(), joint).outcomes
 
     variables = dict(state.variables)
     assert probability == 1.0
     assert (variables["hand(A)"], variables["hand(B)"]) == (first, second)
-    assert StateReader().payoffs(state, domain.players) == payoffs
-    assert StateReader().players_to_act(state, domain.players) == ()
+    assert StateReader().payoffs(state, rbs.players()) == payoffs
+    assert StateReader().players_to_act(state, rbs.players()) == ()

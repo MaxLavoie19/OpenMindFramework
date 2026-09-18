@@ -1,6 +1,6 @@
-from openmind.agent.model.domain import Domain
 from openmind.agent.model.game_summary import GameSummary
 from openmind.agent.model.model_description import ModelDescription
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.training.model.played_game import PlayedGame
 
 
@@ -10,7 +10,7 @@ class PlayedGameSummaryMapper:
 
     def to_summary(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         game: PlayedGame,
         kind: str,
         round_number: int | None,
@@ -20,12 +20,12 @@ class PlayedGameSummaryMapper:
     ) -> GameSummary:
         seeds = tuple(seed for seed in (game.agent_seed, game.outcome_seed) if seed is not None)
         return GameSummary(
-            domain.name,
+            rbs.context,
             kind,
             round_number,
             number,
             seeds,
-            domain.players.names,
+            rbs.players().names,
             models,
             game.payoffs,
             len(game.actions),

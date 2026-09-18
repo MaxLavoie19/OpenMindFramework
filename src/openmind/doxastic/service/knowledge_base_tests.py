@@ -6,11 +6,14 @@ from pathlib import Path
 import pytest
 
 from openmind.doxastic.constant.doxastic_constant import COUNTED, PLAYED, PROVED, RELAXED, SEEN, TOLD
+from openmind.doxastic.constant.rule_kind_constant import CONSTRAINT, MOVE, POSITION
 from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.doxastic.model.claim import Claim
 from openmind.doxastic.model.provenance import Provenance
 from openmind.doxastic.model.record import Record
+from openmind.doxastic.model.rule_record import RuleRecord
 from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.model.python_rule import PythonRule
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -151,4 +154,87 @@ def test_attending_to_a_word_brings_what_is_known_about_it_into_context(caplog: 
 
     assert brought == 1
     assert any("Attending to black, spades: 1 records, 1 in context" == message for message in caplog.messages)
-    assert any("Knowledge of cheat: 2 records remembered" == message for message in caplog.messages)
+    assert any("Knowledge of cheat: 2 records remembered, 0 rules declared" == message for message in caplog.messages)
+
+
+def new_rule(name: str, kind: str = POSITION, source: str = "True", *contexts: tuple[str, float]) -> RuleRecord:
+    return RuleRecord(name, kind, PythonRule(source), Provenance(PROVED), contexts or (("cheat", 1.0),))
+
+
+def test_a_declared_rule_is_given_an_id_and_a_time_and_is_found_again_by_it(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+
+    declared = base.declare(new_rule("a player holding no spade never leads one"))
+
+    assert declared.id == "r000001"
+    assert declared.provenance.when is not None
+    assert base.rule("r000001") == declared
+    assert base.rule("r000009") is None
+
+
+def test_the_rules_retrieved_are_those_relevant_to_the_context_the_heaviest_first(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    base.declare(new_rule("light here", POSITION, "1", ("cheat", 0.2)))
+    base.declare(new_rule("heavy here", POSITION, "2", ("cheat", 0.9)))
+    base.declare(new_rule("for another game", POSITION, "3", ("chess", 1.0)))
+
+    assert [rule.name for rule in base.rules("cheat")] == ["heavy here", "light here"]
+    assert [rule.name for rule in base.rules("chess")] == ["for another game"]
+    assert base.rules("go") == ()
+
+
+def test_the_same_rule_carries_its_own_weight_in_each_context_it_bears_on(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    base.declare(new_rule("more moves is better placed", POSITION, "len(here.moves(me))", ("cheat", 0.3), ("chess", 0.8)))
+
+    ((in_cheat,), (in_chess,)) = base.rules("cheat"), base.rules("chess")
+
+    assert in_cheat is in_chess
+    assert (in_cheat.weight("cheat"), in_chess.weight("chess")) == (0.3, 0.8)
+
+
+def test_rules_are_retrieved_by_kind_where_a_kind_is_asked_for(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    base.declare(new_rule("a cell is played only when it is empty", CONSTRAINT))
+    base.declare(new_rule("more moves is better placed", POSITION))
+    base.declare(new_rule("a move taking a piece is worth looking at", MOVE))
+
+    assert [rule.kind for rule in base.rules("cheat", (CONSTRAINT,))] == [CONSTRAINT]
+    assert {rule.kind for rule in base.rules("cheat", (POSITION, MOVE))} == {POSITION, MOVE}
+
+
+def test_declaring_a_rule_again_under_its_id_changes_what_it_weighs(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    declared = base.declare(new_rule("more moves is better placed", POSITION, "1", ("cheat", 0.3)))
+
+    base.declare(replace(declared, contexts=(("cheat", 0.9),)))
+
+    ((only,),) = (base.rules("cheat"),)
+    assert (only.id, only.weight("cheat")) == (declared.id, 0.9)
+
+
+def test_the_rules_declared_come_back_when_the_base_is_opened_again(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
+    caplog.set_level(logging.INFO, logger="openmind.doxastic")
+    base = new_base(tmp_path)
+    base.declare(new_rule("a cell is played only when it is empty", CONSTRAINT))
+    base.declare(new_rule("more moves is better placed", POSITION))
+
+    opened = new_base(tmp_path)
+
+    assert [rule.name for rule in opened.rules("cheat")] == [
+        "a cell is played only when it is empty",
+        "more moves is better placed",
+    ]
+    assert opened.declare(new_rule("the next one")).id == "r000003"
+    assert any("Knowledge of cheat: 0 records remembered, 2 rules declared" == message for message in caplog.messages)
+
+
+def test_an_undeclared_rule_is_retrieved_no_more_here_or_in_the_base_opened_again(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    kept = base.declare(new_rule("kept", POSITION, "1"))
+    dropped = base.declare(new_rule("dropped", POSITION, "2"))
+
+    base.undeclare(dropped.id)
+
+    assert [rule.name for rule in base.rules("cheat")] == [kept.name]
+    assert [rule.name for rule in new_base(tmp_path).rules("cheat")] == [kept.name]

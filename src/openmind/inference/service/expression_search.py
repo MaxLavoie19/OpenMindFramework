@@ -10,7 +10,6 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import numpy as np
 from scipy.special import expit
 
-from openmind.agent.model.domain import Domain
 from openmind.inference.constant.inference_constant import (
     CANDIDATE_BATCH,
     MIN_SCREENING_ROWS,
@@ -24,10 +23,11 @@ from openmind.inference.model.vocabulary import Vocabulary
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.parallel.model.call_over_memory import CallOverMemory
 from openmind.parallel.service.memory_meter import MemoryMeter
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.model.position_row import PositionRow
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.rbs.service.sparse_fitter import SparseFitter
 from openmind.rbs.service.term_evaluator import AggregateParts, TermEvaluator
-from openmind.rule.model.python_rule import PythonRule
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ type Fits = dict[str, tuple[np.ndarray, np.ndarray, float]]
 
 
 class ExpressionSearch:
-    """Searches expressions that value positions, for any domain, from the leaves up, within a budget of time, memory and
+    """Searches expressions that value positions, for any rbs, from the leaves up, within a budget of time, memory and
     candidates. Each generation:
 
     1. fits the kept expressions at the price, a price per clause, and takes the residual of the scaled payoffs;
@@ -69,7 +69,7 @@ class ExpressionSearch:
     fork. A column with blanks is scaled without centering, its blanks reading as 0, so a blank adds nothing to the fit,
     and a rare term is priced for the rows where it speaks rather than for every row.
 
-    Given several targets, such as the targets of several signals, every generation fits each target, and a candidate is
+    Given several targets, every generation fits each target, and a candidate is
     admitted when its gradient against any target's residual is above its price: an expression is kept when any target
     supports it. Expansion and eviction then go by the largest weight and gradient over the targets."""
 
@@ -89,7 +89,7 @@ class ExpressionSearch:
 
     def search(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         training: Sequence[PositionRow],
         held_out: Sequence[PositionRow],
         targets: np.ndarray | Mapping[str, np.ndarray],
@@ -99,8 +99,8 @@ class ExpressionSearch:
         budget: SearchBudget,
         seeds: Sequence[Expression] = (),
     ) -> ExpressionSearchResult:
-        """Targets are the training rows' payoffs scaled from 0 to 1, or several such targets by name. Seeds, such as the
-        expressions a deduction induced, are tried in the first generation before the leaves, in their order. No target
+        """Targets are the training rows' payoffs scaled from 0 to 1, or several such targets by name. Seeds, expressions
+        given to start from, are tried in the first generation before the leaves, in their order. No target
         raises ValueError."""
         named = (
             {SINGLE_TARGET: np.asarray(targets, dtype=float)}
@@ -112,7 +112,7 @@ class ExpressionSearch:
         deadline = self._clock() + budget.seconds
         generator = self._expression_generator
         self._term_evaluator.limit_memory(budget.memory_bytes)
-        vocabulary = generator.vocabulary(domain, (row.state for row in training))
+        vocabulary = generator.vocabulary(rbs, (row.state for row in training))
         screening = self._screening(len(training))
         screen_rows = [training[index] for index in screening]
         capacity = max(1, budget.memory_bytes // (3 * 8 * max(1, len(training) + len(held_out))))
@@ -170,7 +170,7 @@ class ExpressionSearch:
                 tried_total += len(batch)
                 try:
                     admissions, passed = self._admitted(
-                        domain, batch, training, held_out, screening, screen_rows, residuals, price
+                        rbs, batch, training, held_out, screening, screen_rows, residuals, price
                     )
                 except CallOverMemory as error:
                     logger.warning("Evaluating candidates took a worker over its memory cap twice: %s", error)
@@ -256,7 +256,7 @@ class ExpressionSearch:
 
     def _admitted(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         batch: Sequence[Candidate],
         training: Sequence[PositionRow],
         held_out: Sequence[PositionRow],
@@ -290,7 +290,7 @@ class ExpressionSearch:
         rules = [candidate[0] for candidate in batch if candidate[1] is None]
         if not rules:
             return found, passed
-        screened_columns = self._columns(domain, screen_rows, rules)
+        screened_columns = self._columns(rbs, screen_rows, rules)
         passing: list[tuple[Expression, np.ndarray]] = []
         for expression, column in zip(rules, screened_columns, strict=True):
             if column is None:
@@ -303,8 +303,8 @@ class ExpressionSearch:
         if not passing:
             return found, passed
         candidates = [expression for expression, _ in passing]
-        trains = [column for _, column in passing] if everything else self._columns(domain, training, candidates)
-        helds = self._columns(domain, held_out, candidates)
+        trains = [column for _, column in passing] if everything else self._columns(rbs, training, candidates)
+        helds = self._columns(rbs, held_out, candidates)
         for (expression, column), train, held in zip(passing, trains, helds, strict=True):
             if train is not None and held is not None and self._usable(train):
                 if self._gradient(train, *residual) > self._price(price, expression, train):
@@ -314,16 +314,16 @@ class ExpressionSearch:
         return found, passed
 
     def _columns(
-        self, domain: Domain, rows: Sequence[PositionRow], expressions: Sequence[Expression]
+        self, rbs: RuleBasedSystem, rows: Sequence[PositionRow], expressions: Sequence[Expression]
     ) -> list[np.ndarray | None]:
         """Each expression's values on the rows: an aggregate whose body recorded its readings is folded from them, every
         reading read once per position however many candidates share it; anything else is run from its source."""
-        folded = self._term_evaluator.aggregate_columns(domain, rows, [self._parts(expression) for expression in expressions])
+        folded = self._term_evaluator.aggregate_columns(rbs, rows, [self._parts(expression) for expression in expressions])
         left = [expression for expression, column in zip(expressions, folded, strict=True) if column is None]
         if not left:
             return folded
         sources = [self._expression_generator.source(expression) for expression in left]
-        ran = iter(self._term_evaluator.columns(domain, rows, sources))
+        ran = iter(self._term_evaluator.columns(rbs, rows, sources))
         return [column if column is not None else next(ran) for column in folded]
 
     def _parts(self, expression: Expression) -> AggregateParts:

@@ -1,8 +1,10 @@
-#: How far each weight moves toward what a finished game showed, unless told otherwise.
-DEFAULT_LEARNING_RATE = 0.01
-#: How long the rule search after a decisive game runs at most, unless told otherwise.
-DEFAULT_RULE_SEARCH_SECONDS = 600.0
+import math
+
 #: The kind of game continuous training remembers: every game is between two arms.
 CONTINUOUS_GAME = "arms"
-#: The keywords of what a game's study proved: a position's proven payoffs, and a seed a proof induced.
-PROOF_KEYWORD, SEED_KEYWORD = "proof", "seed"
+#: The keyword of a position a game's walk back proved.
+PROOF_KEYWORD = "proof"
+#: The arm taking a seat no value base fills: an agent without value rules.
+NO_VALUE_RULES = "no value rules"
+#: UCB1's exploration weight when choosing which arms play each other, by default.
+DEFAULT_ARM_EXPLORATION = math.sqrt(2)

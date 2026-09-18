@@ -1,9 +1,7 @@
 import textwrap
 
-from openmind.agent.builder.domain_builder import DomainBuilder
 from openmind.agent.constant.rock_paper_scissors_constant import (
     BEATS,
-    CERTAIN,
     DRAW,
     HAND,
     LOSS,
@@ -17,15 +15,9 @@ from openmind.agent.constant.rock_paper_scissors_constant import (
     UNSET,
     WIN,
 )
-from openmind.agent.model.domain import Domain
-from openmind.csp.builder.problem_builder import ProblemBuilder
-from openmind.csp.model.discrete_domain import DiscreteDomain
-from openmind.csp.model.problem import Problem
-from openmind.csp.model.variable import Variable
-from openmind.predictor.builder.transition_model_builder import TransitionModelBuilder
-from openmind.predictor.model.branch import Branch
-from openmind.predictor.model.transition_model import TransitionModel
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.constant.players_constant import PLAYER
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
@@ -59,20 +51,15 @@ def create_rock_paper_scissors_definitions() -> PythonRule:
     )
 
 
-def create_rock_paper_scissors_problem() -> Problem:
+def declare_rock_paper_scissors_moves(declarer: RuleDeclarer) -> None:
     """A player to act who hasn't thrown throws a shape."""
-    return (
-        ProblemBuilder()
-        .with_action(
-            THROW,
-            (Variable(SHAPE, DiscreteDomain(SHAPES)),),
-            (PythonRule(f"{TURN}[{PLAYER}]"), PythonRule(f"{HAND}[{PLAYER}] is {UNSET!r}")),
-        )
-        .build()
+    declarer.values(THROW, SHAPE, PythonRule(repr(SHAPES)))
+    declarer.constraints(
+        THROW, PythonRule(f"{TURN}[{PLAYER}]"), PythonRule(f"{HAND}[{PLAYER}] is {UNSET!r}")
     )
 
 
-def create_rock_paper_scissors_transitions() -> TransitionModel:
+def declare_rock_paper_scissors_effects(declarer: RuleDeclarer) -> None:
     """Each throw sets its player's hand; once both have thrown, the resolution compares the hands, sets the payoffs and
     ends the game."""
     resolution = textwrap.dedent(
@@ -88,13 +75,9 @@ def create_rock_paper_scissors_transitions() -> TransitionModel:
             {TURN}[thrower] = False
         """
     )
-    return (
-        TransitionModelBuilder()
-        .with_definitions(create_rock_paper_scissors_definitions())
-        .with_transition(THROW, (Branch(CERTAIN, PythonRule(f"{HAND}[{PLAYER}] = {SHAPE}")),))
-        .with_resolution((Branch(CERTAIN, PythonRule(resolution)),))
-        .build()
-    )
+    declarer.definitions(create_rock_paper_scissors_definitions(), effects=True)
+    declarer.leads_to(THROW, PythonRule(f"{HAND}[{PLAYER}] = {SHAPE}"))
+    declarer.together(PythonRule(resolution))
 
 
 def create_rock_paper_scissors_players() -> Players:
@@ -103,14 +86,13 @@ def create_rock_paper_scissors_players() -> Players:
     return Players(PLAYERS, TURN, tuple(variable_name_mapper.to_name(PAYOFF, (player,)) for player in PLAYERS))
 
 
-def create_rock_paper_scissors_domain() -> Domain:
-    """Rock paper scissors: A and B throw at once; rock beats scissors, paper beats rock, scissors beat paper."""
-    return (
-        DomainBuilder()
-        .with_name(NAME)
-        .with_initial_state(create_rock_paper_scissors_initial_state())
-        .with_problem(create_rock_paper_scissors_problem())
-        .with_transitions(create_rock_paper_scissors_transitions())
-        .with_players(create_rock_paper_scissors_players())
-        .build()
-    )
+def declare_rock_paper_scissors(knowledge_base: KnowledgeBase, weight: float = 1.0) -> str:
+    """Declares rock paper scissors' rules and gives back the context they were declared under: A and B throw at once;
+    rock beats scissors, paper beats rock, scissors beat paper."""
+    declarer = RuleDeclarer(knowledge_base, NAME, weight)
+    declarer.starts_at(create_rock_paper_scissors_initial_state())
+    declarer.played_by(create_rock_paper_scissors_players())
+    declarer.definitions(create_rock_paper_scissors_definitions())
+    declare_rock_paper_scissors_moves(declarer)
+    declare_rock_paper_scissors_effects(declarer)
+    return declarer.done()

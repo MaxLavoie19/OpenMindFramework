@@ -76,13 +76,6 @@ ROUND_COLUMNS = (
     ("held-out error", "the mean absolute difference between the rules' values and those targets"),
     ("against <opponent>", "the round's agent's wins / draws / losses against that opponent"),
     ("against the previous", "the same against the previous round's agent"),
-    ("pondered", "positions of the round's training games that the previous rules valued worst, reasoned about by deduction before fitting"),
-    ("proven", "pondered positions whose result deduction proved within its budget of plies and seconds; their targets become the proven payoffs, exact instead of estimated"),
-    ("seeds", "candidate expressions induced from the proofs: the look-ahead that reaches the proven payoff, and the pattern of what the proven move changed; the expression search tries them before anything else"),
-    ("seeds kept", "seeds the expression search kept: on every training row, the fit would give them a weight, their gradient being above the price times their clauses"),
-    ("seeds in rules", "kept seeds that the chosen fit actually weighted, so they are among the round's value rules"),
-    ("endings deduced", "positions of decisive training games deduced walking back from each game's end, before the positions missed most; a walk stops at the first position not proven"),
-    ("endings proven", "of those, the positions proven: exact targets taken from won and lost games, and more seeds"),
     ("time", "how long the round took, as the report recorded it"),
 )
 
@@ -110,7 +103,6 @@ class DashboardHtmlMapper:
             self._latest_game(snapshot),
             self._rounds(snapshot),
             self._rules(snapshot),
-            self._arms(snapshot),
             self._models(snapshot),
             self._recent(snapshot),
             "</body></html>",
@@ -245,13 +237,6 @@ class DashboardHtmlMapper:
             "held-out error",
             *(f"against {opponent}" for opponent in opponents),
             "against the previous",
-            "pondered",
-            "proven",
-            "seeds",
-            "seeds kept",
-            "seeds in rules",
-            "endings deduced",
-            "endings proven",
             "time",
         )
         rows = [
@@ -262,7 +247,6 @@ class DashboardHtmlMapper:
                 "none" if item.held_out_error is None else f"{item.held_out_error:.4f}",
                 *(dict(item.baselines).get(opponent, "none") for opponent in opponents),
                 item.against_previous or "none",
-                *(("none",) * 7 if item.pondering is None else tuple(str(count) for count in item.pondering)),
                 self._duration(item.seconds),
             )
             for item in report.rounds
@@ -277,37 +261,8 @@ class DashboardHtmlMapper:
             return ""
         if not report.latest_rules:
             return "<h2>Latest round's rules</h2><p>No value rule: every position valued the same.</p>"
-        rows = [(f"{weight:+.6g}", term) for term, weight in report.latest_rules]
-        return f"<h2>Latest round's rules</h2>{self._table(('weight', 'term'), rows)}"
-
-    def _arms(self, snapshot: DashboardSnapshot) -> str:
-        report = snapshot.report
-        if report is None or not report.latest_arms:
-            return ""
-        rows = [
-            (
-                name,
-                str(agreements),
-                str(disagreements),
-                f"{accuracy:.3f}",
-                f"{reliability:.3f}",
-                str(games),
-                str(wins),
-                str(draws),
-                str(losses),
-                "none" if not games else f"{(wins + draws / 2) / games:.3f}",
-            )
-            for name, agreements, disagreements, accuracy, reliability, games, wins, draws, losses in report.latest_arms
-        ]
-        explanation = (
-            "<div class='muted'>The signals the latest round followed: winning, the signals with the best records, and "
-            "the uniform and weighted aggregations. Agreements are anchors, positions whose coming winner was known, where "
-            "the winner read higher; disagreements, where the loser did; counted over every round. Reliability is "
-            "2 × accuracy − 1, at least 0. Games, wins, draws and losses are self-play games an agent following the signal "
-            "played against another signal's agent; score is points per game, a win 1 and a draw 0.5.</div>"
-        )
-        header = ("signal", "agreements", "disagreements", "accuracy", "reliability", "games", "wins", "draws", "losses", "score")
-        return f"<h2>Latest round's signals</h2>{explanation}{self._table(header, rows)}"
+        rows = [(f"{weight:+.6g}", name) for name, weight in report.latest_rules]
+        return f"<h2>Latest round's rules</h2>{self._table(('weight', 'rule'), rows)}"
 
     def _page(self, title: str, refresh_seconds: int, body: str) -> str:
         """A page of its own, under the title, reloading itself every so many seconds (never at 0)."""

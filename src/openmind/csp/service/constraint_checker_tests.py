@@ -1,9 +1,9 @@
 import pytest
 
 from openmind.csp.service.constraint_checker import ConstraintChecker
-from openmind.rule.factory.rule_factory import create_rule_caller
-from openmind.rule.model.called_rule import CalledRule
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.factory.rule_factory import create_rule_caller
+from openmind.rbs.model.called_rule import CalledRule
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.world.model.state import State
 
 

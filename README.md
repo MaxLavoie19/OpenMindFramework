@@ -50,17 +50,6 @@ curl -o data/sudoku/top95.txt https://norvig.com/top95.txt                      
 curl -o data/sudoku/hardest.txt https://norvig.com/hardest.txt                             # Peter Norvig: 11 puzzles
 ```
 
-## Distill
-
-```bash
-.venv/bin/openmind-distill tictactoe
-```
-
-Lets the agent play itself and generates rules from its searches: hypotheses about which moves deserve more or less
-exploration, discovered in some games and kept only when a permutation test on held-out games supports them at a
-false discovery rate. It prints the rules and the validated hypotheses with their measures. The rule base is saved in
-`data/rbs/tictactoe/` and the log in `data/log/distill/tictactoe/`.
-
 ## Evaluate
 
 ```bash
@@ -69,28 +58,15 @@ false discovery rate. It prints the rules and the validated hypotheses with thei
 
 Plays the agent against baselines and compares its choices with perfect play. The report is saved in
 `data/evaluation/tictactoe/` and the log in `data/log/evaluate/tictactoe/`. Add `--rules PATH` to evaluate an agent
-guided by a distilled rule base: the summary then puts it side by side with an unguided agent on the same positions
+guided by a rule base: the summary then puts it side by side with an unguided agent on the same positions
 (optimal choices, share of the search's visits on optimal moves, mean regret, time per choice), measures the rules
 alone, and tests, position by position, whether the rules cut the search's visits on low-value moves and its regret.
 `--positions all` measures every position instead of a sample. A domain too large to search for perfect play, such as
 `tictactoe/fourinarow`, is measured against long unguided searches with `--reference-iterations N`, or against the
 baselines alone with `--positions 0`.
 
-Both `openmind-distill` and `openmind-evaluate` run games and searches in worker processes: `--workers N` sets how many
-(half the logical CPUs by default), and the results are the same whatever the number.
-
-## Select
-
-```bash
-.venv/bin/openmind-distill tictactoe --explore --held-out-games 20
-.venv/bin/openmind-select tictactoe --rules data/rbs/tictactoe/<candidates>.json
-```
-
-Generation validates rules one by one; selection keeps the rules that matter for play together. `--explore` generates
-many candidate rules, and `openmind-select` removes them one at a time, keeping a removal only when guided searches on
-every position play no worse, by a margin on mean regret with a bootstrap bound, than with all the candidates, then
-confirms the selection with another seed. The selected rules are saved in `data/rbs/tictactoe/`, the report, updated
-after every decision, in `data/selection/tictactoe/`, and the log in `data/log/select/tictactoe/`.
+`openmind-evaluate` runs games and searches in worker processes: `--workers N` sets how many (half the logical CPUs by
+default), and the results are the same whatever the number.
 
 ## Distill values
 
@@ -111,13 +87,13 @@ values alone.
 ## Train values
 
 ```bash
-.venv/bin/openmind-train-values tictactoe --rounds 3
+.venv/bin/openmind-train-values tictactoe --games 20
 ```
 
-Trains value rules round after round: each round's self-play values positions with the previous round's rules (or
-`--start PATH` in round 1), fits new rules, and plays them against random, untrained MCTS and the previous round's
-agent. Every round's value base is saved in `data/values/tictactoe/<start time>/` and the report, rewritten after each
-round, in `data/training/tictactoe/`; the log goes in `data/log/train-values/tictactoe/`.
+Plays games continuously between arms, the value bases an `--arm-library` holds, or agents without value rules without
+one, remembering every game in the knowledge base under `data/knowledge/tictactoe/` and, with `--deduction-plies` and
+`--ponder-endings`, every position a decisive game's walk back from its end proved. Nothing is learned from the games
+yet. The log goes in `data/log/train-values/tictactoe/`.
 
 ## Problem projects
 
@@ -131,7 +107,7 @@ chess = "openmind_chess.game.factory.chess_factory:create_chess_domain"
 ```
 
 Once the project is installed next to OpenMind, OpenMind's commands run its domain: `openmind-play chess`,
-`openmind-evaluate chess --rollout-limit 100`. The registered function gets the whole domain name, such as `chess` or
+`openmind-evaluate chess --rollout-limit 100 --unfinished-payoff 0.5`. The registered function gets the whole domain name, such as `chess` or
 `chess/960`. A project's tests save their logs as OpenMind's do by loading the `openmind.testing.plugin.log_saving`
 plugin from their `conftest.py` (see `src/openmind/testing/README.md`).
 

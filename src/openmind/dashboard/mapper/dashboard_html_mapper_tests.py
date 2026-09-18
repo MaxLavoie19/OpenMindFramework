@@ -16,11 +16,11 @@ GB = 1024**3
 
 
 def snapshot() -> DashboardSnapshot:
-    rounds = (RoundRow(1, 1, 0.6931, 0.0026, (("random", "3 / 14 / 3"),), None, (200, 48, 30, 1, 1, 90, 41), 14400.0),)
+    rounds = (RoundRow(1, 1, 0.6931, 0.0026, (("random", "3 / 14 / 3"),), None, 14400.0),)
     return DashboardSnapshot(
         "chess",
         "2026-09-15 09:30:00",
-        ReportSummary(Path("data/training/chess/run.json"), "2026-09-15T08:54:52", False, rounds, (("here.color[1, 5] == other", -0.06),), (("win", 40, 0, 1.0, 1.0, 0, 0, 0, 0), ("pieces", 7, 3, 0.7, 0.4, 6, 2, 3, 1))),
+        ReportSummary(Path("data/training/chess/run.json"), "2026-09-15T08:54:52", False, rounds, (("here.color[1, 5] == other", -0.06),)),
         LogProgress(Path("data/log/train-values/chess/run.log"), 2, 100000, "self-play valuing positions with round 1's rules", 37, 11, 4213, 5, ("INFO value_distiller: <Distilled>",), 30, 7),
         MachineStatus(
             62 * GB,
@@ -50,14 +50,8 @@ def test_the_page_reloads_itself_and_shows_the_progress_the_machine_the_rounds_a
         "class='warn'",
         "<th>against random</th>",
         "<td>3 / 14 / 3</td>",
-        "<th>pondered</th><th>proven</th><th>seeds</th><th>seeds kept</th><th>seeds in rules</th><th>endings deduced</th><th>endings proven</th>",
-        "<td>200</td><td>48</td><td>30</td><td>1</td><td>1</td><td>90</td><td>41</td>",
         "<th>time</th>",
         "<summary>What the columns mean</summary>",
-        "<h2>Latest round's signals</h2>",
-        "<td>pieces</td><td>7</td><td>3</td><td>0.700</td><td>0.400</td><td>6</td><td>2</td><td>3</td><td>1</td><td>0.583</td>",
-        "<td>win</td><td>40</td><td>0</td><td>1.000</td><td>1.000</td><td>0</td><td>0</td><td>0</td><td>0</td><td>none</td>",
-        "<li><b>seeds kept</b>: seeds the expression search kept",
         "<td>4 h 00 min</td>",
         "here.color[1, 5] == other",
         "sending SIGTERM to process 9544",
@@ -75,12 +69,12 @@ def test_a_page_without_report_log_or_process_says_so() -> None:
 
 
 def test_the_page_shows_every_model_s_games_under_a_header() -> None:
-    models = (ModelScore("deduced, losing color doubled", "0123456789abcdef", 20, 5, 13, 2, "2026-09-16 14:52:53"),)
+    models = (ModelScore("win", "0123456789abcdef", 20, 5, 13, 2, "2026-09-16 14:52:53"),)
     page = DashboardHtmlMapper().to_html(replace(snapshot(), models=models), 30)
 
     assert "<h2>Models</h2>" in page
     assert "<th>model</th><th>id</th><th>games</th><th>wins</th><th>draws</th><th>losses</th><th>score</th><th>last game</th>" in page
-    assert "<td>deduced, losing color doubled</td><td>0123456789abcdef</td><td>20</td><td>5</td><td>13</td><td>2</td><td>0.575</td><td>2026-09-16 14:52:53</td>" in page
+    assert "<td>win</td><td>0123456789abcdef</td><td>20</td><td>5</td><td>13</td><td>2</td><td>0.575</td><td>2026-09-16 14:52:53</td>" in page
 
 
 def test_a_page_without_models_has_no_models_table() -> None:
@@ -91,7 +85,7 @@ def test_the_page_shows_the_latest_decisive_game_with_its_record_and_buttons_to_
     game = GameView(
         "arms game 212",
         "2026-09-16 23:41:00",
-        (("white", "deduced, losing color doubled"), ("black", "deduced, fork color doubled")),
+        (("white", "win"), ("black", "weighted")),
         (1.0, 0.0),
         "checkmate",
         '[Result "1-0"] 1. f3 e5 1-0',
@@ -106,7 +100,7 @@ def test_the_page_shows_the_latest_decisive_game_with_its_record_and_buttons_to_
     page = DashboardHtmlMapper().to_html(replace(snapshot(), latest_game=game, decisive_games=5), 30)
 
     assert "<h2>Latest decisive game</h2>" in page
-    assert "arms game 212, ended 2026-09-16 23:41:00: deduced, losing color doubled (white) 1, deduced, fork color doubled (black) 0 by checkmate" in page
+    assert "arms game 212, ended 2026-09-16 23:41:00: win (white) 1, weighted (black) 0 by checkmate" in page
     assert "<div id='position'><svg>start</svg></div>" in page
     assert "<pre class='record'>[Result &quot;1-0&quot;] 1. f3 e5 1-0</pre>" in page
     assert all(f"<button id='{name}'" in page for name in ("first", "previous", "next", "last"))

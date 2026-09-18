@@ -4,25 +4,21 @@ from typing import Self
 from openmind.agent.constant.agent_constant import GUIDED_ROLLOUTS, NOT_REBUILDABLE, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE
 from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.agent import Agent
-from openmind.agent.service.completion_theory import CompletionTheory
 from openmind.agent.service.deduction_fallback import DeductionFallback
 from openmind.agent.service.one_ply_chooser import OnePlyChooser
-from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.mcts.constant.mcts_constant import DEFAULT_PUCT_EXPLORATION, UCB1
 from openmind.mcts.model.action_rater import ActionRater
-from openmind.mcts.model.move_prior import MovePrior
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
+from openmind.mcts.model.move_prior import MovePrior
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.model.theory_of_mind import TheoryOfMind
 from openmind.mcts.service.semi_determinized_search import SemiDeterminizedSearch
 from openmind.mcts.service.tree_search import TreeSearch
-from openmind.observation.factory.state_observer_factory import create_state_observer
-from openmind.predictor.builder.predictor_builder import PredictorBuilder
-from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.rbs.factory.rule_factory import create_rule_caller
 from openmind.timing.model.time_budget_estimator import TimeBudgetEstimator
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.service.state_reader import StateReader
@@ -93,9 +89,9 @@ class AgentBuilder:
         self._deduction = budget
         return self
 
-    def with_theory_of_mind(self, theory: TheoryOfMind | None = None) -> Self:
-        """Searches semi-determinized in domains with an observation, with the hypotheses of the given theory of mind;
-        None believes the domain's own completions (`CompletionTheory` without a label rule)."""
+    def with_theory_of_mind(self, theory: TheoryOfMind) -> Self:
+        """Searches semi-determinized, over the hypotheses of the given theory of mind: what the agent itself believes
+        the position may be. Without one, the agent searches the position it is given."""
         self._semi_determinized = True
         self._theory = theory
         return self
@@ -163,19 +159,12 @@ class AgentBuilder:
         deduction = self._deduction
         if deduction is not None and (deduction.plies < 1 or deduction.seconds <= 0.0):
             raise ValueError(f"A deduction needs at least 1 ply and more than 0 seconds, not {deduction}")
-        solver, predictor, state_reader, action_text_mapper = (
-            SolverBuilder().build(),
-            PredictorBuilder().build(),
-            StateReader(),
-            ActionTextMapper(),
-        )
-        tree_search = TreeSearch(solver, predictor, state_reader, action_text_mapper)
+        state_reader, action_text_mapper = StateReader(), ActionTextMapper()
+        tree_search = TreeSearch(state_reader, action_text_mapper)
         fallback = (
             None
             if deduction is None
-            else DeductionFallback(
-                PositionDeducer(solver, predictor, state_reader, action_text_mapper), solver, predictor, state_reader, deduction
-            )
+            else DeductionFallback(PositionDeducer(state_reader, action_text_mapper), state_reader, deduction)
         )
         guidance = (
             Guidance(self._rater, PRIOR_WEIGHT, ROLLOUT_TEMPERATURE, self._guided_rollouts)
@@ -201,11 +190,12 @@ class AgentBuilder:
                 valuation,
                 fallback,
                 estimator=self._estimator,
-                one_ply=OnePlyChooser(solver, predictor, state_reader),
+                one_ply=OnePlyChooser(state_reader),
             )
-        state_observer = create_state_observer()
-        theory = self._theory or CompletionTheory(state_observer, create_rule_caller())
-        semi_determinized = SemiDeterminizedSearch(tree_search, state_observer, state_reader, action_text_mapper)
+        theory = self._theory
+        if theory is None:
+            raise ValueError("A semi-determinized agent needs a theory of mind: nothing else says what it can't see")
+        semi_determinized = SemiDeterminizedSearch(tree_search, state_reader, action_text_mapper)
         return Agent(
             tree_search,
             settings,
@@ -215,7 +205,7 @@ class AgentBuilder:
             semi_determinized,
             theory,
             estimator=self._estimator,
-            one_ply=OnePlyChooser(solver, predictor, state_reader),
+            one_ply=OnePlyChooser(state_reader),
         )
 
 

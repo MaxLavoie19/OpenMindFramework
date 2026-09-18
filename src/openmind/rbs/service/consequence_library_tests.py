@@ -1,24 +1,18 @@
+from collections.abc import Callable
 import pickle
 
-from openmind.agent.model.domain import Domain
 from openmind.csp.builder.solver_builder import SolverBuilder
-from openmind.csp.model.action_definition import ActionDefinition
-from openmind.csp.model.discrete_domain import DiscreteDomain
-from openmind.csp.model.problem import Problem
-from openmind.csp.model.variable import Variable
 from openmind.inference.service.mechanics import Mechanics
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
-from openmind.predictor.model.branch import Branch
-from openmind.predictor.model.transition import Transition
-from openmind.predictor.model.transition_model import TransitionModel
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.constant.consequence_constant import OUTSIDE
+from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
-from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
-from openmind.rule.model.python_rule import PythonRule
-from openmind.rule.service.rule_compiler import RuleCompiler
-from openmind.rule.service.rule_runner import RuleRunner
+from openmind.rbs.service.rule_compiler import RuleCompiler
+from openmind.rbs.service.rule_runner import RuleRunner
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
@@ -26,7 +20,10 @@ from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
 
 
-def strip_domain() -> Domain:
+type Declare = Callable[..., RuleBasedSystem]
+
+
+def strip_domain(declared: Declare) -> RuleBasedSystem:
     """A made-up game: X and O take turns marking a cell of a 1 by 4 strip; two marks side by side win, a full strip is a
     draw."""
     effects = PythonRule(
@@ -38,12 +35,14 @@ def strip_domain() -> Domain:
         "turn = 'O' if turn == 'X' else 'X'"
     )
     constraints = (PythonRule("payoff['X'] is None"), PythonRule("payoff['O'] is None"), PythonRule("cell[1, col] is None"))
-    return Domain(
-        "strip",
+    return declared(
         position({}, "X"),
-        Problem((ActionDefinition("place", (Variable("col", DiscreteDomain((1, 2, 3, 4))),), constraints),)),
-        TransitionModel((Transition("place", (Branch(1.0, effects),)),)),
-        Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)")),
+        legal={"place": constraints},
+        outcomes={"place": ((1.0, effects),)},
+        players=Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)")),
+        parameters={"place": {"col": PythonRule("(1, 2, 3, 4)")}},
+        empties={"cell": None},
+        context="strip",
     )
 
 
@@ -56,102 +55,96 @@ def place(col: int) -> Action:
     return Action("place", (("col", col),))
 
 
-def coin_domain() -> Domain:
+def coin_domain(declared: Declare) -> RuleBasedSystem:
     """A made-up game of chance: A flips a coin, heads A wins, tails B wins."""
-    heads = Branch(0.5, PythonRule("payoff['A'] = 1.0\npayoff['B'] = 0.0"))
-    tails = Branch(0.5, PythonRule("payoff['A'] = 0.0\npayoff['B'] = 1.0"))
-    return Domain(
-        "coin",
+    heads = 0.5, PythonRule("payoff['A'] = 1.0\npayoff['B'] = 0.0")
+    tails = 0.5, PythonRule("payoff['A'] = 0.0\npayoff['B'] = 1.0")
+    return declared(
         State((("payoff(A)", None), ("payoff(B)", None), ("turn", "A"))),
-        Problem((ActionDefinition("flip", (), (PythonRule("payoff['A'] is None"),)),)),
-        TransitionModel((Transition("flip", (heads, tails)),)),
-        Players(("A", "B"), "turn", ("payoff(A)", "payoff(B)")),
+        legal={"flip": (PythonRule("payoff['A'] is None"),)},
+        outcomes={"flip": (heads, tails)},
+        players=Players(("A", "B"), "turn", ("payoff(A)", "payoff(B)")),
+        context="coin",
     )
 
 
-def test_me_and_other_are_the_player_to_act_and_the_next_player() -> None:
-    names = ConsequenceLibraryBuilder().build().names(strip_domain(), position({1: "X"}, "O"))
+def test_me_and_other_are_the_player_to_act_and_the_next_player(declared: Declare) -> None:
+    names = ConsequenceLibraryBuilder().build().names(strip_domain(declared), position({1: "X"}, "O"))
 
     assert (names["me"], names["other"]) == ("O", "X")
 
 
-def test_win_chance_is_one_for_a_move_that_wins_and_zero_otherwise() -> None:
-    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "X")
+def test_win_chance_is_one_for_a_move_that_wins_and_zero_otherwise(declared: Declare) -> None:
+    library, rbs, state = ConsequenceLibraryBuilder().build(), strip_domain(declared), position({1: "X"}, "X")
 
-    assert (library.win_chance(domain, state, place(2)), library.win_chance(domain, state, place(3))) == (1.0, 0.0)
-
-
-def test_win_chance_is_the_probability_of_the_winning_outcomes() -> None:
-    domain = coin_domain()
-
-    assert ConsequenceLibraryBuilder().build().win_chance(domain, domain.initial_state, Action("flip", ())) == 0.5
+    assert (library.win_chance(rbs, state, place(2)), library.win_chance(rbs, state, place(3))) == (1.0, 0.0)
 
 
-def test_wins_counts_what_a_player_would_win_with_if_it_were_their_turn() -> None:
-    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "O")
+def test_win_chance_is_the_probability_of_the_winning_outcomes(declared: Declare) -> None:
+    rbs = coin_domain(declared)
 
-    assert (library.wins(domain, state, "X"), library.wins(domain, state, "O")) == (1.0, 0.0)
-
-
-def test_wins_after_an_action_is_read_in_the_state_it_leads_to() -> None:
-    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "O")
-
-    assert (library.wins(domain, state, "X", place(2)), library.wins(domain, state, "X", place(4))) == (0.0, 1.0)
+    assert ConsequenceLibraryBuilder().build().win_chance(rbs, rbs.start(), Action("flip", ())) == 0.5
 
 
-class CountingSolver:
-    """A solver counting how often it is asked to solve."""
+def test_wins_counts_what_a_player_would_win_with_if_it_were_their_turn(declared: Declare) -> None:
+    library, rbs, state = ConsequenceLibraryBuilder().build(), strip_domain(declared), position({1: "X"}, "O")
 
-    def __init__(self) -> None:
-        self._solver = SolverBuilder().build()
+    assert (library.wins(rbs, state, "X"), library.wins(rbs, state, "O")) == (1.0, 0.0)
+
+
+def test_wins_after_an_action_is_read_in_the_state_it_leads_to(declared: Declare) -> None:
+    library, rbs, state = ConsequenceLibraryBuilder().build(), strip_domain(declared), position({1: "X"}, "O")
+
+    assert (library.wins(rbs, state, "X", place(2)), library.wins(rbs, state, "X", place(4))) == (0.0, 1.0)
+
+
+class Counting:
+    """An RBS counting how often it is asked for a position's legal moves."""
+
+    def __init__(self, rbs: RuleBasedSystem) -> None:
+        self._rbs = rbs
         self.calls = 0
 
-    def solve(self, problem: Problem, state: State) -> tuple[Action, ...]:
+    def actions(self, state: State, limit: int | None = None, player: str | None = None) -> tuple[Action, ...]:
         self.calls += 1
-        return self._solver.solve(problem, state)
+        return self._rbs.actions(state, limit, player)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._rbs, name)
 
 
-def test_a_win_is_a_finished_position_where_the_player_scored_highest() -> None:
-    domain = strip_domain()
+def test_a_win_is_a_finished_position_where_the_player_scored_highest(declared: Declare) -> None:
+    rbs = strip_domain(declared)
     marks = dict(position({1: "X", 2: "X"}, "O").variables)
     finished = State(tuple(sorted({**marks, "payoff(X)": 1.0, "payoff(O)": 0.0}.items())))
     library = ConsequenceLibraryBuilder().build()
-    x, o = domain.players.names.index("X"), domain.players.names.index("O")
+    x, o = rbs.players().names.index("X"), rbs.players().names.index("O")
 
-    assert (library.is_win(domain, finished, x), library.is_win(domain, finished, o)) == (True, False)
-
-
-def test_a_position_with_an_unset_payoff_is_no_win_without_solving() -> None:
-    domain, solver = strip_domain(), CountingSolver()
-    predictor = PredictorBuilder().build()
-    mechanics = Mechanics(solver, predictor, StateNamespaceMapper(VariableNameMapper()), MemoryMeter())  # type: ignore[arg-type]
-    library = ConsequenceLibrary(solver, predictor, StateReader(), VariableNameMapper(), mechanics)  # type: ignore[arg-type]
-
-    assert library.is_win(domain, position({1: "X"}, "O"), domain.players.names.index("X")) is False
-    assert solver.calls == 0
+    assert (library.is_win(rbs, finished, x), library.is_win(rbs, finished, o)) == (True, False)
 
 
-def test_a_copy_sent_to_another_process_leaves_its_lookups_behind() -> None:
-    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "O")
-    library.names(domain, state)
+def test_a_position_with_an_unset_payoff_is_no_win_without_asking_for_its_moves(declared: Declare) -> None:
+    counting = Counting(strip_domain(declared))
+    mechanics = Mechanics(StateNamespaceMapper(VariableNameMapper()), MemoryMeter())
+    library = ConsequenceLibrary(StateReader(), VariableNameMapper(), mechanics)
+
+    assert library.is_win(counting, position({1: "X"}, "O"), counting.players().names.index("X")) is False  # type: ignore[arg-type]
+    assert counting.calls == 0
+
+
+def test_a_copy_sent_to_another_process_leaves_its_lookups_behind(declared: Declare) -> None:
+    library, rbs, state = ConsequenceLibraryBuilder().build(), strip_domain(declared), position({1: "X"}, "O")
+    library.names(rbs, state)
 
     copy = pickle.loads(pickle.dumps(library))
 
-    assert copy.wins(domain, state, "X") == 1.0
+    assert copy.wins(rbs, state, "X") == 1.0
 
 
-def test_solo_distance_counts_own_moves_until_a_win_is_possible() -> None:
-    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "O")
+def test_near_reads_the_variable_at_an_offset_from_the_one_the_action_sets(declared: Declare) -> None:
+    library, rbs, state = ConsequenceLibraryBuilder().build(), strip_domain(declared), position({1: "X"}, "X")
 
-    assert library.solo_distance(domain, state, "X") == 1
-    assert library.solo_distance(domain, state, "O") == 2
-    assert library.solo_distance(domain, state, "O", limit=1) == 2
-
-
-def test_near_reads_the_variable_at_an_offset_from_the_one_the_action_sets() -> None:
-    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "X")
-
-    assert [library.near(domain, state, place(2), offset) for offset in ((0, -1), (0, 1), (0, -2), (1, 0), (1,))] == [
+    assert [library.near(rbs, state, place(2), offset) for offset in ((0, -1), (0, 1), (0, -2), (1, 0), (1,))] == [
         "X",
         None,
         OUTSIDE,
@@ -160,23 +153,23 @@ def test_near_reads_the_variable_at_an_offset_from_the_one_the_action_sets() -> 
     ]
 
 
-def test_names_can_bind_me_to_the_player_a_position_is_valued_for() -> None:
-    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "X")
+def test_names_can_bind_me_to_the_player_a_position_is_valued_for(declared: Declare) -> None:
+    library, rbs, state = ConsequenceLibraryBuilder().build(), strip_domain(declared), position({1: "X"}, "X")
 
-    valued_for_o = library.names(domain, state, "O")
+    valued_for_o = library.names(rbs, state, "O")
 
     assert (valued_for_o["me"], valued_for_o["other"]) == ("O", "X")
-    assert (library.names(domain, state)["me"], library.names(domain, state, "X")["me"]) == ("X", "X")
-    assert library.names(domain, state, "O") is valued_for_o
+    assert (library.names(rbs, state)["me"], library.names(rbs, state, "X")["me"]) == ("X", "X")
+    assert library.names(rbs, state, "O") is valued_for_o
 
 
-def test_rules_read_the_consequences_through_the_names() -> None:
-    library, domain, state = ConsequenceLibraryBuilder().build(), strip_domain(), position({1: "X"}, "X")
+def test_rules_read_the_consequences_through_the_names(declared: Declare) -> None:
+    library, rbs, state = ConsequenceLibraryBuilder().build(), strip_domain(declared), position({1: "X"}, "X")
     rule = RuleCompiler().compile_value(
-        PythonRule("win_chance(action) == 1 and near(action, 0, -1) == me and wins(other) == 0 and solo_distance(me) == 1"),
+        PythonRule("win_chance(action) == 1 and near(action, 0, -1) == me and wins(other) == 0"),
         ("col", "action"),
     )
 
     assert RuleRunner(StateNamespaceMapper(VariableNameMapper())).value(
-        rule, state, {"col": 2, "action": place(2)}, library.names(domain, state)
+        rule, state, {"col": 2, "action": place(2)}, library.names(rbs, state)
     ) is True

@@ -1,22 +1,29 @@
 import json
-from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from openmind.agent.factory.game_factory import declare_game
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.entrypoint.evaluate import main
-from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
-from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
-from openmind.rbs.model.rule import Rule
-from openmind.rbs.model.rule_base import RuleBase
-from openmind.rbs.model.value_base import ValueBase
-from openmind.rbs.model.value_rule import ValueRule
-from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
-from openmind.rbs.repository.value_base_repository import ValueBaseRepository
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.testing.service.log_reader import said
 
 pytestmark = pytest.mark.log_level("INFO")
+
+
+def heuristics(knowledge: Path, context: str, *, move: bool = False, position: bool = False) -> str:
+    """Declares a variant of tic-tac-toe carrying the heuristics asked for, as training would, and gives its name: a
+    move rule rating every placement 0.5, and a position rule reading wins(me)."""
+    base = create_knowledge_base("tictactoe", knowledge)
+    declarer = RuleDeclarer(base, context)
+    declarer.inherits(declare_game("tictactoe", base))
+    if move:
+        declarer.move("a placement is worth half", PythonRule("0.5 if action == 'place' else None"), 1.0)
+    if position:
+        declarer.position("wins(me)", PythonRule("wins(me)"), 1.0)
+    return declarer.done()
 
 
 def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
@@ -69,23 +76,20 @@ def test_evaluate_prints_and_saves_a_report_and_a_log(capsys: pytest.CaptureFixt
 def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    repository = RuleBaseRepository(RuleBaseJsonMapper())
-    rules_file = repository.save(
-        RuleBase("tictactoe", (Rule("place", (), 0.5, 100),)), tmp_path / "rules", datetime(2026, 9, 13, 12, 0, 0)
-    )
+    rules_file = heuristics(tmp_path / "knowledge", "guided", move=True)
 
     main(
         [
             "tictactoe",
             *("--games", "2", "--iterations", "10", "--positions", "3", "--budgets", "5", "--seed", "1"),
-            *("--rules", str(rules_file)),
+            *("--heuristics", rules_file, "--knowledge", str(tmp_path / "knowledge")),
             *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
         ]
     )
 
     (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
     report = json.loads(report_file.read_text(encoding="utf-8"))
-    assert report["rules_file"] == str(rules_file)
+    assert report["rules_file"] == rules_file
     assert report["agreement"][0]["seconds_per_choice"] >= 0.0
     assert [(item["iterations"], item["positions"]) for item in report["unguided_agreement"]] == [(5, 3)]
     assert report["rater"]["positions"] == 3
@@ -96,31 +100,27 @@ def test_evaluate_with_rules_guides_the_agent_and_records_the_rules_file(
     assert [test["iterations"] for test in report["guidance_tests"]] == [5]
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
     lines = said(log_file)
-    assert f"INFO  openmind.entrypoint.evaluate Evaluating with rules {rules_file}" in lines
+    assert f"INFO  openmind.entrypoint.evaluate Evaluating with the move rules of {rules_file}" in lines
     assert any(line.startswith("INFO  openmind.evaluation.service.evaluator Rater alone: ") for line in lines)
 
 
 def test_evaluate_with_values_values_the_agent_positions_and_records_the_values_file(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    values_file = ValueBaseRepository(ValueBaseJsonMapper()).save(
-        ValueBase("tictactoe", 0.0, 0.0, 1.0, (ValueRule(PythonRule("wins(me)"), 1.0),)),
-        tmp_path / "values",
-        datetime(2026, 9, 14, 1, 0, 0),
-    )
+    values_file = heuristics(tmp_path / "knowledge", "valued", position=True)
 
     main(
         [
             "tictactoe",
             *("--games", "2", "--iterations", "10", "--positions", "3", "--budgets", "5", "--seed", "1"),
-            *("--values", str(values_file), "--rollout-actions", "1"),
+            *("--heuristics", values_file, "--knowledge", str(tmp_path / "knowledge"), "--rollout-actions", "1"),
             *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
         ]
     )
 
     (report_file,) = (tmp_path / "report" / "tictactoe").glob("*.json")
     report = json.loads(report_file.read_text(encoding="utf-8"))
-    assert (report["rules_file"], report["values_file"], report["rater"]) == (None, str(values_file), None)
+    assert (report["rules_file"], report["values_file"], report["rater"]) == (None, values_file, None)
     assert report["settings"]["rollout_actions"] == 1
     assert report["valuer"]["positions"] == 3
     assert [(item["iterations"], item["positions"]) for item in report["unguided_agreement"]] == [(5, 3)]
@@ -129,7 +129,7 @@ def test_evaluate_with_values_values_the_agent_positions_and_records_the_values_
     assert "\nValues alone: valued " in output
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
     lines = said(log_file)
-    assert f"INFO  openmind.entrypoint.evaluate Evaluating with values {values_file}" in lines
+    assert f"INFO  openmind.entrypoint.evaluate Evaluating with the position rules of {values_file}" in lines
 
 
 def test_a_rollout_limit_applies_to_every_agent_and_is_recorded(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
@@ -156,16 +156,13 @@ def test_negative_rollout_actions_are_rejected(tmp_path: Path) -> None:
 
 
 def test_unguided_rollouts_are_recorded_and_named(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
-    repository = RuleBaseRepository(RuleBaseJsonMapper())
-    rules_file = repository.save(
-        RuleBase("tictactoe", (Rule("place", (), 0.5, 100),)), tmp_path / "rules", datetime(2026, 9, 13, 12, 0, 0)
-    )
+    rules_file = heuristics(tmp_path / "knowledge", "guided", move=True)
 
     main(
         [
             "tictactoe",
             *("--games", "0", "--iterations", "10", "--positions", "3", "--budgets", "5", "--seed", "1"),
-            *("--rules", str(rules_file), "--rollouts", "unguided"),
+            *("--heuristics", rules_file, "--knowledge", str(tmp_path / "knowledge"), "--rollouts", "unguided"),
             *("--log-directory", str(tmp_path / "log"), "--report-directory", str(tmp_path / "report")),
         ]
     )
@@ -177,17 +174,14 @@ def test_unguided_rollouts_are_recorded_and_named(capsys: pytest.CaptureFixture[
 
 
 def test_several_workers_give_the_same_report(tmp_path: Path) -> None:
-    repository = RuleBaseRepository(RuleBaseJsonMapper())
-    rules_file = repository.save(
-        RuleBase("tictactoe", (Rule("place", (), 0.5, 100),)), tmp_path / "rules", datetime(2026, 9, 13, 12, 0, 0)
-    )
+    rules_file = heuristics(tmp_path / "knowledge", "guided", move=True)
     reports = []
     for workers in ("1", "2"):
         main(
             [
                 "tictactoe",
                 *("--games", "4", "--iterations", "10", "--positions", "6", "--budgets", "5", "--seed", "1"),
-                *("--rules", str(rules_file), "--workers", workers),
+                *("--heuristics", rules_file, "--knowledge", str(tmp_path / "knowledge"), "--workers", workers),
                 *("--log-directory", str(tmp_path / workers / "log"), "--report-directory", str(tmp_path / workers / "report")),
             ]
         )
@@ -257,7 +251,7 @@ def test_evaluate_refuses_a_time_control_or_expected_steps_it_can_t_read(flag: s
         main(["tictactoe", flag, value, "--log-directory", str(tmp_path / "log")])
 
 
-@pytest.mark.parametrize(("prior", "message"), [("rater", "--prior rater needs --rules"), ("value", "--prior value needs --values")])
+@pytest.mark.parametrize(("prior", "message"), [("rater", "--prior rater needs --heuristics"), ("value", "--prior value needs --heuristics")])
 def test_evaluate_refuses_a_prior_without_the_rules_it_reads(
     prior: str, message: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

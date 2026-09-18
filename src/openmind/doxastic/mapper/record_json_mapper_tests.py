@@ -5,7 +5,7 @@ from openmind.doxastic.mapper.record_json_mapper import RecordJsonMapper
 from openmind.doxastic.model.claim import Claim
 from openmind.doxastic.model.provenance import Provenance
 from openmind.doxastic.model.record import Record
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.model.python_rule import PythonRule
 
 
 def test_a_record_comes_back_word_for_word_with_everything_it_carried() -> None:

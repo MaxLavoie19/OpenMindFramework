@@ -17,7 +17,7 @@ rules, can value the positions its rollouts reach instead of playing them to the
 | `model/move_prior.py` | `MovePrior`: the interface of a prior, `priors(state, actions)` giving one share per action summing to 1, and `name` for the logs |
 | `service/uniform_prior.py` | `UniformPrior`: every action alike |
 | `service/rater_prior.py` | `RaterPrior(rater, temperature)`: a rater's ratings through a softmax; an action it doesn't rate takes the mean of those it does |
-| `service/valuation_prior.py` | `ValuationPrior(valuer, predictor, transitions, players, temperature)`: each action's outcomes valued for the player to act, weighed by their probabilities, through a softmax; a finished outcome counts at its payoffs, an action the valuer can't value takes the mean of the others; the RBS's `RuleValuer` works here |
+| `service/valuation_prior.py` | `ValuationPrior(valuer, rbs, players, temperature)`: each action's outcomes valued for the player to act, weighed by their probabilities, through a softmax; a finished outcome counts at its payoffs, an action the valuer can't value takes the mean of the others; the RBS's `RuleValuer` works here |
 | `service/softmax.py` | `softmax(values, temperature)`: shares from values, None taking the mean of the known ones |
 | `factory/move_prior_factory.py` | `create_move_prior(kind, temperature, domain, rater=None, valuer=None)`: the prior a name stands for; a name it doesn't know, or a prior without the model it reads, raises `ValueError` |
 | `model/simultaneous_node.py` | `SimultaneousNode`: a state in the tree where players act at once, with each player's legal actions, regrets, summed strategies, visits and payoffs, and the strategies predicted for other players at the root; mutable |
@@ -33,7 +33,7 @@ rules, can value the positions its rollouts reach instead of playing them to the
 | `model/leaf_valuation.py` | `LeafValuation(valuer, rollout_actions=0)`: how a valuer ends iterations, valuing the position a rollout reaches after that many actions |
 | `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action, with the rater's ratings when guided and its actions' priors under PUCT, worked out once when the node is made; mutable |
 | `model/chance_node.py` | `ChanceNode`: an action, or actions taken at once, in the tree with its possible outcomes; mutable |
-| `service/tree_search.py` | `TreeSearch`: runs the search, guided or not, from what the searching player sees when given an observation, over given completions when given them |
+| `service/tree_search.py` | `TreeSearch(state_reader, action_text_mapper, time_source=None)`: runs the search over a game's RBS, guided or not, drawing each iteration's state from the states a position could be when given them |
 | `service/semi_determinized_search.py` | `SemiDeterminizedSearch.search(domain, state, settings, theory, guidance=None, valuation=None)`: one information set search per hypothesis of a theory of mind, weighed into expected payoffs |
 
 ## Usage
@@ -41,19 +41,16 @@ rules, can value the positions its rollouts reach instead of playing them to the
 ```python
 import math
 
-from openmind.agent.factory.domain_factory import create_domain
-from openmind.csp.factory.csp_factory import create_solver
+from openmind.agent.factory.game_factory import create_game
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
-from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.service.state_reader import StateReader
 
-tree_search = TreeSearch(create_solver(), create_predictor(), StateReader(), ActionTextMapper())
-domain = create_domain("tictactoe")
-result = tree_search.search(
-    domain.problem, domain.transitions, domain.players, domain.initial_state, SearchSettings(500, math.sqrt(2), 1)
-)
+tree_search = TreeSearch(StateReader(), ActionTextMapper())
+rbs = create_game("tictactoe", create_knowledge_base("tictactoe"))
+result = tree_search.search(rbs, rbs.start(), SearchSettings(500, math.sqrt(2), 1))
 result.chosen   # Action(name='place', parameters=(('col', 2), ('row', 2)))
 # result.statistics holds every root action's visits and mean payoff; result.samples every expanded action's
 ```
@@ -81,7 +78,7 @@ its legal actions, tried or not, the one with the highest Q + c · P · √N / (
 player to act, or, for an action not visited yet, the node's own mean payoff so far (0 before its first visit); P the
 action's prior; N the node's visits and n the action's. Ties go to the higher prior, then to the first action. An
 untried action chosen is expanded as under UCB1. A move the prior dislikes can stay unvisited while the iterations go
-deep into the ones it likes, and √N still opens it eventually. With an observation, a legal action the node didn't have
+deep into the ones it likes, and √N still opens it eventually. Under drawn states, a legal action the node didn't have
 when made takes the mean of its priors. Under PUCT a rater guides through `RaterPrior`, not through UCB1's rating bonus;
 rollouts follow ratings as before. The semi-determinized search searches each hypothesis by PUCT; where players act at
 once, selection stays regret matching. A selection other than `ucb1` or `puct`, or a negative PUCT exploration, raises
@@ -112,21 +109,13 @@ With a rollout limit:
 - A negative limit, or a limit without an unfinished payoff, raises `ValueError`.
 - Domains whose random games run long, such as chess, need one unless a valuer values their positions.
 
-With an observation (`search(..., observation)`, as `Agent` passes a domain's), the search is single-observer
-information set MCTS (Cowling, Powley and Whitehouse, 2012):
+Given the states a position could be (`search(..., possible)`, as the semi-determinized search passes one hypothesis's),
+each iteration draws one of them, by its probability, and plays on it: legal actions and outcomes come from the drawn
+state. The statistics of every drawn state add up in the same tree. Legal actions can differ between draws: untried
+ones are still tried first, and selection chooses among the tried actions legal in the drawn state.
 
-- The searching player, the one to act, sees the state through the observation; the root holds what they see, and
-  its legal actions come from that.
-- Each iteration draws one of the states that could be true, by the observation's completions and their
-  probabilities, and plays on it: legal actions and outcomes come from the drawn state.
-- A node is what the searching player sees of the states reaching it, so the statistics of every drawn state add up
-  in the same tree. Legal actions can differ between draws: untried ones are still tried first, and selection chooses
-  among the tried actions legal in the drawn state.
-- The true state never reaches the search: the same state as the player sees it gives the same search, whatever the
-  hidden values.
-- A known weakness: inside the tree, the other players act on the drawn state as if they could see it.
-- Given `completions`, such as one hypothesis's, they are the only states that could be true at the root; completions
-  without an observation raise `ValueError`.
+OMF runs agents, not the game, so nothing hides a state from the searching player: the states it draws are what its
+theory of mind says the position may be, never a referee's view of it.
 
 Where players act at once (`search(..., player=..., predicted=...)`, a state whose players to act are flags; see
 `world/README.md`), the search is simultaneous-move MCTS with regret matching (Lanctot, Lisý and Winands, 2013):
@@ -138,7 +127,7 @@ Where players act at once (`search(..., player=..., predicted=...)`, a state who
   by its outcome-sampling estimate, the picked action's payoff divided by the probability it was picked at, 0 for the
   others, minus the payoff. Each regret-matching strategy adds to the player's summed strategies.
 - From the first new node, a rollout draws every player's action uniformly; valuations and the rollout limit apply as
-  above. Guidance isn't used, and an observation raises `ValueError` for now.
+  above. Guidance isn't used.
 - `player` names the searching player, one of the players to act at the root, or `ValueError`. Its statistics are its
   root actions' visits and mean payoffs; `SearchResult.strategy` is its average strategy, the summed strategies
   normalized, and the action chosen is drawn from it, so the searching player isn't predictable.
@@ -150,21 +139,19 @@ Where players act at once (`search(..., player=..., predicted=...)`, a state who
 With a theory of mind (`SemiDeterminizedSearch`, as `Agent` uses when built `with_theory_of_mind`), the search is
 semi-determinized MCTS (Bitan and Kraus, 2017):
 
-- The player to act asks its theory of mind for hypotheses about what it can't see, from what it sees. A hypothesis
-  says what the other player's hidden move was, for instance, and which states could be true under it; the rest can stay
-  hidden.
-- One information set search runs per hypothesis, over that hypothesis's states only, with an even share of the
+- The player to act asks its theory of mind for hypotheses about what it can't be sure of, from the position it's in.
+  A hypothesis says what the other player's move was, for instance, and which states could be true under it.
+- One search runs per hypothesis, over that hypothesis's states only, with an even share of the
   iterations (at least 1 each, the remainder to the first ones) and the seed plus the hypothesis's index. With seconds,
   each hypothesis gets the seconds still left over the hypotheses still to search, so time one leaves goes to the ones
   after it; once the time is up, each hypothesis left gets 1 iteration. The result's iterations and seconds are totals.
 - Each root action's expected payoff is its mean payoffs weighed by the probabilities of the hypotheses whose search
   visited it; its visits are summed. The action with the highest expected payoff is chosen, ties going to the most
   visits, then to the first action. The samples of every search are kept.
-- A theory believing only the domain's completions weighs each hypothesis as plain information set MCTS does; a theory
-  predicting better, such as one learned from what other players revealed, chooses better. The root's decision
-  combines the hypotheses, but deeper in each search the player plans as if the hypothesis were known.
-- A domain without an observation, no hypothesis, a negative probability, or probabilities that don't sum to 1 raise
-  `ValueError`.
+- The beliefs are the agent's own: a theory predicting better, such as one learned from what other players revealed,
+  chooses better. The root's decision combines the hypotheses, but deeper in each search the player plans as if the
+  hypothesis were known.
+- No hypothesis, a negative probability, or probabilities that don't sum to 1 raise `ValueError`.
 
 Also:
 
@@ -183,7 +170,7 @@ Logger `openmind.mcts.service.tree_search`:
 
 - `INFO Searching <limits> for <player>`, the limits written `<n> iterations`, `for <s> seconds` or
   `up to <n> iterations or <s> seconds`
-- `INFO <player> sees <n> states that could be true`, with an observation
+- `INFO <player> sees <n> states that could be true`, given the states the position could be
 - `INFO <action>: <visits> visits, mean payoff <mean> for <player>`, once per root action
 - `INFO Most visited: <action>`
 - `INFO Searched <n> iterations in <s> seconds for <player>, <ucb1, or puct with the <prior> prior>, tree depth <d>`, after the iterations, before the root actions

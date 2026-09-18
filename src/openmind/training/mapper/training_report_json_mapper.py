@@ -2,7 +2,6 @@ import json
 
 from openmind.evaluation.model.match_results import MatchResults
 from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
-from openmind.training.model.signal_record import SignalRecord
 from openmind.training.model.training_report import TrainingReport
 from openmind.training.model.training_round import TrainingRound
 
@@ -53,15 +52,6 @@ class TrainingReportJsonMapper:
                         "seconds": settings.deduction.seconds,
                         "highest": settings.deduction.highest,
                     },
-                    "ponder_positions": 0 if distillation.pondering is None else distillation.pondering.positions,
-                    "ponder_endings": 0 if distillation.pondering is None else distillation.pondering.endings,
-                    "signals": None
-                    if distillation.signals is None
-                    else {
-                        "arms": distillation.signals.arms,
-                        "horizon": distillation.signals.horizon,
-                        "goal_limit": distillation.signals.goal_limit,
-                    },
                 },
                 "rounds": [self._round(item) for item in report.rounds],
             },
@@ -69,15 +59,12 @@ class TrainingReportJsonMapper:
         )
 
     def _round(self, item: TrainingRound) -> dict[str, object]:
-        base = item.value_base
         return {
             "number": item.number,
-            "value_base": {
-                "bias": base.bias,
-                "low": base.low,
-                "high": base.high,
-                "rules": [{"term": rule.term.source, "weight": rule.weight} for rule in base.rules],
-            },
+            "context": item.context,
+            "position_rules": [
+                {"name": rule.name, "weight": rule.weight(item.context), "id": rule.id} for rule in item.rules
+            ],
             "fits": [
                 {
                     "price": fit.price,
@@ -96,34 +83,6 @@ class TrainingReportJsonMapper:
             "baselines": [self._results(results) for results in item.baselines],
             "against_previous": None if item.against_previous is None else self._results(item.against_previous),
             "seconds": item.seconds,
-            "pondering": None
-            if item.pondering is None
-            else {
-                "positions": item.pondering.positions,
-                "proven": item.pondering.proven,
-                "seeds": item.pondering.seeds,
-                "seeds_kept": item.pondering.seeds_kept,
-                "seeds_in_rules": item.pondering.seeds_in_rules,
-                "endings_deduced": item.pondering.endings_deduced,
-                "endings_proven": item.pondering.endings_proven,
-            },
-            "arms": [self._arm(record) for record in item.arms],
-        }
-
-    def _arm(self, record: SignalRecord) -> dict[str, object]:
-        signal = record.signal
-        return {
-            "name": signal.name,
-            "source": None if signal.source is None else signal.source.source,
-            "parts": list(signal.parts),
-            "agreements": record.agreements,
-            "disagreements": record.disagreements,
-            "accuracy": record.accuracy,
-            "reliability": record.reliability,
-            "games": record.games,
-            "wins": record.wins,
-            "draws": record.draws,
-            "losses": record.losses,
         }
 
     def _results(self, results: MatchResults) -> dict[str, object]:

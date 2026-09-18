@@ -23,9 +23,9 @@ with; when it does, they are measured here too.
 | `model/evaluation_report.py` | `EvaluationReport(domain, created_at, rules_file, settings, baselines, every_action_optimal, agreement, unguided_agreement, rater=None, guidance_tests=(), values_file=None, valuer=None)`; `rules_file` names the rule base guiding the agent and `values_file` the value base valuing its positions, each `None` when not used; with neither, `unguided_agreement` and `guidance_tests` are empty and `rater` and `valuer` are `None` |
 | `model/value_measure.py` | `ValueMeasure(positions, valued, mean_absolute_error, optimal, mean_regret)`: how a valuer alone did on the sampled positions |
 | `service/value_measurer.py` | `ValueMeasurer`: a valuer's error on each position and its choice one step ahead |
-| `service/exact_search.py` | `ExactSearch`: every legal action's value, the optimal actions and each player's value in a state, by searching every reachable state; the positions with a legal action; a domain with an observation raises `ValueError`, since perfect play with hidden information needs mixed strategies |
+| `service/exact_search.py` | `ExactSearch`: every legal action's value, the optimal actions and each player's value in a state, by searching every reachable state; the positions with a legal action, since perfect play with hidden information needs mixed strategies |
 | `service/reference_search.py` | `ReferenceSearch`: distinct positions from uniformly random games, and every legal action's value from a long unguided search, for domains exact search can't reach |
-| `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player domain, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers; in a domain with an observation, a policy is given only what its player sees; a game that took its worker over the memory cap in a fresh worker too isn't counted; where players act at once, every player to act chooses, given its player's name, and the actions are taken together with `Predictor.predict_joint`. `series` and `play_game` take `time_control`: each choice is then timed and charged to its player's clock, given to the policy with the steps that player has played, where players act at once each on its own player's clock; a player whose time runs out doesn't play that move, and the domain's timeout rule ends the game, applied for each player whose time ran out, in the players' order. `play_game` gives a `MatchGame`, and `series` hands each one to `on_game(index, seat, game)` as it ends, the evaluated policy's seat given; with a game memory (`EvaluatorBuilder.with_game_memory`), the evaluator remembers every match game that way. A policy gives only its action, so a match's steps have no budget |
+| `service/match_runner.py` | `MatchRunner`: plays a series between two policies in a two-player game, switching seats every game; each game creates its policies from `PolicyFactory`s with a seed of its own, in the task runner's workers; a policy is given the position as it is; a game that took its worker over the memory cap in a fresh worker too isn't counted; where players act at once, every player to act chooses, given its player's name, and the actions are taken together with `Predictor.predict_joint`. `series` and `play_game` take `time_control`: each choice is then timed and charged to its player's clock, given to the policy with the steps that player has played, where players act at once each on its own player's clock; a player whose time runs out doesn't play that move, and the domain's timeout rule ends the game, applied for each player whose time ran out, in the players' order. `play_game` gives a `MatchGame`, and `series` hands each one to `on_game(index, seat, game)` as it ends, the evaluated policy's seat given; with a game memory (`EvaluatorBuilder.with_game_memory`), the evaluator remembers every match game that way. A policy gives only its action, so a match's steps have no budget |
 | `service/choice_measurer.py` | `ChoiceMeasurer`: searches positions with an agent built once and measures each choice against the action values; the optimal actions within a tolerance |
 | `model/choice_measure.py` | `ChoiceMeasure(optimal, optimal_visit_share, regret, seconds)`: one position's choice |
 | `model/action_values.py` | `ActionValues`: every legal action of a position with its value |
@@ -99,7 +99,7 @@ With `positions` = 0, the evaluator skips agreement and calls neither search: th
 searched by an agent built once) run in the task runner's worker processes (see `parallel/README.md`). Every search
 is seeded and every game draws its seeds up front, so a report is the same whatever the number of workers, apart from
 its seconds per choice. To run in several workers, the agent builder, with the rater guiding it and the valuer valuing
-its positions, must pickle; a `RuleRater` and a `RuleValuer` do. The rater alone is measured in this process, the valuer
+its positions, must pickle; an RBS does, its rules with it. The rater alone is measured in this process, the valuer
 alone in the workers, the positions split into slices.
 
 ## Usage
@@ -107,26 +107,29 @@ alone in the workers, the positions split into slices.
 ```python
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import EXPLORATION
-from openmind.agent.factory.domain_factory import create_domain
+from openmind.agent.factory.game_factory import create_game
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.evaluation.factory.evaluator_factory import create_evaluator
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 
+knowledge_base = create_knowledge_base("tictactoe")
 report = create_evaluator(workers=8).evaluate(
-    create_domain("tictactoe"),
+    create_game("tictactoe", knowledge_base),
     AgentBuilder().with_exploration(EXPLORATION),   # evaluate sets the builder's iterations and seed
     EvaluationSettings(games=100, iterations=200, positions=100, budgets=(10, 20, 50, 100, 200, 500), seed=1),
 )
 ```
 
-To evaluate an agent guided by rules, create `rater = create_rule_rater(rule_base, domain)`, give the builder
-`with_guidance(rater)`, and pass the rule base's path as `rules_file` and the same `rater` to `evaluate`; the report
-then also holds the unguided agreement, the rater alone and the paired tests. To evaluate an agent valuing positions
-with value rules, create `valuer = create_rule_valuer(value_base, domain)`, give the builder `with_valuation(valuer)`,
-and pass the value base's path as `values_file` and the same `valuer` to `evaluate`, with `rollout_actions` in the
-settings; the report then holds the values alone instead of, or besides, the rules alone. For a domain exact search
+An agent's heuristics are a context's rules (see `rbs/README.md`): `heuristics = create_rule_based_system(knowledge_base,
+"tictactoe round 3")`. To evaluate an agent guided by the context's `move` rules, give the builder
+`with_guidance(heuristics)` and pass the context's name as `rules_file` and the same RBS as `rater` to `evaluate`; the
+report then also holds the unguided agreement, the rater alone and the paired tests. To evaluate an agent valuing
+positions with its `position` rules, give the builder `with_valuation(heuristics)` and pass the name as `values_file`
+and the RBS as `valuer`, with `rollout_actions` in the settings; the report then holds the values alone instead of, or
+besides, the rules alone. For a domain exact search
 can't reach, add `reference_iterations=2000` to the settings. `ReportTextMapper().to_text(report)` gives the summary
 `openmind-evaluate` prints. From the terminal:
-`openmind-evaluate tictactoe [--rules PATH] [--values PATH] [--positions all] [--reference-iterations N]` (see
+`openmind-evaluate tictactoe [--heuristics CONTEXT] [--positions all] [--reference-iterations N]` (see
 `entrypoint/README.md`).
 
 ## Logs

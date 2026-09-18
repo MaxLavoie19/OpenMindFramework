@@ -1,15 +1,19 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from openmind.agent.factory.sudoku_factory import create_sudoku_domain
 from openmind.agent.mapper.sudoku_collection_mapper import SudokuCollectionMapper
 from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
+from openmind.agent.factory.sudoku_factory import declare_sudoku
 from openmind.agent.repository.sudoku_puzzle_repository import SudokuPuzzleRepository
-from openmind.csp.factory.csp_factory import create_solver
-from openmind.predictor.factory.predictor_factory import create_predictor
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.factory.rbs_factory import create_rule_based_system
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 
 pytestmark = pytest.mark.log_level("INFO")
+
+type Game = Callable[[str], RuleBasedSystem]
 
 DIRECTORY = Path(__file__).parents[2] / "data" / "sudoku"
 REPOSITORY = SudokuPuzzleRepository(SudokuCollectionMapper())
@@ -27,15 +31,15 @@ UNITS = (
 @pytest.mark.skipif(not PUZZLES, reason="no collection in data/sudoku; the README's Solve section has the downloads")
 @pytest.mark.parametrize("puzzle", PUZZLES, ids=lambda puzzle: f"{puzzle.collection}/{puzzle.number}")
 def test_every_published_puzzle_has_one_solution_that_keeps_its_clues_and_follows_the_rules(
-    puzzle: SudokuPuzzle,
+    knowledge: KnowledgeBase, puzzle: SudokuPuzzle
 ) -> None:
-    domain = create_sudoku_domain(f"sudoku/{puzzle.collection}/{puzzle.number}", puzzle.grid)
-    predictor = create_predictor()
+    context = declare_sudoku(knowledge, f"sudoku/{puzzle.collection}/{puzzle.number}", puzzle.grid)
+    rbs = create_rule_based_system(knowledge, context)
 
-    actions = create_solver().solve(domain.problem, domain.initial_state, limit=2)
+    actions = rbs.actions(rbs.start(), limit=2)
 
     assert len(actions) == 1
-    ((outcome, probability),) = predictor.predict(domain.transitions, domain.initial_state, actions[0]).outcomes
+    ((outcome, probability),) = rbs.outcomes(rbs.start(), actions[0]).outcomes
     values = dict(outcome.variables)
     grid = [[values[f"cell({row + 1},{col + 1})"] for col in POSITIONS] for row in POSITIONS]
     assert all(sorted(grid[row][col] for row, col in unit) == list(range(1, 10)) for unit in UNITS)

@@ -3,7 +3,6 @@ import math
 from collections.abc import Hashable
 from dataclasses import replace
 
-from openmind.agent.model.domain import Domain
 from openmind.mcts.model.action_statistics import ActionStatistics
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.hypothesis_result import HypothesisResult
@@ -12,7 +11,7 @@ from openmind.mcts.model.search_result import SearchResult
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.model.theory_of_mind import TheoryOfMind
 from openmind.mcts.service.tree_search import TreeSearch
-from openmind.observation.service.state_observer import StateObserver
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.timing.model.deadline import Deadline
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.state import State
@@ -31,32 +30,26 @@ class SemiDeterminizedSearch:
     def __init__(
         self,
         tree_search: TreeSearch,
-        state_observer: StateObserver,
         state_reader: StateReader,
         action_text_mapper: ActionTextMapper,
     ) -> None:
         self._tree_search = tree_search
-        self._state_observer = state_observer
         self._state_reader = state_reader
         self._action_text_mapper = action_text_mapper
 
     def search(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         state: State,
         settings: SearchSettings,
         theory: TheoryOfMind,
         guidance: Guidance | None = None,
         valuation: LeafValuation | None = None,
     ) -> SearchResult:
-        """A domain without an observation, no hypothesis, a negative probability, or probabilities that don't sum to 1
-        raise ValueError."""
-        observation = domain.observation
-        if observation is None:
-            raise ValueError("A semi-determinized search needs a domain with an observation")
-        player = domain.players.names[self._state_reader.player_to_act(state, domain.players)]
-        observed = self._state_observer.observe(observation, state, player)
-        hypotheses = theory.hypotheses(domain, observed, player)
+        """No hypothesis, a negative probability, or probabilities that don't sum to 1 raise ValueError."""
+        players = rbs.players()
+        player = players.names[self._state_reader.player_to_act(state, players)]
+        hypotheses = theory.hypotheses(rbs, state, player)
         if not hypotheses:
             raise ValueError(f"The theory of mind gave {player} no hypothesis")
         if negative := [probability for _, probability in hypotheses if probability < 0.0]:
@@ -94,15 +87,7 @@ class SemiDeterminizedSearch:
                     shared = replace(shared, iterations=1, seconds=None)
                     logger.info("%s's time is up, so this hypothesis gets 1 iteration", player)
             result = self._tree_search.search(
-                domain.problem,
-                domain.transitions,
-                domain.players,
-                state,
-                shared,
-                guidance,
-                valuation,
-                observation,
-                hypothesis.completions,
+                rbs, state, shared, guidance, valuation, hypothesis.completions
             )
             searched.append((HypothesisResult(hypothesis.label, probability, result.statistics), result))
         statistics = self._expected(searched)

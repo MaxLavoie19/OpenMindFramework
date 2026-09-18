@@ -1,12 +1,10 @@
 import math
 from collections.abc import Sequence
 
-from openmind.agent.model.domain import Domain
-from openmind.csp.service.solver import Solver
 from openmind.evaluation.model.action_values import ActionValues
 from openmind.evaluation.service.choice_measurer import ChoiceMeasurer
 from openmind.mcts.model.position_valuer import PositionValuer
-from openmind.predictor.service.predictor import Predictor
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
@@ -21,17 +19,13 @@ class ValueMeasurer:
     search with ratings, an action the valuer knows nothing about gets the mean of the others' values, and when it knows
     nothing about any, every action is top-valued."""
 
-    def __init__(
-        self, solver: Solver, predictor: Predictor, state_reader: StateReader, choice_measurer: ChoiceMeasurer
-    ) -> None:
-        self._solver = solver
-        self._predictor = predictor
+    def __init__(self, state_reader: StateReader, choice_measurer: ChoiceMeasurer) -> None:
         self._state_reader = state_reader
         self._choice_measurer = choice_measurer
 
     def measure(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         valuer: PositionValuer,
         positions: Sequence[tuple[State, ActionValues]],
         tolerance: float,
@@ -40,10 +34,10 @@ class ValueMeasurer:
         the position), the share of the top-valued actions that are optimal, and their mean regret."""
         measures: list[PositionMeasure] = []
         for state, action_values in positions:
-            player = self._state_reader.player_to_act(state, domain.players)
+            player = self._state_reader.player_to_act(state, rbs.players())
             best = max(value for _, value in action_values)
-            values = valuer.value(state)
-            estimates = [self._action_value(domain, valuer, state, action, player) for action, _ in action_values]
+            values = valuer.values(state)
+            estimates = [self._action_value(rbs, valuer, state, action, player) for action, _ in action_values]
             known = [estimate for estimate in estimates if estimate is not None]
             fill = math.fsum(known) / len(known) if known else 0.0
             filled = [fill if estimate is None else estimate for estimate in estimates]
@@ -64,15 +58,15 @@ class ValueMeasurer:
         return tuple(measures)
 
     def _action_value(
-        self, domain: Domain, valuer: PositionValuer, state: State, action: Action, player: int
+        self, rbs: RuleBasedSystem, valuer: PositionValuer, state: State, action: Action, player: int
     ) -> float | None:
         total = 0.0
-        for outcome, probability in self._predictor.predict(domain.transitions, state, action).outcomes:
-            if self._solver.solve(domain.problem, outcome):
-                values = valuer.value(outcome)
+        for outcome, probability in rbs.outcomes(state, action).outcomes:
+            if rbs.actions(outcome):
+                values = valuer.values(outcome)
                 if values is None:
                     return None
                 total += probability * values[player]
             else:
-                total += probability * self._state_reader.payoffs(outcome, domain.players)[player]
+                total += probability * self._state_reader.payoffs(outcome, rbs.players())[player]
         return total

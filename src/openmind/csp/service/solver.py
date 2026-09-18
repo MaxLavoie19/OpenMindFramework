@@ -1,26 +1,22 @@
 import logging
+from collections.abc import Mapping, Sequence
 from operator import itemgetter
 
-from openmind.csp.model.action_definition import ActionDefinition
 from openmind.csp.model.all_different_group import AllDifferentGroup
-from openmind.csp.model.discrete_domain import DiscreteDomain
-from openmind.csp.model.problem import Problem
 from openmind.csp.model.scoped_constraint import ScopedConstraint
 from openmind.csp.model.search_space import SearchSpace
 from openmind.csp.model.solve_statistics import SolveStatistics
-from openmind.csp.model.state_domain import StateDomain
 from openmind.csp.model.support_table import SupportTable
-from openmind.csp.model.variable import Variable
 from openmind.csp.service.backtracking_search import BacktrackingSearch
 from openmind.csp.service.constraint_checker import ConstraintChecker
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.parallel.service.memory_evictor import evict_oldest
-from openmind.rule.constant.rule_constant import ALL_DIFFERENT
-from openmind.rule.mapper.call_operand_mapper import CallOperandMapper
-from openmind.rule.model.called_rule import CalledRule
-from openmind.rule.model.python_rule import PythonRule
-from openmind.rule.model.rule import Rule
-from openmind.rule.service.rule_caller import RuleCaller
+from openmind.rbs.constant.rule_constant import ALL_DIFFERENT
+from openmind.rbs.mapper.call_operand_mapper import CallOperandMapper
+from openmind.rbs.model.called_rule import CalledRule
+from openmind.rbs.model.python_rule import PythonRule
+from openmind.rbs.model.rule import Rule
+from openmind.rbs.service.rule_caller import RuleCaller
 from openmind.world.constant.players_constant import PLAYER
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -30,11 +26,13 @@ logger = logging.getLogger(__name__)
 
 
 class Solver:
-    """Finds the actions whose parameter values satisfy all of their constraints in a state. The constraints reading no
-    parameter are checked first; then each parameter gets its values, fixed or computed from the state; each other
-    constraint takes the strongest form the parameters it reads allow (a domain filter, an all-different
-    group, a support table, or a forward-checked constraint), backtracking search does the rest, and results are cached
-    per problem and state until the process's memory guard clears them."""
+    """Finds the actions whose parameter values satisfy all of their constraints in a state.
+
+    It solves over rules: an action is a name, a values rule per parameter and its constraint rules, which is what an
+    RBS hands it (see `rbs/README.md`). The constraints reading no parameter are checked first; then each parameter's
+    rule gives its values; each other constraint takes the strongest form the parameters it reads allow (a domain
+    filter, an all-different group, a support table, or a forward-checked constraint), backtracking search does the
+    rest, and results are cached per action and state until the process's memory guard clears them."""
 
     def __init__(
         self,
@@ -47,7 +45,7 @@ class Solver:
         self._call_operand_mapper = call_operand_mapper
         self._constraint_checker = constraint_checker
         self._backtracking_search = backtracking_search
-        self._cache: dict[tuple[int, State, int | None], tuple[Problem, tuple[tuple[Action, ...], SolveStatistics]]] = {}
+        self._cache: dict[tuple[State, int | None, object], tuple[tuple[Action, ...], SolveStatistics]] = {}
         self._memory_guard = process_memory_guard()
         self._memory_guard.register(self)
 
@@ -71,54 +69,64 @@ class Solver:
         self._cache.clear()
 
     def solve(
-        self, problem: Problem, state: State, limit: int | None = None, player: str | None = None
+        self,
+        state: State,
+        action: str,
+        values: Mapping[str, Rule],
+        constraints: Sequence[Rule] = (),
+        definitions: PythonRule | None = None,
+        limit: int | None = None,
+        player: str | None = None,
     ) -> tuple[Action, ...]:
-        """Every solution, or at most limit, ordered by the variables' domains with the first variable changing slowest.
-        Given a player, such as one of several players acting at once, the rules also read it as `player`."""
-        return self.solve_with_statistics(problem, state, limit, player)[0]
+        """Every action of that name whose parameter values satisfy its constraints, or at most limit, ordered by the
+        parameters' values with the first parameter changing slowest. Given a player, such as one of several players
+        acting at once, the rules also read it as `player`."""
+        return self.solve_with_statistics(state, action, values, constraints, definitions, limit, player)[0]
 
     def solve_with_statistics(
-        self, problem: Problem, state: State, limit: int | None = None, player: str | None = None
+        self,
+        state: State,
+        action: str,
+        values: Mapping[str, Rule],
+        constraints: Sequence[Rule] = (),
+        definitions: PythonRule | None = None,
+        limit: int | None = None,
+        player: str | None = None,
     ) -> tuple[tuple[Action, ...], SolveStatistics]:
-        """The solutions solve gives, with what the search did summed over the problem's actions. A cached result keeps
-        the statistics of the search that found it. Given a player, a state variable named `player` raises ValueError."""
+        """The solutions solve gives, with what the search did. A cached result keeps the statistics of the search that
+        found it. Given a player, a state variable named `player` raises ValueError."""
         if player is not None:
             if any(name == PLAYER for name, _ in state.variables):
                 raise ValueError(f"A state variable is named {PLAYER!r}, the name rules read the player solved for by")
             state = State((*state.variables, (PLAYER, player)))
-        key = (id(problem), state, limit)
+        rules = (action, tuple(values.items()), tuple(constraints))
+        key = (state, limit, rules)
         cached = self._cache.get(key)
-        if cached is not None and cached[0] is problem:
-            return cached[1]
-        actions: list[Action] = []
-        assignments = dead_ends = pruned_values = 0
-        for definition in problem.actions:
-            remaining = None if limit is None else limit - len(actions)
-            if remaining == 0:
-                break
-            found, statistics = self._solve_action(definition, state, remaining, problem.definitions)
-            actions.extend(found)
-            assignments += statistics.assignments
-            dead_ends += statistics.dead_ends
-            pruned_values += statistics.pruned_values
-        result = (tuple(actions), SolveStatistics(len(actions), assignments, dead_ends, pruned_values))
+        if cached is not None:
+            return cached
+        found, statistics = self._solve_action(action, values, constraints, state, limit, definitions)
+        result = (tuple(found), statistics)
         self._memory_guard.remembered()
-        self._cache[key] = (problem, result)
+        self._cache[key] = result
         return result
 
     def _solve_action(
-        self, definition: ActionDefinition, state: State, limit: int | None, definitions: PythonRule | None
+        self,
+        action: str,
+        values: Mapping[str, Rule],
+        constraints: Sequence[Rule],
+        state: State,
+        limit: int | None,
+        definitions: PythonRule | None,
     ) -> tuple[list[Action], SolveStatistics]:
-        action = definition.name
-        names = [variable.name for variable in definition.variables]
+        names = list(values)
         prepared_constraints = [
-            (constraint, self._rule_caller.prepare(constraint, names, definitions))
-            for constraint in definition.constraints
+            (constraint, self._rule_caller.prepare(constraint, names, definitions)) for constraint in constraints
         ]
         for constraint, prepared in prepared_constraints:
             if not prepared.arguments and not self._constraint_checker.holds(prepared, state, action, {}):
                 return self._no_solution(action, constraint)
-        ordered = {variable.name: self._values(variable.domain, state, definitions) for variable in definition.variables}
+        ordered = {name: self._values(rule, state, definitions) for name, rule in values.items()}
         domains = dict(ordered)
 
         groups: list[AllDifferentGroup] = []
@@ -166,7 +174,7 @@ class Solver:
 
         space = SearchSpace(
             action,
-            tuple(Variable(name, DiscreteDomain(domains[name])) for name in names),
+            tuple((name, domains[name]) for name in names),
             tuple(tables),
             tuple(groups),
             tuple(constraints),
@@ -186,13 +194,10 @@ class Solver:
         )
         return [Action(action, tuple(sorted(solution.items(), key=itemgetter(0)))) for solution in solutions], statistics
 
-    def _values(
-        self, domain: DiscreteDomain | StateDomain, state: State, definitions: PythonRule | None
-    ) -> tuple[Value, ...]:
-        """A discrete domain's values, or the values a state domain's rule gives in the state, each once, in order."""
-        if isinstance(domain, DiscreteDomain):
-            return domain.values
-        return tuple(dict.fromkeys(self._rule_caller.value(domain.rule, state, None, None, definitions)))  # type: ignore[call-overload]
+    def _values(self, rule: Rule, state: State, definitions: PythonRule | None) -> tuple[Value, ...]:
+        """The values the parameter's rule gives in the state, each once, in the order it gives them. A rule that reads
+        nothing gives the same values in every state."""
+        return tuple(dict.fromkeys(self._rule_caller.value(rule, state, None, None, definitions)))  # type: ignore[call-overload]
 
     def _group(
         self, constraint: Rule, names: list[str], definitions: PythonRule | None

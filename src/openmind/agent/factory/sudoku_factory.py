@@ -1,9 +1,7 @@
-from openmind.agent.builder.domain_builder import DomainBuilder
 from openmind.agent.constant.sudoku_constant import (
     BOX,
     CELL,
     CELLS,
-    CERTAIN,
     CLUE_MARKS,
     DIGITS,
     EMPTY,
@@ -19,16 +17,10 @@ from openmind.agent.constant.sudoku_constant import (
     TURN,
     UNSET,
 )
-from openmind.agent.model.domain import Domain
-from openmind.csp.builder.problem_builder import ProblemBuilder
-from openmind.csp.model.discrete_domain import DiscreteDomain
-from openmind.csp.model.problem import Problem
-from openmind.csp.model.variable import Variable
-from openmind.predictor.builder.transition_model_builder import TransitionModelBuilder
-from openmind.predictor.model.branch import Branch
-from openmind.predictor.model.transition_model import TransitionModel
-from openmind.rule.constant.rule_constant import ALL_DIFFERENT
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.constant.rule_constant import ALL_DIFFERENT
+from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
@@ -45,23 +37,25 @@ def create_sudoku_initial_state(grid: str = PUZZLE) -> State:
     return builder.with_variable(TURN, PLAYER).with_variable(PAYOFF, UNSET).build()
 
 
-def create_sudoku_problem(grid: str = PUZZLE) -> Problem:
+def declare_sudoku_moves(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
     """Fill every empty cell of the grid at once, with no digit twice in a row, a column or a box. Each empty cell is a
     parameter named like cell_1_3; a clue is read from the state as cell[1, 1]."""
     clues = {(row, col): clue for row, col, clue in _cells(grid)}
-    digits = DiscreteDomain(DIGITS)
-    constraints = (
+    digits = PythonRule(repr(DIGITS))
+    for (row, col), clue in clues.items():
+        if clue is EMPTY:
+            declarer.values(FILL, _parameter(row, col), digits)
+    declarer.constraints(
+        FILL,
         PythonRule(f"{PAYOFF} is {UNSET!r}"),
         *(
             PythonRule(f"{ALL_DIFFERENT}({', '.join(_operand(row, col, clues[row, col]) for row, col in unit)})")
             for unit in _units()
         ),
     )
-    variables = tuple(Variable(_parameter(row, col), digits) for (row, col), clue in clues.items() if clue is EMPTY)
-    return ProblemBuilder().with_action(FILL, variables, constraints).build()
 
 
-def create_sudoku_transitions(grid: str = PUZZLE) -> TransitionModel:
+def declare_sudoku_effects(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
     """Write every filled value into its cell of the grid; a full grid pays 1.0, the share of cells filled."""
     effects = "\n".join(
         (
@@ -69,7 +63,7 @@ def create_sudoku_transitions(grid: str = PUZZLE) -> TransitionModel:
             f"{PAYOFF} = {SOLVED!r}",
         )
     )
-    return TransitionModelBuilder().with_transition(FILL, (Branch(CERTAIN, PythonRule(effects)),)).build()
+    declarer.leads_to(FILL, PythonRule(effects))
 
 
 def create_sudoku_players() -> Players:
@@ -77,18 +71,18 @@ def create_sudoku_players() -> Players:
     return Players((PLAYER,), TURN, (PAYOFF,))
 
 
-def create_sudoku_domain(name: str = NAME, grid: str = PUZZLE) -> Domain:
-    """Sudoku: the grid, the constraints that fill it, the transition that writes the solution, and the solver. Without
-    arguments, the domain "sudoku" holds the puzzle written here."""
-    return (
-        DomainBuilder()
-        .with_name(name)
-        .with_initial_state(create_sudoku_initial_state(grid))
-        .with_problem(create_sudoku_problem(grid))
-        .with_transitions(create_sudoku_transitions(grid))
-        .with_players(create_sudoku_players())
-        .build()
-    )
+def declare_sudoku(
+    knowledge_base: KnowledgeBase, name: str = NAME, grid: str = PUZZLE, weight: float = 1.0
+) -> str:
+    """Declares sudoku's rules into the knowledge base and gives back the context they were declared under. Without
+    arguments, the context "sudoku" holds the puzzle written here."""
+    declarer = RuleDeclarer(knowledge_base, name, weight)
+    declarer.starts_at(create_sudoku_initial_state(grid))
+    declarer.played_by(create_sudoku_players())
+    declarer.empty(CELL, EMPTY)
+    declare_sudoku_moves(declarer, grid)
+    declare_sudoku_effects(declarer, grid)
+    return declarer.done()
 
 
 def _cells(grid: str) -> list[tuple[int, int, Value]]:

@@ -10,11 +10,9 @@ from scipy.stats import binomtest, wilcoxon
 
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import EXPLORATION, MATCH_GAME, RANDOM_POLICY_TEXT
-from openmind.agent.model.domain import Domain
 from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.model.policy_factory import PolicyFactory
 from openmind.agent.service.game_memory import GameMemory
-from openmind.agent.service.game_recorder import GameRecorder
 from openmind.evaluation.constant.evaluation_constant import RANDOM_OPPONENT, REFERENCE_TOLERANCE, UNTRAINED_OPPONENT
 from openmind.evaluation.factory.baseline_policy_factory import create_built_agent, create_random_policy
 from openmind.evaluation.mapper.match_game_summary_mapper import MatchGameSummaryMapper
@@ -37,7 +35,8 @@ from openmind.mcts.factory.move_prior_factory import create_move_prior
 from openmind.mcts.model.action_rater import ActionRater
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.parallel.service.task_runner import TaskRunner
-from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.rbs.factory.rule_factory import create_rule_caller
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 from openmind.timing.model.time_control import TimeControl
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
@@ -51,7 +50,7 @@ type Measures = tuple[np.ndarray, np.ndarray, np.ndarray]
 
 
 class Evaluator:
-    """Measures how well an agent plays a domain: results against baselines and agreement with perfect play, from exact
+    """Measures how well an agent plays a rbs: results against baselines and agreement with perfect play, from exact
     search or, with reference_iterations, from long unguided searches on positions of random games. When a rater guides
     the agent or a valuer values its positions, agreement is also measured, on the same positions, for an unguided agent
     and for each model alone, and the agent is compared with the unguided one position by position with paired tests.
@@ -69,10 +68,8 @@ class Evaluator:
         state_text_mapper: StateTextMapper,
         action_text_mapper: ActionTextMapper,
         game_memory: GameMemory | None = None,
-        game_recorder: GameRecorder | None = None,
     ) -> None:
         self._game_memory = game_memory
-        self._game_recorder = GameRecorder(create_rule_caller()) if game_recorder is None else game_recorder
         self._match_runner = match_runner
         self._exact_search = exact_search
         self._reference_search = reference_search
@@ -84,7 +81,7 @@ class Evaluator:
 
     def evaluate(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         agent_builder: AgentBuilder,
         settings: EvaluationSettings,
         rules_file: str | None = None,
@@ -109,10 +106,10 @@ class Evaluator:
             .with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
         )
         agent_builder.with_selection(settings.selection, settings.puct_exploration).with_prior(
-            create_move_prior(settings.prior, settings.prior_temperature, domain, rater, valuer)
+            create_move_prior(settings.prior, settings.prior_temperature, rbs, rater, valuer)
         )
         untrained.with_selection(settings.selection, settings.puct_exploration).with_prior(
-            create_move_prior(UNIFORM_PRIOR, settings.prior_temperature, domain)
+            create_move_prior(UNIFORM_PRIOR, settings.prior_temperature, rbs)
         )
         if settings.time_control is not None:
             for builder in (agent_builder, untrained):
@@ -126,7 +123,7 @@ class Evaluator:
         evaluated = partial(create_built_agent, agent_builder)
         evaluated_model = agent_builder.describe(values_file or rules_file or "evaluated agent")
         baselines = tuple(
-            self._series(domain, evaluated, name, opponent, settings.games, rng, evaluated_model, model, settings.time_control)
+            self._series(rbs, evaluated, name, opponent, settings.games, rng, evaluated_model, model, settings.time_control)
             for name, opponent, model in opponents
         )
         every_action_optimal = 0
@@ -139,7 +136,7 @@ class Evaluator:
         if settings.positions == 0:
             logger.info("Agreement with perfect play skipped: no positions")
         else:
-            sample, values, tolerance = self._reference(domain, settings, rng)
+            sample, values, tolerance = self._reference(rbs, settings, rng)
             every_action_optimal = sum(
                 1
                 for action_values in values
@@ -149,7 +146,7 @@ class Evaluator:
             for iterations in settings.budgets:
                 agent_builder.with_iterations(iterations).with_seed(settings.seed)
                 guided_result, guided_measures = self._agreement(
-                    domain, agent_builder, iterations, sample, values, tolerance, "Agreement"
+                    rbs, agent_builder, iterations, sample, values, tolerance, "Agreement"
                 )
                 agreement.append(guided_result)
                 if compared:
@@ -161,17 +158,17 @@ class Evaluator:
                         .with_rollout_limit(settings.rollout_limit, settings.unfinished_payoff)
                     )
                     unguided_result, unguided_measures = self._agreement(
-                        domain, unguided, iterations, sample, values, tolerance, "Unguided agreement"
+                        rbs, unguided, iterations, sample, values, tolerance, "Unguided agreement"
                     )
                     unguided_agreement.append(unguided_result)
                     guidance_tests.append(self._guidance_test(iterations, guided_measures, unguided_measures))
             if rater is not None:
                 rater_agreement = self._rater_agreement(rater, sample, values, tolerance)
             if valuer is not None:
-                value_measure = self._value_measure(domain, valuer, sample, values, tolerance)
+                value_measure = self._value_measure(rbs, valuer, sample, values, tolerance)
         created_at = datetime.now().replace(microsecond=0)
         return EvaluationReport(
-            domain.name,
+            rbs.context,
             created_at,
             rules_file,
             settings,
@@ -186,24 +183,24 @@ class Evaluator:
         )
 
     def _reference(
-        self, domain: Domain, settings: EvaluationSettings, rng: random.Random
+        self, rbs: RuleBasedSystem, settings: EvaluationSettings, rng: random.Random
     ) -> tuple[list[State], list[ActionValues], float]:
         """The positions to measure, every legal action's value in each, and how far from the best an optimal action's
         value may be."""
         if settings.reference_iterations is None:
-            positions = self._exact_search.positions(domain)
+            positions = self._exact_search.positions(rbs)
             if settings.positions is None:
                 sample = list(positions)
             else:
                 sample = rng.sample(positions, min(settings.positions, len(positions)))
-            return sample, [self._exact_search.action_values(domain, state) for state in sample], 0.0
+            return sample, [self._exact_search.action_values(rbs, state) for state in sample], 0.0
         if settings.positions is None:
             raise ValueError("A reference search samples positions: give a number of positions, not all of them")
-        sample = list(self._reference_search.positions(domain, settings.positions, rng))
+        sample = list(self._reference_search.positions(rbs, settings.positions, rng))
         count = len(sample)
         values = self._task_runner.map(
             self._reference_search.action_values,
-            [domain] * count,
+            [rbs] * count,
             sample,
             [settings.reference_iterations] * count,
             [settings.seed] * count,
@@ -217,7 +214,7 @@ class Evaluator:
 
     def _series(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         evaluated: PolicyFactory,
         name: str,
         opponent: PolicyFactory,
@@ -233,15 +230,15 @@ class Evaluator:
             mapper = MatchGameSummaryMapper()
 
             def remember(index: int, seat: int, game: MatchGame) -> None:
-                record = self._game_recorder.record(domain, game.actions, game.flagged, game.payoffs) if game.actions else None
+                record = rbs.record(game.actions, game.flagged, game.payoffs) if game.actions else None
                 memory.remember(
                     mapper.to_summary(
-                        domain, game, MATCH_GAME, None, index + 1, seat, evaluated_model, opponent_model, record, time_control
+                        rbs, game, MATCH_GAME, None, index + 1, seat, evaluated_model, opponent_model, record, time_control
                     )
                 )
 
             on_game = remember
-        results = self._match_runner.series(domain, evaluated, opponent, name, games, rng, time_control, on_game)
+        results = self._match_runner.series(rbs, evaluated, opponent, name, games, rng, time_control, on_game)
         logger.info(
             "Against %s: %d games, %d wins, %d draws, %d losses%s",
             name,
@@ -255,7 +252,7 @@ class Evaluator:
 
     def _agreement(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         agent_builder: AgentBuilder,
         iterations: int,
         sample: list[State],
@@ -269,7 +266,7 @@ class Evaluator:
         count = len(slices)
         results = self._task_runner.map(
             self._choice_measurer.measure,
-            [domain] * count,
+            [rbs] * count,
             [agent_builder] * count,
             slices,
             [tolerance] * count,
@@ -392,7 +389,7 @@ class Evaluator:
 
     def _value_measure(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         valuer: PositionValuer,
         sample: list[State],
         values: list[ActionValues],
@@ -402,7 +399,7 @@ class Evaluator:
         slices = self._task_runner.split(list(zip(sample, values, strict=True)))
         count = len(slices)
         results = self._task_runner.map(
-            self._value_measurer.measure, [domain] * count, [valuer] * count, slices, [tolerance] * count
+            self._value_measurer.measure, [rbs] * count, [valuer] * count, slices, [tolerance] * count
         )
         measures = [measure for result in results for measure in result]
         errors = [error for error, _, _ in measures if error is not None]

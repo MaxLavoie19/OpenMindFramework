@@ -2,8 +2,8 @@ import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from openmind.agent.model.domain import Domain
 from openmind.inference.constant.inference_constant import BEST, COUNT, HERE, ME, OTHER, OUTSIDE, WORST
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
 
@@ -24,7 +24,7 @@ class PositionView:
     - `changed(player, base, at)`: how many of those actions change the variable of `base` at index `at`, each outcome
       weighted by its probability, worked out once for the position and player;
     - what if: `with_value(base, at, value)`, the view with one variable set; `cleared(at)`, with every grid's cell at
-      `at` set to the grid's empty value, the value most of its cells hold in the initial position; `copied(source,
+      `at` set to the grid's empty value, as the domain declares it; `copied(source,
       target)`, with every grid's value at `source` also at `target`; `alone(at)`, with every grid emptied but at `at`.
       Everything else, the player to act included, stays as it is;
     - `best(player, reading)` and `worst(player, reading)`: the highest and lowest reading expected after one of those
@@ -34,11 +34,11 @@ class PositionView:
     A look-ahead's result is kept on the view, by the reading's code, the views it closes over, and the `me`, `other`
     and `here` it reads."""
 
-    __slots__ = ("_mechanics", "_domain", "_state", "_variables", "_memo", "_changes", "_after")
+    __slots__ = ("_mechanics", "_rbs", "_state", "_variables", "_memo", "_changes", "_after")
 
-    def __init__(self, mechanics: "Mechanics", domain: Domain, state: State, after: "PositionView | None" = None) -> None:
+    def __init__(self, mechanics: "Mechanics", rbs: RuleBasedSystem, state: State, after: "PositionView | None" = None) -> None:
         self._mechanics = mechanics
-        self._domain = domain
+        self._rbs = rbs
         self._state = state
         self._variables: dict[str, object] | None = None
         self._memo: dict[tuple[object, ...], float] = {}
@@ -92,7 +92,7 @@ class PositionView:
         return variables.get(shifted if len(shifted) > 1 else shifted[0], OUTSIDE)
 
     def moves(self, player: str) -> Moves:
-        return self._mechanics.moves(self._domain, self._state, player)
+        return self._mechanics.moves(self._rbs, self._state, player)
 
     def mobility(self, player: str) -> int:
         return len(self.moves(player))
@@ -100,20 +100,20 @@ class PositionView:
     def changed(self, player: str, base: str, at: object) -> float:
         changes = self._changes.get(player)
         if changes is None:
-            changes = self._changes[player] = self._mechanics.changes(self._domain, self._state, player)
+            changes = self._changes[player] = self._mechanics.changes(self._rbs, self._state, player)
         return changes.get((base, at), 0.0)
 
     def with_value(self, base: str, at: object, value: Value) -> "PositionView":
-        return self._mechanics.view(self._domain, self._mechanics.with_value(self._state, base, at, value))
+        return self._mechanics.view(self._rbs, self._mechanics.with_value(self._state, base, at, value))
 
     def cleared(self, at: object) -> "PositionView":
-        return self._mechanics.view(self._domain, self._mechanics.cleared(self._domain, self._state, at))
+        return self._mechanics.view(self._rbs, self._mechanics.cleared(self._rbs, self._state, at))
 
     def copied(self, source: object, target: object) -> "PositionView":
-        return self._mechanics.view(self._domain, self._mechanics.copied(self._state, source, target))
+        return self._mechanics.view(self._rbs, self._mechanics.copied(self._state, source, target))
 
     def alone(self, at: object) -> "PositionView":
-        return self._mechanics.view(self._domain, self._mechanics.alone(self._domain, self._state, at))
+        return self._mechanics.view(self._rbs, self._mechanics.alone(self._rbs, self._state, at))
 
     def best(self, player: str, reading: Reading) -> float:
         return self._look_ahead(BEST, player, reading)

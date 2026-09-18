@@ -2,7 +2,6 @@ from dataclasses import replace
 
 from openmind.training.mapper.training_report_json_mapper_tests import REPORT, ROUND
 from openmind.training.mapper.training_report_text_mapper import TrainingReportTextMapper
-from openmind.training.model.pondering_summary import PonderingSummary
 
 
 def test_each_round_is_a_line_of_the_table() -> None:
@@ -19,15 +18,6 @@ def test_a_round_handed_over_before_its_games_shows_none_against_each_opponent()
     lines = TrainingReportTextMapper().to_text(report).splitlines()
 
     assert lines[3].split() == ["2", "1", "0.691229", "0.691963", "0.0110", "none", "none", "none", "3600"]
-
-
-def test_a_round_that_pondered_shows_its_positions_proofs_and_seeds() -> None:
-    report = replace(REPORT, rounds=(replace(ROUND, pondering=PonderingSummary(50, 7, 12, 3, 1, 90, 41)),))
-
-    lines = TrainingReportTextMapper().to_text(report).splitlines()
-
-    assert "pondered  proven  seeds  seeds kept  seeds in rules  endings deduced  endings proven  seconds" in lines[1]
-    assert lines[2].split()[-8:] == ["50", "7", "12", "3", "1", "90", "41", "3600"]
 
 
 def test_a_training_without_rounds_is_only_its_heading() -> None:

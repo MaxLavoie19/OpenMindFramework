@@ -8,10 +8,13 @@
 - **Outcome probability distribution**: each possible outcome of an action with its probability, given by the
   predictor.
 - **Payoff**: what each player gets when the game ends; a predicted outcome of a transition to a win or a draw.
-- **Domain (within the agent)**: a problem the agent works on, such as tic-tac-toe. It is not a domain in the code.
+- **Game**: a problem the agent works on, such as tic-tac-toe, as the rules the knowledge base holds for its context.
+  OMF simulates games from these rules; it doesn't run them. It is not a domain in the code.
+- **Context**: what a rule is relevant to, with its weight there: a game, a variant, a relaxation, a round of training,
+  an arm. An RBS is built for a context from the rules relevant to it.
 - **Variant**: a game that differs from another in some of its sizes or rules, such as 4 in a row from tic-tac-toe.
-  A variant is data read by the game's recipes, and its domain is named `<game>/<variant>`, such as
-  `tictactoe/fourinarow`.
+  A variant is data read by the game's factory, which declares it under the context `<game>/<variant>`, such as
+  `tictactoe/fourinarow`. A relaxation is a variant with fewer constraints.
 
 ## Rules of a domain
 
@@ -23,7 +26,7 @@
 | Players and initial state | the domain's factory |
 
 Rules are Python: every constraint, effect and RBS condition is the source of a Python expression or script, compiled
-once and run against states (see `src/openmind/rule/README.md`). Any Python is allowed, imports and libraries included,
+once and run against states (see `src/openmind/rbs/README.md`). Any Python is allowed, imports and libraries included,
 because OpenMind is a general-purpose framework that people use to write the rules of their own problems; nothing in
 the framework is specific to one game. A domain's definitions script runs once and gives all of its rules shared
 names. Factories write rules for now; later, a decoder will turn unstructured data into rules.
@@ -33,15 +36,13 @@ names. Factories write rules for now; later, a decoder will turn unstructured da
 | Domain | Owns | Status |
 |---|---|---|
 | `world` | `Value`, `State`, `Action`, and their readable text | iterations 1 and 8 |
-| `rule` | Python rules: compiling them, running them against states, and a state as the names a rule reads | iteration 9 |
-| `csp` | Constraint satisfaction: action definitions, domains fixed or computed from the state, constraints, and a solver with propagation and backtracking | iterations 1, 7, 9 and 12 |
-| `agent` | The agent and its domains: tic-tac-toe with its variants, sudoku, the repeated prisoner's dilemma with its variants, and the domains installed projects register | iterations 4, 7, 8 and 12 |
+| `csp` | Constraint satisfaction, the RBS's solver for legal moves: one action at a time over its values and constraint rules, with propagation and backtracking | iterations 1, 7, 9 and 12 |
+| `agent` | The agent and the games it knows: tic-tac-toe with its variants, sudoku, the repeated prisoner's dilemma with its variants, rock paper scissors, each declared as rules, and the games installed projects register | iterations 4, 7, 8 and 12 |
 | `entrypoint` | Ways to run the framework: `openmind-play`, `openmind-evaluate`, `openmind-distill`, `openmind-select`, `openmind-distill-values`, `openmind-solve` | iterations 3–7, 10 and 11 |
-| `predictor` | Transitions, outcome probability distributions | iterations 2 and 9 |
-| `observation` | What each player sees of a state, and the states that could be true given what they see | hidden information |
+| `predictor` | What an action leads to, from its effects rules: outcome probability distributions | iterations 2 and 9 |
 | `mcts` | Monte-Carlo Tree Search, optionally guided by a model behind `ActionRater`, valuing positions with a model behind `PositionValuer`, and stopping rollouts at a limit | iterations 4–6, 11 and 12 |
 | `evaluation` | Measures how well an agent plays: baselines, agreement with perfect play or a reference search, paired tests of guidance, rules and values alone | iterations 5, 8, 10 and 11 |
-| `rbs` | Rules generated from search for any domain, as hypotheses validated on held-out games, that rate actions and explain their ratings; value rules, weighted terms fitted sparsely, that value positions | iterations 6, 9, 10 and 11 |
+| `rbs` | The home of rules and what a game is made of: an RBS is a game, as the rules retrieved for a context; declaring rules, relaxing a game into a variant, Python rules compiled once and run against states, and heuristics — position and move rules, fitted sparsely — that value positions and rate moves | iterations 6, 9, 10 and 11, and 2026-09-17 |
 | `inference` | The inference engine: views of positions that look ahead with a domain's own actions, a search growing expressions of them (patterns of any size, thresholds, combinations, look-aheads) within a time and memory budget, and deduction on one position with induction of candidate expressions from what it proved | iteration 14 |
 | `training` | Self-play, distillation of models from search, selection of the rules that play no worse than all of them, distillation of value rules, and a loop training value rules round after round | iterations 6, 10, 11 and 13 |
 | `parallel` | Running independent games and searches in worker processes, results in order, logs forwarded; each process's caches cleared by memory, and workers capped, ended with a diagnosis and replaced when they stay over | iteration 10, 2026-09-15 |

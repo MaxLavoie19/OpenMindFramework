@@ -1,10 +1,8 @@
 import textwrap
 
-from openmind.agent.builder.domain_builder import DomainBuilder
 from openmind.agent.constant.agent_constant import FLAGGED
 from openmind.agent.constant.tictactoe_constant import (
     CELL,
-    CERTAIN,
     COL,
     DIRECTIONS,
     DRAW,
@@ -22,16 +20,10 @@ from openmind.agent.constant.tictactoe_constant import (
     UNSET,
     WIN,
 )
-from openmind.agent.model.domain import Domain
 from openmind.agent.model.tictactoe_variant import TicTacToeVariant
-from openmind.csp.builder.problem_builder import ProblemBuilder
-from openmind.csp.model.discrete_domain import DiscreteDomain
-from openmind.csp.model.problem import Problem
-from openmind.csp.model.variable import Variable
-from openmind.predictor.builder.transition_model_builder import TransitionModelBuilder
-from openmind.predictor.model.branch import Branch
-from openmind.predictor.model.transition_model import TransitionModel
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
@@ -84,24 +76,22 @@ def create_tictactoe_definitions(variant: TicTacToeVariant = STANDARD) -> Python
     )
 
 
-def create_tictactoe_problem(variant: TicTacToeVariant = STANDARD) -> Problem:
+def declare_tictactoe_moves(declarer: RuleDeclarer, variant: TicTacToeVariant = STANDARD) -> None:
     """While no payoff is set: place a mark on an empty cell or, with gravity, drop it in a column whose top cell is
     empty."""
     _check(variant)
     no_payoff_set = tuple(PythonRule(f"{PAYOFF}[{player!r}] is {UNSET!r}") for player in PLAYERS)
-    columns = DiscreteDomain(tuple(range(1, variant.width + 1)))
-    builder = ProblemBuilder().with_definitions(create_tictactoe_definitions(variant))
+    columns = PythonRule(repr(tuple(range(1, variant.width + 1))))
     if variant.gravity:
-        top_cell_is_empty = PythonRule(f"{CELL}[1, {COL}] is {EMPTY!r}")
-        return builder.with_action(DROP, (Variable(COL, columns),), (*no_payoff_set, top_cell_is_empty)).build()
-    rows = DiscreteDomain(tuple(range(1, variant.height + 1)))
-    cell_is_empty = PythonRule(f"{CELL}[{ROW}, {COL}] is {EMPTY!r}")
-    return builder.with_action(
-        PLACE, (Variable(ROW, rows), Variable(COL, columns)), (*no_payoff_set, cell_is_empty)
-    ).build()
+        declarer.values(DROP, COL, columns)
+        declarer.constraints(DROP, *no_payoff_set, PythonRule(f"{CELL}[1, {COL}] is {EMPTY!r}"))
+        return
+    declarer.values(PLACE, ROW, PythonRule(repr(tuple(range(1, variant.height + 1)))))
+    declarer.values(PLACE, COL, columns)
+    declarer.constraints(PLACE, *no_payoff_set, PythonRule(f"{CELL}[{ROW}, {COL}] is {EMPTY!r}"))
 
 
-def create_tictactoe_transitions(variant: TicTacToeVariant = STANDARD) -> TransitionModel:
+def declare_tictactoe_effects(declarer: RuleDeclarer, variant: TicTacToeVariant = STANDARD) -> None:
     """Mark the landing cell and check only the lines through it for a win, set a draw on a full board, then pass the
     turn."""
     _check(variant)
@@ -126,12 +116,8 @@ def create_tictactoe_transitions(variant: TicTacToeVariant = STANDARD) -> Transi
         {TURN} = other({TURN})
         """
     )
-    return (
-        TransitionModelBuilder()
-        .with_definitions(create_tictactoe_definitions(variant))
-        .with_transition(action, (Branch(CERTAIN, PythonRule(effects)),))
-        .build()
-    )
+    declarer.definitions(create_tictactoe_definitions(variant), effects=True)
+    declarer.leads_to(action, PythonRule(effects))
 
 
 def create_tictactoe_timeout() -> PythonRule:
@@ -147,19 +133,21 @@ def create_tictactoe_players() -> Players:
     )
 
 
-def create_tictactoe_domain(variant: TicTacToeVariant = STANDARD) -> Domain:
-    """Tic-tac-toe or one of its variants: its initial state, constraints, transitions, players, and what running out of
-    time does on a clock. The standard game is named "tictactoe", any other variant "tictactoe/<variant>"."""
-    return (
-        DomainBuilder()
-        .with_name(NAME if variant == STANDARD else SEPARATOR.join((NAME, variant.name)))
-        .with_initial_state(create_tictactoe_initial_state(variant))
-        .with_problem(create_tictactoe_problem(variant))
-        .with_transitions(create_tictactoe_transitions(variant))
-        .with_players(create_tictactoe_players())
-        .with_timeout(create_tictactoe_timeout())
-        .build()
-    )
+def declare_tictactoe(
+    knowledge_base: KnowledgeBase, variant: TicTacToeVariant = STANDARD, weight: float = 1.0
+) -> str:
+    """Declares tic-tac-toe's rules, or one of its variants', into the knowledge base, and gives back the context they
+    were declared under: "tictactoe" for the standard game, "tictactoe/<variant>" for any other."""
+    context = NAME if variant == STANDARD else SEPARATOR.join((NAME, variant.name))
+    declarer = RuleDeclarer(knowledge_base, context, weight)
+    declarer.starts_at(create_tictactoe_initial_state(variant))
+    declarer.played_by(create_tictactoe_players())
+    declarer.empty(CELL, EMPTY)
+    declarer.definitions(create_tictactoe_definitions(variant))
+    declare_tictactoe_moves(declarer, variant)
+    declare_tictactoe_effects(declarer, variant)
+    declarer.timeout(create_tictactoe_timeout())
+    return declarer.done()
 
 
 def _check(variant: TicTacToeVariant) -> None:

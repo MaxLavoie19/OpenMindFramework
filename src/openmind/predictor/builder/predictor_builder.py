@@ -1,5 +1,5 @@
 from openmind.predictor.service.predictor import Predictor
-from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.rbs.factory.rule_factory import create_rule_caller
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 
 

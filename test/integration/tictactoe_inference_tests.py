@@ -1,17 +1,21 @@
+from collections.abc import Callable
 import logging
 
 import pytest
 
-from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
-from openmind.agent.model.domain import Domain
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_value_generator
+from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.world.model.state import State
 
 pytestmark = pytest.mark.log_level("INFO")
+
+type Game = Callable[[str], RuleBasedSystem]
 
 LINES = (
     *(((row, 1), (row, 2), (row, 3)) for row in (1, 2, 3)),
@@ -21,15 +25,15 @@ LINES = (
 )
 
 
-def reachable(domain: Domain) -> list[State]:
+def reachable(rbs: RuleBasedSystem) -> list[State]:
     """Every position a game of tic-tac-toe can reach, in the order first reached."""
     solver, predictor = SolverBuilder().build(), PredictorBuilder().build()
-    seen, frontier = {domain.initial_state: None}, [domain.initial_state]
+    seen, frontier = {rbs.start(): None}, [rbs.start()]
     while frontier:
         following: list[State] = []
         for state in frontier:
-            for action in solver.solve(domain.problem, state):
-                for outcome, _ in predictor.predict(domain.transitions, state, action).outcomes:
+            for action in rbs.actions(state):
+                for outcome, _ in rbs.outcomes(state, action).outcomes:
                     if outcome not in seen:
                         seen[outcome] = None
                         following.append(outcome)
@@ -53,11 +57,13 @@ def guaranteed_win(cells: dict[tuple[int, int], object]) -> bool:
     return True
 
 
-def test_the_search_deduces_a_guaranteed_win_by_looking_two_actions_ahead(caplog: pytest.LogCaptureFixture) -> None:
+def test_the_search_deduces_a_guaranteed_win_by_looking_two_actions_ahead(
+    game: Game, knowledge: KnowledgeBase, caplog: pytest.LogCaptureFixture
+) -> None:
     caplog.set_level(logging.INFO, logger="openmind")
-    domain = create_tictactoe_domain()
+    rbs = game("tictactoe")
     rows: list[PositionRow] = []
-    for state in reachable(domain):
+    for state in reachable(rbs):
         variables = dict(state.variables)
         if variables["turn"] != "O" or variables["payoff(X)"] is not None:
             continue
@@ -68,10 +74,12 @@ def test_the_search_deduces_a_guaranteed_win_by_looking_two_actions_ahead(caplog
         prices=(0.1, 0.01, 0.001), max_steps=1000, tolerance=1e-6, seconds=600.0, memory_bytes=2 * 1024**3, candidates=20_000
     )
 
-    result = create_value_generator().generate(domain, training, held_out, settings)
+    result = create_value_generator().generate(
+        rbs, training, held_out, settings, RuleDeclarer(knowledge, rbs.context)
+    )
 
     no_rule, chosen = result.fits[0], result.chosen
     assert sum(row.target for row in rows) > 0
     assert chosen is not None and chosen.held_out_loss is not None and no_rule.held_out_loss is not None
-    assert any("lambda v2:" in rule.term.source for rule in result.value_base.rules)
+    assert any("lambda v2:" in rule.name for rule in result.rules)
     assert chosen.held_out_loss < no_rule.held_out_loss / 2

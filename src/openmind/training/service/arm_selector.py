@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class ArmSelector:
-    """Chooses which two arms, signals an agent follows, play a game against each other, by UCB1 on their game scores. An
+    """Chooses which two arms, the models agents follow, play a game against each other, by UCB1 on their game scores. An
     arm's score is its points per game, a win 1, a draw 0.5, a loss 0. Games under way count as games without points yet,
     so arms playing now aren't chosen over and over before their results come back; an arm with games under way and none
     finished scores 0.5 meanwhile. An arm never chosen goes first."""

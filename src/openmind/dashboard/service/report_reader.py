@@ -16,45 +16,24 @@ class ReportReader:
             return None
         document = json.loads(reports[-1].read_text(encoding="utf-8"))
         rounds = tuple(self._row(item) for item in document["rounds"])
-        latest = document["rounds"][-1]["value_base"]["rules"] if document["rounds"] else []
+        latest = document["rounds"][-1]["position_rules"] if document["rounds"] else []
         rules = tuple(
-            sorted(((rule["term"], float(rule["weight"])) for rule in latest), key=lambda rule: -abs(rule[1]))
+            sorted(((rule["name"], float(rule["weight"])) for rule in latest), key=lambda rule: -abs(rule[1]))
         )
-        arms = tuple(
-            (
-                arm["name"],
-                int(arm["agreements"]),
-                int(arm["disagreements"]),
-                float(arm["accuracy"]),
-                float(arm["reliability"]),
-                int(arm.get("games", 0)),
-                int(arm.get("wins", 0)),
-                int(arm.get("draws", 0)),
-                int(arm.get("losses", 0)),
-            )
-            for arm in (document["rounds"][-1].get("arms") or [] if document["rounds"] else [])
-        )
-        return ReportSummary(reports[-1], document["created_at"], bool(document["complete"]), rounds, rules, arms)
+        return ReportSummary(reports[-1], document["created_at"], bool(document["complete"]), rounds, rules)
 
     def _row(self, item: dict[str, object]) -> RoundRow:
         chosen = item.get("chosen_price")
         fits = item.get("fits") or []
         loss = next((fit["held_out_loss"] for fit in fits if fit["price"] == chosen), None)  # type: ignore[index,union-attr]
         previous = item.get("against_previous")
-        pondering = item.get("pondering")
         return RoundRow(
             int(item["number"]),  # type: ignore[call-overload]
-            len(item["value_base"]["rules"]),  # type: ignore[index]
+            len(item["position_rules"]),  # type: ignore[index]
             loss,
             item.get("held_out_error"),  # type: ignore[arg-type]
             tuple((results["opponent"], self._results(results)) for results in item.get("baselines") or []),  # type: ignore[union-attr]
             None if previous is None else f"{previous['opponent']}: {self._results(previous)}",  # type: ignore[index,arg-type]
-            None
-            if pondering is None
-            else tuple(  # type: ignore[arg-type]
-                int(pondering.get(key, 0))  # type: ignore[union-attr]
-                for key in ("positions", "proven", "seeds", "seeds_kept", "seeds_in_rules", "endings_deduced", "endings_proven")
-            ),
             float(item["seconds"]),  # type: ignore[arg-type]
         )
 

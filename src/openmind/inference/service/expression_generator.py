@@ -1,7 +1,6 @@
 import itertools
 from collections.abc import Iterable, Sequence
 
-from openmind.agent.model.domain import Domain
 from openmind.inference.constant.inference_constant import (
     AGGREGATE_INDEX,
     AGGREGATE_OTHER_INDEX,
@@ -28,7 +27,8 @@ from openmind.inference.model.expression import Expression
 from openmind.inference.model.pattern import Pattern
 from openmind.inference.model.pattern_condition import PatternCondition
 from openmind.inference.model.vocabulary import Vocabulary
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
@@ -59,7 +59,7 @@ class ExpressionGenerator:
     def __init__(self, variable_name_mapper: VariableNameMapper) -> None:
         self._variable_name_mapper = variable_name_mapper
 
-    def vocabulary(self, domain: Domain, states: Iterable[State]) -> Vocabulary:
+    def vocabulary(self, rbs: RuleBasedSystem, states: Iterable[State]) -> Vocabulary:
         values_by_variable: dict[str, dict[Value, None]] = {}
         for state in states:
             for name, value in state.variables:
@@ -78,8 +78,8 @@ class ExpressionGenerator:
                 for first, second in itertools.permutations(sorted(indices), 2):  # type: ignore[type-var]
                     offsets[tuple(a - b for a, b in zip(first, second, strict=True))] = None  # type: ignore[operator]
         return Vocabulary(
-            domain.players.names,
-            domain.players.to_act,
+            rbs.players().names,
+            rbs.players().to_act,
             {name: tuple(values) for name, values in values_by_variable.items()},
             {base: tuple(values) for base, values in values_by_base.items()},
             {base: frozenset(indices) for base, indices in indices_by_base.items()},
@@ -116,10 +116,7 @@ class ExpressionGenerator:
                     self._add(expressions, Expression(self._pattern_template(pattern, vocabulary), 1, 0, pattern))
                     if self._whole(indices):
                         held = f"{VIEW}.{base}[{AGGREGATE_INDEX}] == {rendered}"
-                        readings = (
-                            (self._parity(base, AGGREGATE_INDEX), 0),
-                            *((self._changed(base, player, AGGREGATE_INDEX), 1) for player in (ME, OTHER)),
-                        )
+                        readings = tuple((self._changed(base, player, AGGREGATE_INDEX), 1) for player in (ME, OTHER))
                         for reading, plies in readings:
                             aggregate = Aggregate(
                                 base,
@@ -217,26 +214,15 @@ class ExpressionGenerator:
                         readings.extend((f"{reading} == {rendered}", 0) for rendered in renderings)
                     if whole:
                         readings.extend((self._changed(base, player, variable), 1) for player in (ME, OTHER))
-                        readings.extend(self._cell_readings(base, variable, renderings, self._arity(indices)))
                         readings.extend(self._what_if_readings(base, variable, renderings))
                 if pair and not self._numeric(values):
                     readings.append((f"{VIEW}.{base}[{AGGREGATE_INDEX}] == {VIEW}.{base}[{AGGREGATE_OTHER_INDEX}]", 0))
                 if pair and whole:
-                    readings.extend(
-                        (f"({rendered} in {VIEW}.{base}.between({AGGREGATE_INDEX}, {AGGREGATE_OTHER_INDEX}))", 0) for rendered in renderings
-                    )
                     if ME in renderings:
                         copied = f"{VIEW}.copied({AGGREGATE_OTHER_INDEX}, {AGGREGATE_INDEX})"
                         readings.extend(
                             (f"{copied}.changed({player}, {base!r}, {AGGREGATE_INDEX})", 1) for player in (ME, OTHER)
                         )
-            if whole:
-                readings.extend((self._parity(aggregate.base, variable), 0) for variable in variables)
-                if pair:
-                    readings.extend(
-                        (f"{VIEW}.{aggregate.base}.{query}({AGGREGATE_INDEX}, {AGGREGATE_OTHER_INDEX})", 0)
-                        for query in ("distance", "aligned")
-                    )
             if pair and not aggregate.pair:
                 continue
             for reading, plies in readings:
@@ -261,24 +247,9 @@ class ExpressionGenerator:
                 self._add(children, Expression(self._aggregate_template(grown), grown_clauses + 1, grown_plies, aggregate=grown))
         return tuple(children.values())
 
-    def _parity(self, base: str, index: str) -> str:
-        """Which of two alternating colours the cell at the index is."""
-        return f"{VIEW}.{base}.parity({index})"
-
     def _changed(self, base: str, player: str, index: str) -> str:
         """How many of the player's actions change the base at the index: one action ahead."""
         return f"{VIEW}.changed({player}, {base!r}, {index})"
-
-    def _cell_readings(self, base: str, index: str, renderings: Sequence[str], arity: int) -> list[tuple[str, int]]:
-        """Around the cell at the index: how many neighbours hold each name, and whether a ray in each direction meets
-        it; a direction steps every coordinate by -1, 0 or 1."""
-        readings = [
-            (f"sum(1 for value in {VIEW}.{base}.neighbours({index}) if value == {rendered})", 0) for rendered in renderings
-        ]
-        for direction in itertools.product((-1, 0, 1), repeat=arity):
-            if any(direction):
-                readings.extend((f"({rendered} in {VIEW}.{base}.ray({index}, {direction!r}))", 0) for rendered in renderings)
-        return readings
 
     def _what_if_readings(self, base: str, index: str, renderings: Sequence[str]) -> list[tuple[str, int]]:
         """What if: how many moves the thing at the index has alone on the grids, for each player; and, for a grid whose

@@ -1,5 +1,5 @@
 from openmind.doxastic.model.claim import Claim
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.model.python_rule import PythonRule
 
 
 def test_the_name_the_holder_and_the_subjects_identify_a_claim_whether_or_not_it_carries_its_rule() -> None:

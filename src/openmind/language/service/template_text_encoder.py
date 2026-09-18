@@ -80,8 +80,6 @@ class TemplateTextEncoder:
                 )
             case meaning.WINNING_MOVES_OF:
                 return words.WINS_TEMPLATE.format(subject=words.SUBJECTS[str(node[kind])])
-            case meaning.MOVES_TO_A_WIN_FOR:
-                return words.SOLO_DISTANCE_TEMPLATE.format(possessive=words.POSSESSIVES[str(node[kind])])
             case meaning.WIN_CHANCE_OF_THE_ACTION:
                 return words.WIN_CHANCE_TEMPLATE
             case meaning.SOURCE:

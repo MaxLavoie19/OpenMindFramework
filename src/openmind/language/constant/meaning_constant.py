@@ -59,7 +59,6 @@ ENTRIES = "entries"
 PAIRS = "pairs of different entries"
 #: Quantities of the older consequence library.
 WINNING_MOVES_OF = "winning moves of"
-MOVES_TO_A_WIN_FOR = "own moves to a win for"
 WIN_CHANCE_OF_THE_ACTION = "win chance of the action"
 #: What no construct reads, kept as its source.
 SOURCE = "source"

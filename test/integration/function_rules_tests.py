@@ -1,4 +1,4 @@
-"""A domain written the way a project writes one: its own Python functions, handed to OMF, instead of rule source.
+"""A game declared the way a project declares one: its own Python functions, handed to OMF, instead of rule source.
 
 The game is the strip of `rbs/service/consequence_library_tests.py`, rule for rule, so the two can be compared.
 """
@@ -7,21 +7,12 @@ import pickle
 
 import pytest
 
-from openmind.agent.builder.domain_builder import DomainBuilder
-from openmind.agent.model.domain import Domain
-from openmind.agent.service.game_recorder import GameRecorder
-from openmind.csp.builder.solver_builder import SolverBuilder
-from openmind.csp.model.action_definition import ActionDefinition
-from openmind.csp.model.discrete_domain import DiscreteDomain
-from openmind.csp.model.problem import Problem
-from openmind.csp.model.state_domain import StateDomain
-from openmind.csp.model.variable import Variable
-from openmind.predictor.builder.predictor_builder import PredictorBuilder
-from openmind.predictor.model.branch import Branch
-from openmind.predictor.model.transition import Transition
-from openmind.predictor.model.transition_model import TransitionModel
-from openmind.rbs.service.consequence_library_tests import place, position, strip_domain
-from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.rbs.factory.rule_factory import create_rule_caller
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.factory.rbs_factory import create_rule_based_system
+from openmind.rbs.service.consequence_library_tests import Declare, place, position, strip_domain
+from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
@@ -77,64 +68,64 @@ def game_record(state: State, actions: tuple) -> str:  # type: ignore[type-arg]
     return " ".join(str(dict(action.parameters)["col"]) for action in actions)
 
 
-def function_strip() -> Domain:
-    """The strip game with every rule written as one of this module's functions."""
-    return (
-        DomainBuilder()
-        .with_name("strip")
-        .with_initial_state(position({}, "X"))
-        .with_problem(Problem((ActionDefinition("place", (Variable("col", StateDomain(free_columns)),), (is_empty,)),)))
-        .with_transitions(TransitionModel((Transition("place", (Branch(1.0, place_mark),)),)))
-        .with_players(Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)")))
-        .with_ending(why_it_ended)
-        .with_record(game_record)
-        .build()
-    )
+def function_strip(knowledge: KnowledgeBase) -> RuleBasedSystem:
+    """The strip game with every rule declared as one of this module's functions."""
+    declarer = RuleDeclarer(knowledge, "function strip", rule_caller=create_rule_caller())
+    declarer.starts_at(position({}, "X"))
+    declarer.played_by(Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)")))
+    declarer.values("place", "col", free_columns)
+    declarer.constraint("place", 1, is_empty)
+    declarer.leads_to("place", place_mark)
+    declarer.ending(why_it_ended)
+    declarer.record(game_record)
+    return create_rule_based_system(knowledge, declarer.done())
 
 
-def test_a_domain_written_as_functions_solves_and_plays_like_the_same_rules_as_source() -> None:
-    written, source = function_strip(), strip_domain()
-    solver, predictor = SolverBuilder().build(), PredictorBuilder().build()
+def test_a_game_declared_as_functions_solves_and_plays_like_the_same_rules_as_source(
+    declared: Declare, knowledge: KnowledgeBase
+) -> None:
+    written, source = function_strip(knowledge), strip_domain(declared)
     state = position({1: "X", 2: "O"}, "X")
 
-    actions = solver.solve(written.problem, state)
-    outcome = predictor.predict(written.transitions, state, place(3)).outcomes
+    actions = written.actions(state)
+    outcome = written.outcomes(state, place(3)).outcomes
 
-    assert actions == solver.solve(source.problem, state)
-    assert outcome == predictor.predict(source.transitions, state, place(3)).outcomes
+    assert actions == source.actions(state)
+    assert outcome == source.outcomes(state, place(3)).outcomes
     # A line ends the game in both, and nothing is legal afterwards.
-    (won, _), = predictor.predict(written.transitions, position({1: "X"}, "X"), place(2)).outcomes
-    assert won == predictor.predict(source.transitions, position({1: "X"}, "X"), place(2)).outcomes[0][0]
-    assert not solver.solve(written.problem, won)
+    ((won, _),) = written.outcomes(position({1: "X"}, "X"), place(2)).outcomes
+    assert won == source.outcomes(position({1: "X"}, "X"), place(2)).outcomes[0][0]
+    assert not written.actions(won)
 
 
-def test_the_ending_and_the_record_come_from_the_project_s_functions() -> None:
-    recorder, domain = GameRecorder(create_rule_caller()), function_strip()
+def test_the_ending_and_the_record_come_from_the_project_s_functions(knowledge: KnowledgeBase) -> None:
+    rbs = function_strip(knowledge)
     won = place_mark(position({1: "X"}, "X"), 2)
 
-    assert recorder.ending(domain, won) == "X made a line"
-    assert recorder.ending(domain, position({1: "X"}, "O")) is None
-    assert recorder.record(domain, (place(1), place(3))) == "1 3"
+    assert rbs.ended(won) == "X made a line"
+    assert rbs.ended(position({1: "X"}, "O")) is None
+    assert rbs.record((place(1), place(3))) == "1 3"
 
 
-def test_a_function_no_worker_could_find_is_rejected() -> None:
+def test_a_function_no_worker_could_find_is_rejected(knowledge: KnowledgeBase) -> None:
     def inside() -> bool:
         return True
 
+    declarer = RuleDeclarer(knowledge, "strip", rule_caller=create_rule_caller())
     with pytest.raises(ValueError, match="can't be found by a worker process"):
-        DomainBuilder().with_ending(inside)
+        declarer.ending(inside)
     with pytest.raises(ValueError, match="can't be found by a worker process"):
-        DomainBuilder().with_record(lambda state, actions: "")
+        declarer.record(lambda state, actions: "")
 
 
-def test_a_domain_of_functions_travels_to_another_process() -> None:
-    domain = function_strip()
+def test_a_game_of_functions_travels_to_another_process(knowledge: KnowledgeBase) -> None:
+    rbs = function_strip(knowledge)
+    state = position({1: "X"}, "O")
 
-    copy = pickle.loads(pickle.dumps(domain))
+    copy = pickle.loads(pickle.dumps(rbs))
 
-    solver = SolverBuilder().build()
-    assert copy == domain
-    assert solver.solve(copy.problem, position({1: "X"}, "O")) == solver.solve(domain.problem, position({1: "X"}, "O"))
+    assert copy.rules == rbs.rules
+    assert copy.actions(state) == rbs.actions(state)
 
 
 def older_record(state: State, actions: tuple) -> str:  # type: ignore[type-arg]

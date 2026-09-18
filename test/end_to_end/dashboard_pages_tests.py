@@ -1,6 +1,6 @@
+from collections.abc import Callable
 from pathlib import Path
 
-from openmind.agent.factory.tictactoe_factory import create_tictactoe_domain
 from openmind.agent.service.game_memory import GameMemory
 from openmind.dashboard.model.dashboard_settings import DashboardSettings
 from openmind.dashboard.service.game_browser_tests import play
@@ -8,14 +8,17 @@ from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_ba
 from openmind.entrypoint.dashboard import page
 
 
+type Game = Callable[[str], RuleBasedSystem]
+
+
 def settings(tmp_path: Path) -> DashboardSettings:
     return DashboardSettings("tictactoe", tmp_path / "training", tmp_path / "log", None, knowledge_directory=tmp_path / "knowledge")
 
 
-def test_the_dashboard_serves_the_list_of_decisive_games_each_game_and_404_for_anything_else(tmp_path: Path) -> None:
+def test_the_dashboard_serves_the_list_of_decisive_games_each_game_and_404_for_anything_else(game: Game, tmp_path: Path) -> None:
     memory = GameMemory(create_knowledge_base("tictactoe", tmp_path / "knowledge"))
-    play(create_tictactoe_domain(), memory, 1, True)
-    play(create_tictactoe_domain(), memory, 2, True)
+    play(game("tictactoe"), memory, 1, True)
+    play(game("tictactoe"), memory, 2, True)
 
     status, listing = page(settings(tmp_path), 30, "/games")
     (first_id,) = [record.id for record in memory._knowledge_base.recall(keyword="game")][:1]  # type: ignore[attr-defined]

@@ -1,20 +1,22 @@
 from pathlib import Path
 
 from openmind.rbs.factory.rbs_factory import create_rule_explainer
-from openmind.rbs.model.value_base import ValueBase
-from openmind.rbs.model.value_rule import ValueRule
-from openmind.rbs.service.consequence_library_tests import strip_domain
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.model.python_rule import PythonRule
+from openmind.doxastic.constant.doxastic_constant import COUNTED
+from openmind.doxastic.constant.rule_kind_constant import POSITION
+from openmind.doxastic.model.provenance import Provenance
+from openmind.doxastic.model.rule_record import RuleRecord
+from openmind.rbs.service.consequence_library_tests import Declare, strip_domain
 
-VALUE_BASE = ValueBase(
-    "strip",
-    0.1,
-    0.0,
-    1.0,
-    (
-        ValueRule(PythonRule("here.count(me, lambda v1: v1.payoff[me] == 1.0)"), 1.5),
-        ValueRule(PythonRule("here.mobility(other)"), -0.25),
-    ),
+
+def position(source: str, weight: float) -> RuleRecord:
+    """A position heuristic as the knowledge base holds it, named by the term it reads."""
+    return RuleRecord(source, POSITION, PythonRule(source), Provenance(COUNTED, "strip"), (("strip", weight),))
+
+
+POSITION_RULES = (
+    position("here.count(me, lambda v1: v1.payoff[me] == 1.0)", 1.5),
+    position("here.mobility(other)", -0.25),
 )
 
 
@@ -31,8 +33,8 @@ class FakeLanguageModel:
         return self._answers.pop(0) if self._answers else None
 
 
-def test_without_a_language_model_every_rule_gets_its_literal_reading_only() -> None:
-    explanations = create_rule_explainer().explain(VALUE_BASE, strip_domain())
+def test_without_a_language_model_every_rule_gets_its_literal_reading_only(declared: Declare) -> None:
+    explanations = create_rule_explainer().explain(POSITION_RULES, strip_domain(declared))
 
     assert [(explanation.weight, explanation.reading, explanation.sentence, explanation.model) for explanation in explanations] == [
         (1.5, "the number of my moves after which my payoff is 1", None, None),
@@ -40,13 +42,13 @@ def test_without_a_language_model_every_rule_gets_its_literal_reading_only() -> 
     ]
 
 
-def test_a_language_model_is_asked_once_per_rule_and_its_sentences_are_cached(tmp_path: Path) -> None:
-    explainer, domain = create_rule_explainer(), strip_domain()
+def test_a_language_model_is_asked_once_per_rule_and_its_sentences_are_cached(declared: Declare, tmp_path: Path) -> None:
+    explainer, rbs = create_rule_explainer(), strip_domain(declared)
     first = FakeLanguageModel("How many winning moves I have.", None)
 
-    explanations = explainer.explain(VALUE_BASE, domain, first, tmp_path)  # type: ignore[arg-type]
+    explanations = explainer.explain(POSITION_RULES, rbs, first, tmp_path)  # type: ignore[arg-type]
     second = FakeLanguageModel("How few moves the opponent has.")
-    again = explainer.explain(VALUE_BASE, domain, second, tmp_path)  # type: ignore[arg-type]
+    again = explainer.explain(POSITION_RULES, rbs, second, tmp_path)  # type: ignore[arg-type]
 
     assert [explanation.sentence for explanation in explanations] == ["How many winning moves I have.", None]
     assert [explanation.sentence for explanation in again] == ["How many winning moves I have.", "How few moves the opponent has."]

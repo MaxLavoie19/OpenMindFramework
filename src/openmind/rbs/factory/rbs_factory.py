@@ -1,30 +1,17 @@
-from openmind.agent.model.domain import Domain
 from openmind.inference.mapper.expression_sentence_mapper import ExpressionSentenceMapper
 from openmind.inference.service.expression_generator import ExpressionGenerator
-from openmind.rbs.builder.rule_generator_builder import RuleGeneratorBuilder
-from openmind.rbs.builder.rule_rater_builder import RuleRaterBuilder
-from openmind.rbs.builder.rule_valuer_builder import RuleValuerBuilder
+from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.builder.value_generator_builder import ValueGeneratorBuilder
-from openmind.rbs.model.rule_base import RuleBase
-from openmind.rbs.model.value_base import ValueBase
+from openmind.csp.factory.csp_factory import create_solver
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.predictor.factory.predictor_factory import create_predictor
 from openmind.rbs.repository.explanation_cache_repository import ExplanationCacheRepository
 from openmind.rbs.service.rule_explainer import RuleExplainer
-from openmind.rbs.service.rule_generator import RuleGenerator
-from openmind.rbs.service.rule_rater import RuleRater
-from openmind.rbs.service.rule_valuer import RuleValuer
+from openmind.rbs.factory.rule_factory import create_rule_caller
 from openmind.rbs.service.value_generator import ValueGenerator
 from openmind.world.mapper.variable_name_mapper import VariableNameMapper
-
-
-def create_rule_generator(workers: int = 1) -> RuleGenerator:
-    """A rule generator with its goal pattern miner, primitive generator, hypothesis discoverer and validator, checking
-    conditions in that many worker processes."""
-    return RuleGeneratorBuilder().with_workers(workers).build()
-
-
-def create_rule_rater(rule_base: RuleBase, domain: Domain) -> RuleRater:
-    """A rater rating the domain's actions with the given rule base."""
-    return RuleRaterBuilder().with_rule_base(rule_base).with_domain(domain).build()
+from openmind.world.service.state_reader import StateReader
 
 
 def create_value_generator(workers: int = 1) -> ValueGenerator:
@@ -40,6 +27,16 @@ def create_rule_explainer() -> RuleExplainer:
     )
 
 
-def create_rule_valuer(value_base: ValueBase, domain: Domain) -> RuleValuer:
-    """A valuer valuing the domain's positions with the given value base."""
-    return RuleValuerBuilder().with_value_base(value_base).with_domain(domain).build()
+def create_rule_based_system(knowledge_base: KnowledgeBase, context: str) -> RuleBasedSystem:
+    """The RBS for a context: the rules the knowledge base holds for it, with the CSP as its solver for legal moves and
+    a predictor for what a move leads to. A context the knowledge base holds no rule for gives an RBS that can't say
+    where the game starts."""
+    return RuleBasedSystem(
+        context,
+        knowledge_base.rules(context),
+        create_solver(),
+        create_predictor(),
+        create_rule_caller(),
+        StateReader(),
+        ConsequenceLibraryBuilder().build(),
+    )

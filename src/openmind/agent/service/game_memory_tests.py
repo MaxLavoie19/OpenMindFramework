@@ -15,11 +15,11 @@ from openmind.timing.model.time_control import TimeControl
 
 pytestmark = pytest.mark.log_level("INFO")
 
-LOSING = ModelDescription("deduced, losing color doubled", '{"valuation": {"rules": ["losing color"]}}')
-FORK = ModelDescription("deduced, fork color doubled", '{"valuation": {"rules": ["fork color"]}}')
+WIN_ARM = ModelDescription("win", '{"valuation": {"rules": ["win"]}}')
+WEIGHTED_ARM = ModelDescription("weighted", '{"valuation": {"rules": ["weighted"]}}')
 
 
-def game(number: int, payoffs: tuple[float, float], models: tuple[ModelDescription, ...] = (LOSING, FORK)) -> GameSummary:
+def game(number: int, payoffs: tuple[float, float], models: tuple[ModelDescription, ...] = (WIN_ARM, WEIGHTED_ARM)) -> GameSummary:
     return GameSummary(
         "chess",
         ARMS_GAME,
@@ -44,19 +44,19 @@ def test_a_game_leaves_each_model_once_the_game_and_each_player_s_outcome(tmp_pa
     memory = GameMemory(base)
 
     memory.remember(game(1, (1.0, 0.0)))
-    memory.remember(game(2, (0.5, 0.5), (FORK, LOSING)))
+    memory.remember(game(2, (0.5, 0.5), (WEIGHTED_ARM, WIN_ARM)))
 
     models = base.recall(keyword=MODEL_KEYWORD)
     assert [(record.text, record.names) for record in models] == [
-        (LOSING.text, (LOSING.id, LOSING.name)),
-        (FORK.text, (FORK.id, FORK.name)),
+        (WIN_ARM.text, (WIN_ARM.id, WIN_ARM.name)),
+        (WEIGHTED_ARM.text, (WEIGHTED_ARM.id, WEIGHTED_ARM.name)),
     ]
     assert len(base.recall(keyword=GAME_KEYWORD)) == 2
-    assert [record.text for record in base.recall(keyword=WIN)] == ["deduced, losing color doubled won as white in round 1 arms game 1"]
-    assert [record.text for record in base.recall(keyword=LOSS)] == ["deduced, fork color doubled lost as black in round 1 arms game 1"]
+    assert [record.text for record in base.recall(keyword=WIN)] == ["win won as white in round 1 arms game 1"]
+    assert [record.text for record in base.recall(keyword=LOSS)] == ["weighted lost as black in round 1 arms game 1"]
     assert [record.text for record in base.recall(keyword=DRAW)] == [
-        "deduced, fork color doubled drew as white in round 1 arms game 2",
-        "deduced, losing color doubled drew as black in round 1 arms game 2",
+        "weighted drew as white in round 1 arms game 2",
+        "win drew as black in round 1 arms game 2",
     ]
     assert {(record.provenance.source, record.provenance.game, record.provenance.round) for record in base.recall()} == {
         (PLAYED, "round 1 arms game 1", 1),
@@ -72,8 +72,8 @@ def test_a_model_is_logged_the_first_time_it_plays(tmp_path: Path, caplog: pytes
     memory.remember(game(2, (1.0, 0.0)))
 
     assert caplog.messages == [
-        f"Remembered model {LOSING.id} (deduced, losing color doubled)",
-        f"Remembered model {FORK.id} (deduced, fork color doubled)",
+        f"Remembered model {WIN_ARM.id} (win)",
+        f"Remembered model {WEIGHTED_ARM.id} (weighted)",
     ]
 
 
@@ -82,9 +82,9 @@ def test_scores_count_wins_draws_and_losses_by_model_name_or_id(tmp_path: Path) 
     for number, payoffs in enumerate(((1.0, 0.0), (0.5, 0.5), (0.0, 1.0), (1.0, 0.0)), start=1):
         memory.remember(game(number, payoffs))
 
-    assert memory.scores((LOSING.name, FORK.id, "never played")) == {
-        LOSING.name: (4, 2, 1, 1),
-        FORK.id: (4, 1, 1, 2),
+    assert memory.scores((WIN_ARM.name, WEIGHTED_ARM.id, "never played")) == {
+        WIN_ARM.name: (4, 2, 1, 1),
+        WEIGHTED_ARM.id: (4, 1, 1, 2),
         "never played": (0, 0, 0, 0),
     }
 
@@ -98,7 +98,7 @@ def test_after_a_crash_the_knowledge_base_finds_every_finished_game_and_its_mode
     reopened.remember(game(3, (0.0, 1.0)))
 
     base = create_knowledge_base("chess", tmp_path)
-    assert reopened.models() == (LOSING, FORK)
+    assert reopened.models() == (WIN_ARM, WEIGHTED_ARM)
     assert len(base.recall(keyword=MODEL_KEYWORD)) == 2
     games = [GameSummaryJsonMapper().from_json(record.text, reopened.models()) for record in base.recall(keyword=GAME_KEYWORD)]
     assert games == [game(1, (1.0, 0.0)), game(2, (0.5, 0.5)), game(3, (0.0, 1.0))]

@@ -1,7 +1,7 @@
-from openmind.agent.model.domain import Domain
 from openmind.agent.model.game_summary import GameSummary
 from openmind.agent.model.model_description import ModelDescription
 from openmind.evaluation.model.match_game import MatchGame
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.timing.model.time_control import TimeControl
 
 
@@ -11,7 +11,7 @@ class MatchGameSummaryMapper:
 
     def to_summary(
         self,
-        domain: Domain,
+        rbs: RuleBasedSystem,
         game: MatchGame,
         kind: str,
         round_number: int | None,
@@ -24,12 +24,12 @@ class MatchGameSummaryMapper:
     ) -> GameSummary:
         models = (evaluated, opponent) if seat == 0 else (opponent, evaluated)
         return GameSummary(
-            domain.name,
+            rbs.context,
             kind,
             round_number,
             number,
             (game.policy_seed, game.outcome_seed),
-            domain.players.names,
+            rbs.players().names,
             models,
             game.payoffs,
             game.plies,

@@ -3,33 +3,31 @@ import logging
 import pytest
 
 from openmind.predictor.factory.predictor_factory import create_predictor
-from openmind.predictor.model.branch import Branch
-from openmind.predictor.model.transition import Transition
-from openmind.predictor.model.transition_model import TransitionModel
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
 from openmind.world.model.state import State
 
 
-def predict(state: State, *branches: Branch, definitions: str | None = None) -> tuple[tuple[State, float], ...]:
-    model = TransitionModel((Transition("move", branches),), None if definitions is None else PythonRule(definitions))
-    return create_predictor().predict(model, state, Action("move", (("to", 2),))).outcomes
+type Outcome = tuple[float, PythonRule]
 
 
-def certain(effects: str) -> Branch:
-    return Branch(1.0, PythonRule(effects))
+def predict(state: State, *outcomes: Outcome, definitions: str | None = None) -> tuple[tuple[State, float], ...]:
+    seen = None if definitions is None else PythonRule(definitions)
+    return create_predictor().predict(state, Action("move", (("to", 2),)), outcomes, seen).outcomes
+
+
+def certain(effects: str) -> Outcome:
+    return 1.0, PythonRule(effects)
 
 
 def test_actions_taken_at_once_run_in_turn_multiplying_their_branches_then_the_resolution_runs() -> None:
-    pick = Transition(
-        "pick", (Branch(0.5, PythonRule("picked[player] = number")), Branch(0.5, PythonRule("picked[player] = number + 1")))
-    )
-    model = TransitionModel((pick,), None, (certain("total = picked['A'] + picked['B']"),))
+    pick = ((0.5, PythonRule("picked[player] = number")), (0.5, PythonRule("picked[player] = number + 1")))
+    together = (certain("total = picked['A'] + picked['B']"),)
     state = State((("picked(A)", None), ("picked(B)", None), ("total", None)))
     joint = JointAction((("A", Action("pick", (("number", 1),))), ("B", Action("pick", (("number", 10),)))))
 
-    outcomes = create_predictor().predict_joint(model, state, joint).outcomes
+    outcomes = create_predictor().predict_joint(state, joint, {"pick": pick}, together).outcomes
 
     assert [(dict(outcome.variables)["total"], probability) for outcome, probability in outcomes] == [
         (11, 0.25),
@@ -40,10 +38,12 @@ def test_actions_taken_at_once_run_in_turn_multiplying_their_branches_then_the_r
 
 
 def test_an_action_taken_at_once_with_a_parameter_named_player_raises() -> None:
-    model = TransitionModel((Transition("pick", (certain("x = 1"),)),))
+    effects = {"pick": (certain("x = 1"),)}
 
     with pytest.raises(ValueError, match="parameter named 'player'"):
-        create_predictor().predict_joint(model, State((("x", 0),)), JointAction((("A", Action("pick", (("player", "B"),))),)))
+        create_predictor().predict_joint(
+            State((("x", 0),)), JointAction((("A", Action("pick", (("player", "B"),))),)), effects
+        )
 
 
 def test_effects_set_state_variables_from_the_parameters() -> None:
@@ -71,8 +71,8 @@ def test_effects_see_the_definitions() -> None:
 
 
 def test_each_branch_gives_an_outcome_with_its_probability() -> None:
-    hit = Branch(0.25, PythonRule("score = 1"))
-    miss = Branch(0.75, PythonRule(""))
+    hit = (0.25, PythonRule("score = 1"))
+    miss = (0.75, PythonRule(""))
 
     assert predict(State((("score", 0),)), hit, miss) == (
         (State((("score", 1),)), 0.25),
@@ -86,9 +86,9 @@ def test_an_effect_on_an_index_the_state_lacks_adds_the_variable() -> None:
     assert outcomes == ((State((("cell(1)", None), ("cell(2)", None), ("cell(3)", "X"))), 1.0),)
 
 
-def test_action_without_a_transition_raises() -> None:
+def test_an_action_without_an_effects_rule_raises() -> None:
     with pytest.raises(KeyError, match="jump"):
-        create_predictor().predict(TransitionModel(()), State(()), Action("jump", ()))
+        create_predictor().predict(State(()), Action("jump", ()), ())
 
 
 def test_logs_the_changes_and_the_outcomes(caplog: pytest.LogCaptureFixture) -> None:

@@ -4,14 +4,16 @@ from datetime import datetime
 from pathlib import Path
 
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
-from openmind.agent.factory.domain_factory import create_domain
+from openmind.doxastic.constant.rule_kind_constant import MOVE, POSITION
+from openmind.rbs.factory.rbs_factory import create_rule_based_system
+from openmind.agent.constant.agent_constant import EXPLORATION
+from openmind.agent.factory.game_factory import create_game
 from openmind.agent.service.game_memory import GameMemory
 from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.entrypoint.clock_options import add_clock_options, add_knowledge_option
-from openmind.entrypoint.search_options import add_selection_options
-from openmind.mcts.constant.mcts_constant import RATER_PRIOR, VALUE_PRIOR
 from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
+from openmind.entrypoint.rollout_options import checked_unfinished_payoff
+from openmind.entrypoint.search_options import add_selection_options
 from openmind.evaluation.constant.evaluation_constant import (
     ALL_POSITIONS,
     DEFAULT_BUDGETS,
@@ -25,19 +27,15 @@ from openmind.evaluation.mapper.report_json_mapper import ReportJsonMapper
 from openmind.evaluation.mapper.report_text_mapper import ReportTextMapper
 from openmind.evaluation.model.evaluation_settings import EvaluationSettings
 from openmind.evaluation.repository.report_repository import ReportRepository
+from openmind.mcts.constant.mcts_constant import RATER_PRIOR, VALUE_PRIOR
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
-from openmind.rbs.factory.rbs_factory import create_rule_rater, create_rule_valuer
-from openmind.rbs.mapper.rule_base_json_mapper import RuleBaseJsonMapper
-from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
-from openmind.rbs.repository.rule_base_repository import RuleBaseRepository
-from openmind.rbs.repository.value_base_repository import ValueBaseRepository
 
 logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Measures how well the agent plays a domain, prints the report and its summary, and saves the report."""
-    parser = argparse.ArgumentParser(prog="openmind-evaluate", description="Measure how well the agent plays a domain.")
+    """Measures how well the agent plays a rbs, prints the report and its summary, and saves the report."""
+    parser = argparse.ArgumentParser(prog="openmind-evaluate", description="Measure how well the agent plays a rbs.")
     parser.add_argument("domain", help="domain to evaluate, such as tictactoe")
     parser.add_argument(
         "--games", type=int, default=DEFAULT_GAMES, help=f"games per baseline series (default: {DEFAULT_GAMES})"
@@ -70,7 +68,10 @@ def main(argv: list[str] | None = None) -> None:
         "for domains exact search can't reach (default: exact search)",
     )
     parser.add_argument(
-        "--rules", type=Path, default=None, help="rule base guiding the evaluated agent (default: unguided)"
+        "--heuristics",
+        default=None,
+        help="the context whose position and move rules the evaluated agent plays, such as a round of training "
+        "(default: none, rollouts play to the end)",
     )
     parser.add_argument(
         "--rollouts",
@@ -78,12 +79,6 @@ def main(argv: list[str] | None = None) -> None:
         choices=("guided", "unguided"),
         help="whether the guided agent's rollouts follow the rules' ratings, or only its tree's nodes are rated "
         "(default: guided)",
-    )
-    parser.add_argument(
-        "--values",
-        type=Path,
-        default=None,
-        help="value rules valuing the positions the evaluated agent's rollouts reach (default: rollouts play to the end)",
     )
     parser.add_argument(
         "--rollout-actions",
@@ -101,9 +96,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--unfinished-payoff",
         type=float,
-        default=DEFAULT_UNFINISHED_PAYOFF,
-        help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF}, a draw in "
-        "games paying 1, 0.5 and 0)",
+        default=None,
+        help="each player's payoff for a rollout stopped at the limit; needed with --rollout-limit",
     )
     parser.add_argument(
         "--workers",
@@ -127,13 +121,12 @@ def main(argv: list[str] | None = None) -> None:
     add_knowledge_option(parser)
     add_selection_options(parser)
     arguments = parser.parse_args(argv)
-    if arguments.prior == RATER_PRIOR and arguments.rules is None:
-        parser.error("--prior rater needs --rules")
-    if arguments.prior == VALUE_PRIOR and arguments.values is None:
-        parser.error("--prior value needs --values")
-    domain = create_domain(arguments.domain)
-    if arguments.time_control is not None and domain.timeout is None:
-        parser.error(f"{domain.name} can't be played on a clock: it has no timeout rule")
+    if arguments.prior in (RATER_PRIOR, VALUE_PRIOR) and arguments.heuristics is None:
+        parser.error(f"--prior {arguments.prior} needs --heuristics")
+    knowledge_base = create_knowledge_base(arguments.domain.split("/")[0], arguments.knowledge)
+    rbs = create_game(arguments.domain, knowledge_base)
+    if arguments.time_control is not None and not rbs.timed():
+        parser.error(f"{rbs.context} can't be played on a clock: it has no timeout rule")
     settings = EvaluationSettings(
         arguments.games,
         arguments.iterations,
@@ -144,7 +137,7 @@ def main(argv: list[str] | None = None) -> None:
         arguments.rollouts == "guided",
         arguments.rollout_actions,
         arguments.rollout_limit,
-        None if arguments.rollout_limit is None else arguments.unfinished_payoff,
+        checked_unfinished_payoff(parser, arguments),
         arguments.time_control,
         arguments.expected_steps,
         arguments.time_reserve,
@@ -154,7 +147,7 @@ def main(argv: list[str] | None = None) -> None:
         arguments.prior_temperature,
     )
 
-    directory = Path(arguments.log_directory) / domain.name
+    directory = Path(arguments.log_directory) / rbs.context
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
@@ -164,25 +157,22 @@ def main(argv: list[str] | None = None) -> None:
     root.setLevel(arguments.log_level)
     try:
         agent_builder = AgentBuilder().with_exploration(EXPLORATION)
-        rules_file = None
-        rater = None
-        if arguments.rules is not None:
-            rule_base = RuleBaseRepository(RuleBaseJsonMapper()).load(arguments.rules)
-            rater = create_rule_rater(rule_base, domain)
-            agent_builder.with_guidance(rater)
-            rules_file = str(arguments.rules)
-            logger.info("Evaluating with rules %s", rules_file)
-        values_file = None
-        valuer = None
-        if arguments.values is not None:
-            value_base = ValueBaseRepository(ValueBaseJsonMapper()).load(arguments.values)
-            valuer = create_rule_valuer(value_base, domain)
-            agent_builder.with_valuation(valuer)
-            values_file = str(arguments.values)
-            logger.info("Evaluating with values %s", values_file)
+        rules_file = values_file = None
+        rater = valuer = None
+        if arguments.heuristics is not None:
+            heuristics = create_rule_based_system(knowledge_base, arguments.heuristics)
+            kinds = {rule.kind for rule in heuristics.rules}
+            if MOVE in kinds:
+                rater, rules_file = heuristics, arguments.heuristics
+                agent_builder.with_guidance(rater)
+                logger.info("Evaluating with the move rules of %s", arguments.heuristics)
+            if POSITION in kinds:
+                valuer, values_file = heuristics, arguments.heuristics
+                agent_builder.with_valuation(valuer)
+                logger.info("Evaluating with the position rules of %s", arguments.heuristics)
         logger.info("Running games and searches in %d worker processes", arguments.workers)
-        report = create_evaluator(arguments.workers, GameMemory(create_knowledge_base(domain.name, arguments.knowledge))).evaluate(
-            domain, agent_builder, settings, rules_file, rater, values_file, valuer
+        report = create_evaluator(arguments.workers, GameMemory(knowledge_base)).evaluate(
+            rbs, agent_builder, settings, rules_file, rater, values_file, valuer
         )
         path = ReportRepository(ReportJsonMapper()).save(report, Path(arguments.report_directory))
         logger.info("Saved report %s", path)

@@ -5,15 +5,15 @@ from datetime import datetime
 from pathlib import Path
 
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.constant.agent_constant import DEFAULT_UNFINISHED_PAYOFF, EXPLORATION
-from openmind.agent.factory.domain_factory import create_domain
+from openmind.agent.constant.agent_constant import EXPLORATION
+from openmind.agent.factory.game_factory import create_game
+from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.agent.service.game_memory import GameMemory
 from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.entrypoint.clock_options import add_clock_options, add_knowledge_option
-from openmind.entrypoint.search_options import add_selection_options
-from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR
-from openmind.mcts.service.uniform_prior import UniformPrior
 from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
+from openmind.entrypoint.rollout_options import add_rollout_limit_options, checked_unfinished_payoff
+from openmind.entrypoint.search_options import add_selection_options
 from openmind.entrypoint.train_values import (
     _add_deduction_options,
     _add_worker_memory_option,
@@ -21,19 +21,17 @@ from openmind.entrypoint.train_values import (
     _memory_cap,
 )
 from openmind.inference.constant.inference_constant import DEFAULT_SEARCH_MEMORY, DEFAULT_SEARCH_SECONDS
+from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR
+from openmind.mcts.service.uniform_prior import UniformPrior
 from openmind.parallel.constant.parallel_constant import DEFAULT_WORKERS
 from openmind.rbs.constant.value_constant import DEFAULT_MAX_STEPS, DEFAULT_PRICES, DEFAULT_TOLERANCE
-from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
-from openmind.rbs.mapper.value_rule_text_mapper import ValueRuleTextMapper
 from openmind.rbs.model.value_settings import ValueSettings
-from openmind.rbs.repository.value_base_repository import ValueBaseRepository
 from openmind.training.constant.training_constant import (
     DEFAULT_ITERATIONS,
     DEFAULT_SEED,
     DEFAULT_VALUE_GAMES,
     DEFAULT_VALUE_HELD_OUT_GAMES,
     OUTCOME_TARGET,
-    SIGNALS_TARGET,
     VALUE_TARGETS,
 )
 from openmind.training.factory.training_factory import create_value_distiller
@@ -81,19 +79,7 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="candidates the expression search tries at most (default: no limit)",
     )
-    parser.add_argument(
-        "--rollout-limit",
-        type=_non_negative,
-        default=None,
-        help="actions a self-play rollout plays at most before every player gets the unfinished payoff (default: no "
-        "limit)",
-    )
-    parser.add_argument(
-        "--unfinished-payoff",
-        type=float,
-        default=DEFAULT_UNFINISHED_PAYOFF,
-        help=f"each player's payoff for a rollout stopped at the limit (default: {DEFAULT_UNFINISHED_PAYOFF})",
-    )
+    add_rollout_limit_options(parser)
     _add_deduction_options(parser)
     _add_worker_memory_option(parser)
     parser.add_argument(
@@ -108,7 +94,10 @@ def main(argv: list[str] | None = None) -> None:
         help="where logs are saved (default: data/log/distill-values)",
     )
     parser.add_argument(
-        "--values-directory", default="data/values", help="where value bases are saved (default: data/values)"
+        "--context",
+        default=None,
+        help="the context the fitted position rules are declared under, a variant of the game carrying its rules "
+        "(default: <domain> distilled)",
     )
     add_clock_options(parser, "--training-time-control")
     add_knowledge_option(parser)
@@ -116,11 +105,11 @@ def main(argv: list[str] | None = None) -> None:
     arguments = parser.parse_args(argv)
     if arguments.prior != UNIFORM_PRIOR:
         parser.error(f"--prior {arguments.prior} needs rules the self-play agent doesn't have; use uniform")
-    if arguments.target == SIGNALS_TARGET:
-        parser.error("--target signals needs openmind-train-values, which keeps the signal library from round to round")
-    domain = create_domain(arguments.domain)
-    if arguments.training_time_control is not None and domain.timeout is None:
-        parser.error(f"{domain.name} can't be played on a clock: it has no timeout rule")
+    unfinished_payoff = checked_unfinished_payoff(parser, arguments)
+    knowledge_base = create_knowledge_base(arguments.domain.split("/")[0], arguments.knowledge)
+    rbs = create_game(arguments.domain, knowledge_base)
+    if arguments.training_time_control is not None and not rbs.timed():
+        parser.error(f"{rbs.context} can't be played on a clock: it has no timeout rule")
     values = ValueSettings(
         arguments.prices,
         arguments.max_steps,
@@ -129,7 +118,7 @@ def main(argv: list[str] | None = None) -> None:
         int(arguments.memory * 1024**3),
         arguments.candidates,
     )
-    deduction, pondering = _deduction_settings(parser, arguments)
+    deduction = _deduction_settings(parser, arguments)
     settings = ValueDistillationSettings(
         arguments.games,
         arguments.held_out_games,
@@ -137,8 +126,6 @@ def main(argv: list[str] | None = None) -> None:
         arguments.seed,
         arguments.target,
         values,
-        pondering,
-        None,
         arguments.training_time_control,
         arguments.expected_steps,
         arguments.time_reserve,
@@ -148,7 +135,7 @@ def main(argv: list[str] | None = None) -> None:
         arguments.prior_temperature,
     )
 
-    directory = Path(arguments.log_directory) / domain.name
+    directory = Path(arguments.log_directory) / rbs.context
     memory_cap = _memory_cap(parser, arguments, directory)
     directory.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
@@ -178,30 +165,28 @@ def main(argv: list[str] | None = None) -> None:
         agent_builder.with_selection(settings.selection, settings.puct_exploration).with_prior(UniformPrior())
         if deduction is not None:
             logger.info(
-                "Self-play deduces the positions without rules within %d plies and %s seconds; pondering %d positions",
+                "Self-play deduces the positions without rules within %d plies and %s seconds",
                 deduction.plies,
                 deduction.seconds,
-                0 if pondering is None else pondering.positions,
             )
         if arguments.rollout_limit is not None:
-            agent_builder.with_rollout_limit(arguments.rollout_limit, arguments.unfinished_payoff)
+            agent_builder.with_rollout_limit(arguments.rollout_limit, unfinished_payoff)
             logger.info(
                 "Self-play rollouts stop after %d actions, every player getting %s",
                 arguments.rollout_limit,
-                arguments.unfinished_payoff,
+                unfinished_payoff,
             )
-        result = create_value_distiller(arguments.workers, memory_cap, GameMemory(create_knowledge_base(domain.name, arguments.knowledge))).distill(domain, agent_builder, settings)
-        path = ValueBaseRepository(ValueBaseJsonMapper()).save(
-            result.value_base, Path(arguments.values_directory), datetime.now()
-        )
-        base, rule_text = result.value_base, ValueRuleTextMapper()
-        print(f"bias {base.bias:+.6g}")
-        for rule in base.rules:
-            print(rule_text.to_text(rule))
+        declarer = RuleDeclarer(knowledge_base, arguments.context or f"{rbs.context} distilled")
+        declarer.inherits(rbs.context)
+        result = create_value_distiller(
+            knowledge_base, arguments.workers, memory_cap, GameMemory(knowledge_base)
+        ).distill(rbs, agent_builder, settings, declarer)
+        for rule in result.rules:
+            print(f"{rule.weight(result.context):+.6g} × {rule.name}")
         chosen = "nothing to fit" if result.chosen is None else f"chosen at price {result.chosen.price}"
         print(
-            f"Value rules: {len(base.rules)} of {len(result.candidates)} candidate terms, {chosen}; payoffs from "
-            f"{base.low} to {base.high}"
+            f"Position rules: {len(result.rules)} of {len(result.candidates)} candidate terms, {chosen}; declared "
+            f"under {result.context}"
         )
         if result.fits:
             header = ("price", "terms kept", "steps", "settled", "training loss", "held-out loss")
@@ -222,14 +207,8 @@ def main(argv: list[str] | None = None) -> None:
             f"Rows: {result.training_rows} for training, {result.held_out_rows} held out, valued at the "
             f"{settings.target} target; mean absolute error on held-out rows: {result.held_out_error}"
         )
-        if result.pondering is not None:
-            summary = result.pondering
-            print(
-                f"Pondered {summary.positions} positions: {summary.proven} proven; {summary.seeds} seeds, "
-                f"{summary.seeds_kept} kept by the search, {summary.seeds_in_rules} in the value rules"
-            )
-        print(f"Saved values {path}")
-        logger.info("Saved values %s", path)
+        print(f"Declared under {result.context}")
+        logger.info("Declared the position rules under %s", result.context)
     finally:
         root.setLevel(level)
         root.removeHandler(handler)

@@ -1,14 +1,10 @@
-from collections import Counter
-
-from openmind.agent.model.domain import Domain
-from openmind.csp.service.solver import Solver
 from openmind.inference.constant.inference_constant import DEFAULT_PROCESS_MEMORY, MEMORY_CHECK_INTERVAL
-from openmind.parallel.service.memory_evictor import evict_oldest
-from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.inference.service.position_view import Moves, PositionView
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
-from openmind.predictor.service.predictor import Predictor
-from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.parallel.service.memory_evictor import evict_oldest
+from openmind.parallel.service.memory_meter import MemoryMeter
+from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.model.grid import Grid
 from openmind.world.model.state import State
 from openmind.world.model.value import Value
@@ -23,30 +19,26 @@ class Mechanics:
 
     def __init__(
         self,
-        solver: Solver,
-        predictor: Predictor,
         state_namespace_mapper: StateNamespaceMapper,
         memory_meter: MemoryMeter,
     ) -> None:
-        self._solver = solver
-        self._predictor = predictor
         self._state_namespace_mapper = state_namespace_mapper
         self._memory_meter = memory_meter
         self._memory_share = DEFAULT_PROCESS_MEMORY
         self._remembered = 0
-        self._domains: dict[int, Domain] = {}
+        self._games: dict[int, Domain] = {}
         self._cache: dict[tuple[object, ...], object] = {}
         self._memory_guard = process_memory_guard()
         self._memory_guard.register(self)
 
     def __getstate__(self) -> dict[str, object]:
         return {
-            name: value for name, value in self.__dict__.items() if name not in ("_domains", "_cache", "_memory_guard")
+            name: value for name, value in self.__dict__.items() if name not in ("_games", "_cache", "_memory_guard")
         }
 
     def __setstate__(self, state: dict[str, object]) -> None:
         self.__dict__.update(state)
-        self._domains = {}
+        self._games = {}
         self._cache = {}
         self._memory_guard = process_memory_guard()
         self._memory_guard.register(self)
@@ -69,13 +61,13 @@ class Mechanics:
         """Forgets every view and move this process kept."""
         self._cache.clear()
 
-    def view(self, domain: Domain, state: State, after: PositionView | None = None) -> PositionView:
+    def view(self, rbs: RuleBasedSystem, state: State, after: PositionView | None = None) -> PositionView:
         """The same view every time the state comes back, until the cache is cleared. `after` is the position a move
         led here from, when there is one: the view lays itself out from that position's rather than from nothing."""
-        key = ("view", self._pin(domain), state)
+        key = ("view", self._pin(rbs), state)
         view = self._cache.get(key)
         if view is None:
-            view = PositionView(self, domain, state, after)
+            view = PositionView(self, rbs, state, after)
             self._remember(key, view)
         return view  # type: ignore[return-value]
 
@@ -88,35 +80,35 @@ class Mechanics:
         written, the rest copied."""
         return self._state_namespace_mapper.to_namespace_after(before, namespace, state)
 
-    def moves(self, domain: Domain, state: State, player: str) -> Moves:
+    def moves(self, rbs: RuleBasedSystem, state: State, player: str) -> Moves:
         """For each action the player could take if it were their turn, its outcomes with a probability above 0, each
         outcome as a view with its probability."""
-        key = ("moves", self._pin(domain), state, player)
+        key = ("moves", self._pin(rbs), state, player)
         moves = self._cache.get(key)
         if moves is None:
-            turned = self.with_turn(domain, state, player)
-            came_from = self.view(domain, turned)
+            turned = self.with_turn(rbs, state, player)
+            came_from = self.view(rbs, turned)
             moves = tuple(
                 tuple(
-                    (self.view(domain, outcome, came_from), probability)
-                    for outcome, probability in self._predictor.predict(domain.transitions, turned, action).outcomes
+                    (self.view(rbs, outcome, came_from), probability)
+                    for outcome, probability in rbs.outcomes(turned, action).outcomes
                     if probability > 0
                 )
-                for action in self._solver.solve(domain.problem, turned)
+                for action in rbs.actions(turned)
             )
             self._remember(key, moves)
         return moves  # type: ignore[return-value]
 
-    def changes(self, domain: Domain, state: State, player: str) -> dict[tuple[str, object], float]:
+    def changes(self, rbs: RuleBasedSystem, state: State, player: str) -> dict[tuple[str, object], float]:
         """For each variable of an indexed base, by base and index as rules read them, how many of the player's actions,
         as if it were their turn, change it, each outcome weighted by its probability; variables no action changes are
         left out. Worked out once for the state and player, from the moves."""
-        key = ("changes", self._pin(domain), state, player)
+        key = ("changes", self._pin(rbs), state, player)
         changes = self._cache.get(key)
         if changes is None:
             cells = self._state_namespace_mapper.cells(state)
             found: dict[tuple[str, object], float] = {}
-            for outcomes in self.moves(domain, state, player):
+            for outcomes in self.moves(rbs, state, player):
                 for view, probability in outcomes:
                     for cell in self._changed_cells(state, view.state, cells):
                         found[cell] = found.get(cell, 0.0) + probability
@@ -149,18 +141,9 @@ class Mechanics:
             if not (isinstance(second.get(base), dict) and index in second[base] and second[base][index] == value)  # type: ignore[index, operator]
         ]
 
-    def empties(self, domain: Domain) -> dict[str, Value]:
-        """For each grid of the domain, the value most of its cells hold in the initial position: its empty value."""
-        key = ("empties", self._pin(domain))
-        empties = self._cache.get(key)
-        if empties is None:
-            empties = {
-                base: Counter(cells.values()).most_common(1)[0][0]
-                for base, cells in self.variables(domain.initial_state).items()
-                if isinstance(cells, Grid) and cells
-            }
-            self._remember(key, empties)
-        return empties  # type: ignore[return-value]
+    def empties(self, rbs: RuleBasedSystem) -> dict[str, Value]:
+        """Each grid's empty value, as the domain declares it."""
+        return dict(rbs.empties())
 
     def with_value(self, state: State, base: str, at: object, value: Value) -> State:
         """The state with the variable of `base` at index `at` set to the value; a variable it doesn't have raises
@@ -180,10 +163,11 @@ class Mechanics:
             self._remember(key, edited)
         return edited  # type: ignore[return-value]
 
-    def cleared(self, domain: Domain, state: State, at: object) -> State:
-        """The state with every grid's cell at `at` set to that grid's empty value."""
-        empties = self.empties(domain)
+    def cleared(self, rbs: RuleBasedSystem, state: State, at: object) -> State:
+        """The state with every grid's cell at `at` set to that grid's empty value. A grid without a declared empty value
+        raises KeyError."""
         cells = self._state_namespace_mapper.cells(state)
+        empties = self._declared(rbs, state)
         variables = [
             (name, empties[cell[0]] if cell is not None and cell[1] == at and cell[0] in empties else value)
             for (name, value), cell in zip(state.variables, cells, strict=True)
@@ -202,14 +186,14 @@ class Mechanics:
         ]
         return State(tuple(variables))
 
-    def alone(self, domain: Domain, state: State, at: object) -> State:
+    def alone(self, rbs: RuleBasedSystem, state: State, at: object) -> State:
         """The state with every grid's cells set to that grid's empty value, except at `at`. Worked out once for the
-        state and cell."""
-        key = ("alone", self._pin(domain), state, at)
+        state and cell. A grid without a declared empty value raises KeyError."""
+        key = ("alone", self._pin(rbs), state, at)
         edited = self._cache.get(key)
         if edited is None:
-            empties = self.empties(domain)
             cells = self._state_namespace_mapper.cells(state)
+            empties = self._declared(rbs, state)
             variables = [
                 (name, empties[cell[0]] if cell is not None and cell[1] != at and cell[0] in empties else value)
                 for (name, value), cell in zip(state.variables, cells, strict=True)
@@ -218,17 +202,27 @@ class Mechanics:
             self._remember(key, edited)
         return edited  # type: ignore[return-value]
 
-    def with_turn(self, domain: Domain, state: State, player: str) -> State:
+
+    def _declared(self, rbs: RuleBasedSystem, state: State) -> dict[str, Value]:
+        """The empty values of the state's grids; a grid the domain declares none for raises KeyError."""
+        empties = self.empties(rbs)
+        grids = sorted(base for base, value in self.variables(state).items() if isinstance(value, Grid))
+        missing = [base for base in grids if base not in empties]
+        if missing:
+            raise KeyError(f"{rbs.context} declares no empty value for {', '.join(missing)}")
+        return {base: empties[base] for base in grids}
+
+    def with_turn(self, rbs: RuleBasedSystem, state: State, player: str) -> State:
         """The state with the player to act replaced."""
         return State(
-            tuple((name, player if name == domain.players.to_act else value) for name, value in state.variables)
+            tuple((name, player if name == rbs.players().to_act else value) for name, value in state.variables)
         )
 
-    def _pin(self, domain: Domain) -> int:
+    def _pin(self, rbs: RuleBasedSystem) -> int:
         """An identity for the domain that stays valid: the domain is kept alive as long as the mechanics."""
-        key = id(domain)
-        if key not in self._domains:
-            self._domains[key] = domain
+        key = id(rbs)
+        if key not in self._games:
+            self._games[key] = rbs
         return key
 
     def _remember(self, key: tuple[object, ...], value: object) -> None:

@@ -3,7 +3,7 @@ import math
 import pytest
 
 from openmind.mcts.service.rater_prior import RaterPrior
-from openmind.mcts.service.uniform_prior_tests import opening
+from openmind.mcts.service.uniform_prior_tests import Game, opening
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
@@ -19,8 +19,8 @@ class FavourCenter:
         return tuple(1.0 if action == CENTER else None if cell in corners else 0.0 for action, cell in zip(actions, cells))
 
 
-def test_the_rater_prior_follows_the_ratings_and_gives_an_unrated_action_the_mean() -> None:
-    state, actions = opening()
+def test_the_rater_prior_follows_the_ratings_and_gives_an_unrated_action_the_mean(game: Game) -> None:
+    state, actions = opening(game)
 
     priors = dict(zip(actions, RaterPrior(FavourCenter(), 0.1).priors(state, actions), strict=True))
 
@@ -29,6 +29,6 @@ def test_the_rater_prior_follows_the_ratings_and_gives_an_unrated_action_the_mea
     assert priors[edge] < priors[corner] < priors[CENTER]
 
 
-def test_a_temperature_of_zero_raises() -> None:
+def test_a_temperature_of_zero_raises(game: Game) -> None:
     with pytest.raises(ValueError, match="above 0"):
         RaterPrior(FavourCenter(), 0.0)

@@ -61,7 +61,6 @@ QUALIFIED_TEMPLATE = "{reading} {view}"
 NOT_TEMPLATE = "not ({body})"
 NEGATIVE_TEMPLATE = "minus {body}"
 WINS_TEMPLATE = "how many winning moves {subject} would have"
-SOLO_DISTANCE_TEMPLATE = "how many of {possessive} own moves away a win is"
 WIN_CHANCE_TEMPLATE = "the chance that this action wins"
 #: A construct without a template, quoted as its source.
 SOURCE_TEMPLATE = "`{source}`"

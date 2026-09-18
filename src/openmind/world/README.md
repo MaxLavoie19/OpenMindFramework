@@ -11,7 +11,7 @@ they hold. It depends on no other domain.
 |---|---|
 | `model/value.py` | `Value`: a variable or parameter value (`str`, `int`, `float`, `bool` or `None`) |
 | `model/state.py` | `State`: named variables with their values, sorted by name |
-| `model/grid.py` | `Grid`: a dict of the variables of a base whose indices are all whole numbers, by coordinates, searchable by them in any number of dimensions: `where(value)`, `parity(at)`, `distance(a, b)` (the largest coordinate gap), `steps(a, b)` (their sum), `aligned(a, b)` (on one row, column or diagonal), `between(a, b)` (the values strictly between two aligned cells), `ray(at, direction)` (the values stepping from `at` until the edge) and `neighbours(at)` |
+| `model/grid.py` | `Grid`: a dict of the variables of a base whose indices are all whole numbers, by coordinates: `where(value)`, the coordinates holding a value, in order; a copy sent to another process is built from its cells |
 | `model/action.py` | `Action`: the thing performed, with its parameters sorted by name |
 | `model/players.py` | `Players(names, to_act, payoffs)`: the players, the variable naming the player to act (or, where players act at once, the base of one flag per player, `turn(A)`, `turn(B)`), and each player's payoff variable |
 | `model/joint_action.py` | `JointAction(actions)`: the actions players take at once, each player's name with its action, in the order of the players' names |

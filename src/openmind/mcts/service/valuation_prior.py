@@ -3,8 +3,7 @@ import math
 
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.service.softmax import softmax
-from openmind.predictor.model.transition_model import TransitionModel
-from openmind.predictor.service.predictor import Predictor
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -22,8 +21,7 @@ class ValuationPrior:
     def __init__(
         self,
         valuer: PositionValuer,
-        predictor: Predictor,
-        transitions: TransitionModel,
+        rbs: RuleBasedSystem,
         players: Players,
         temperature: float,
         state_reader: StateReader | None = None,
@@ -31,8 +29,7 @@ class ValuationPrior:
         if temperature <= 0.0:
             raise ValueError(f"A prior needs a temperature above 0, not {temperature}")
         self._valuer = valuer
-        self._predictor = predictor
-        self._transitions = transitions
+        self._rbs = rbs
         self._players = players
         self._temperature = temperature
         self._state_reader = StateReader() if state_reader is None else state_reader
@@ -48,8 +45,8 @@ class ValuationPrior:
 
     def _value(self, state: State, action: Action, player: int) -> float | None:
         parts: list[float] = []
-        for outcome, probability in self._predictor.predict(self._transitions, state, action).outcomes:
-            values = self._finished(outcome) or self._valuer.value(outcome)
+        for outcome, probability in self._rbs.outcomes(state, action).outcomes:
+            values = self._finished(outcome) or self._valuer.values(outcome)
             if values is None:
                 return None
             parts.append(probability * values[player])

@@ -2,30 +2,27 @@
 
 ## Purpose
 
-Constraint satisfaction. A problem describes, for each action a domain allows, the parameters to choose and the
-constraints their values must satisfy in a state. Constraints are Python rules that give true or false (see
-`rule/README.md`), and a problem can carry definitions whose names they all see. The solver finds the solutions, each one an action with its
-parameter values: every legal move of a game such as tic-tac-toe, or the whole grid of a puzzle such as sudoku, whose
-single action fills every empty cell at once. It returns every solution, or at most a limit, using propagation and
-backtracking.
+Constraint satisfaction: the RBS's solver for legal moves. It solves one action at a time, over rules: a values rule
+for each parameter, giving the values it can take, and the constraint rules its values must satisfy in a state. Both
+are Python rules (see `rbs/README.md`), and they can see a definitions script. The solver finds the solutions, each
+one an action with its parameter values: every legal move of a game such as tic-tac-toe, or the whole grid of a puzzle
+such as sudoku, whose single action fills every empty cell at once. It returns every solution, or at most a limit,
+using propagation and backtracking.
+
+The solver knows nothing of a game. It's given the rules and gives back actions; which actions a game has, and which of
+its rules belong to each, is the RBS's to say (`rbs/service/rule_based_system.py`). A relaxation is just a game whose
+RBS hands the solver fewer constraint rules.
 
 ## Content
 
 | File | What it is |
 |---|---|
-| `model/discrete_domain.py` | `DiscreteDomain(values)`: the finite values a variable can take, in order |
-| `model/state_domain.py` | `StateDomain(rule)`: the values a variable takes in a state, given in order by a rule reading the state, and the problem's definitions when it is source; a value given twice counts once. The rule is `PythonRule` source or the project's own function (`ValuesRule`, see `rule/README.md`) |
-| `model/variable.py` | `Variable(name, domain)`: an action parameter to solve for, over a `DiscreteDomain` or a `StateDomain` |
-| `model/action_definition.py` | `ActionDefinition(name, variables, constraints)`: an action and the constraints that make it legal, `PythonRule` source or the project's own functions (`ConstraintRule`); source says which parameters it reads, so it can be pruned by parameter, while a function is checked once every parameter has a value |
-| `model/problem.py` | `Problem(actions, definitions)`: every action definition of a domain, and the definitions its constraints see (`None` for none) |
 | `model/support_table.py` | `SupportTable(first, second, allowed)`: the value pairs a two-parameter constraint allows |
 | `model/all_different_group.py` | `AllDifferentGroup(variables)`: parameters that must all take different values |
 | `model/scoped_constraint.py` | `ScopedConstraint(rule, scope)`: a prepared constraint (`CalledRule`) on three or more parameters |
-| `model/search_space.py` | `SearchSpace(action, variables, tables, groups, constraints)`: what backtracking explores for one action |
+| `model/search_space.py` | `SearchSpace(action, variables, tables, groups, constraints)`: what backtracking explores for one action, each parameter with the values it has left |
 | `model/solve_statistics.py` | `SolveStatistics(solutions, assignments, dead_ends, pruned_values)`: what a search did |
 | `model/wipeout.py` | `Wipeout`: raised when propagation leaves a variable without any value |
-| `service/joint_solver.py` | `JointSolver(solver, state_reader).legal(problem, state, players)`: where players act at once, each player to act with its legal actions, one solve per player; empty when no player to act has one; some players to act without one while others have one raise `ValueError` |
-| `builder/problem_builder.py` | `ProblemBuilder`: collects action definitions and definitions; rejects a repeated action or variable name |
 | `builder/solver_builder.py` | `SolverBuilder`: wires a solver with its rule caller, call operand mapper, constraint checker, propagators and search |
 | `factory/csp_factory.py` | `create_solver()` |
 | `constant/solver_constant.py` | `openmind-solve`'s default solution limit (2) |
@@ -33,51 +30,44 @@ backtracking.
 | `service/arc_consistency.py` | `ArcConsistency`: AC-3 over support tables |
 | `service/all_different_propagator.py` | `AllDifferentPropagator`: Régin's matching-based filtering for all-different |
 | `service/backtracking_search.py` | `BacktrackingSearch`: backtracking with maintained propagation and ordering heuristics |
-| `service/solver.py` | `Solver`: gives each constraint its strongest form, searches, then orders and caches the solutions; `solve_with_statistics` also gives what the search did |
+| `service/solver.py` | `Solver`: `solve(state, action, values, constraints=(), definitions=None, limit=None, player=None)` solves one action over its rules: gives each constraint its strongest form, searches, then orders and caches the solutions; `solve_with_statistics` also gives what the search did |
 
 ## Usage
 
 ```python
-from openmind.csp.builder.problem_builder import ProblemBuilder
 from openmind.csp.factory.csp_factory import create_solver
-from openmind.csp.model.discrete_domain import DiscreteDomain
-from openmind.csp.model.variable import Variable
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.model.python_rule import PythonRule
 from openmind.world.model.state import State
 
-positions = DiscreteDomain((1, 2))
-problem = (
-    ProblemBuilder()
-    .with_action(
-        "place",
-        (Variable("row", positions), Variable("col", positions)),
-        (PythonRule("cell[row, col] is EMPTY"),),
-    )
-    .with_definitions(PythonRule("EMPTY = None"))
-    .build()
-)
+positions = PythonRule("(1, 2)")
 state = State((("cell(1,1)", "X"), ("cell(1,2)", None), ("cell(2,1)", None), ("cell(2,2)", None)))
 
-create_solver().solve(problem, state)
+create_solver().solve(
+    state,
+    "place",
+    {"row": positions, "col": positions},
+    (PythonRule("cell[row, col] is EMPTY"),),
+    PythonRule("EMPTY = None"),
+)
 # (Action(name='place', parameters=(('col', 2), ('row', 1))),
 #  Action(name='place', parameters=(('col', 1), ('row', 2))),
 #  Action(name='place', parameters=(('col', 2), ('row', 2))))
-create_solver().solve(problem, state, limit=1)   # at most one solution
-actions, statistics = create_solver().solve_with_statistics(problem, state)
-# the same solutions, with SolveStatistics(solutions, assignments, dead_ends, pruned_values)
 ```
+
+A game's legal moves come from its RBS, which hands each of its actions' rules to the solver in turn:
+`rbs.actions(state)`, and `rbs.actions_with_statistics(state)` with the statistics summed over the game's actions.
 
 ## How the solver works
 
-For each action definition:
+For the action given:
 
-1. Each constraint is compiled once, with the problem's definitions; its scope is the set of the action's parameters
+1. Each constraint is compiled once, with the definitions; its scope is the set of the action's parameters
    it reads. A name that is neither a parameter, a state variable nor defined raises `NameError` when the constraint
    runs.
 2. The constraints that read no parameter are checked first: if one is false, the action has no solution.
-3. Each variable gets its values: a `DiscreteDomain`'s, or those its `StateDomain`'s rule gives in the state, each value
-   once, in the order given. A game can so generate its legal moves once per position instead of checking every
-   combination of parameter values.
+3. Each parameter gets the values its rule gives in the state, each value once, in the order given. A rule that
+   reads nothing gives the same values in every position; one that reads the state lets a game generate its legal
+   moves once per position instead of checking every combination of parameter values.
 4. Each other constraint takes the strongest form its scope allows:
    - **a single `all_different(...)` call whose arguments are parameters or parameter-free expressions:** the
      parameter-free values are removed from the parameters' domains, and the parameters form an all-different group
@@ -92,16 +82,16 @@ For each action definition:
    consistency); a variable left without values is a dead end.
 7. Values are tried in domain order, or least-constraining first when a limit is set. The search stops once it has
    `limit` solutions.
-8. Solutions are sorted by the variables' domain order, first variable slowest, and cached per problem, state and
-   limit, until the process's memory guard clears the cache (see `parallel/README.md`).
+8. Solutions are sorted by the parameters' value order, first parameter slowest, and cached per state, limit and
+   rules, until the process's memory guard clears the cache (see `parallel/README.md`).
 
-`solve(problem, state, limit=None, player=None)`: given a player, such as one of several players acting at once, every
+`solve(state, action, values, constraints, definitions, limit=None, player=None)`: given a player, such as one of several players acting at once, every
 rule also reads it as `player`: it is added to the state as a variable, so results are cached per player too, and a
 state that already has a variable named `player` raises `ValueError`.
 
-`solve_with_statistics` gives the same solutions with the search's statistics summed over the action definitions; an
-action whose parameter-free constraint is false adds nothing. A cached result keeps the statistics of the search that
-found it.
+`solve_with_statistics` gives the same solutions with the search's statistics; an action whose parameter-free
+constraint is false has no solution and adds nothing. A cached result keeps the statistics of the search that found
+it.
 
 A constraint must give `True` or `False`; any other value raises `TypeError`.
 
@@ -119,7 +109,7 @@ Cached results log nothing. MCTS rollouts call the solver, so everything is at D
 
 ## Notes
 
-- Tests: `builder/problem_builder_tests.py`, `builder/solver_builder_tests.py`, `factory/csp_factory_tests.py`,
+- Tests: `builder/solver_builder_tests.py`, `factory/csp_factory_tests.py`,
   `service/all_different_propagator_tests.py`, `service/arc_consistency_tests.py`,
   `service/backtracking_search_tests.py`, `service/constraint_checker_tests.py`, `service/solver_tests.py`;
   integration: `test/integration/tictactoe_actions_tests.py`, `test/integration/sudoku_solve_tests.py`,

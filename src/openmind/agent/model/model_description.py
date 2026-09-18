@@ -6,7 +6,7 @@ from openmind.agent.constant.agent_constant import MODEL_ID_DIGITS
 
 @dataclass(frozen=True, slots=True)
 class ModelDescription:
-    """A model as it played: `name`, what a person calls it, such as an arm's signal, and `text`, everything needed to
+    """A model as it played: `name`, what a person calls it, such as an arm's name, and `text`, everything needed to
     build it again, word for word. `id` comes from the text alone, so the same model always has the same id and a model
     that changed, a setting or a rule, has another."""
 

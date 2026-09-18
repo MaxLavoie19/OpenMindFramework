@@ -4,7 +4,7 @@ from datetime import datetime
 from openmind.doxastic.model.claim import Claim
 from openmind.doxastic.model.provenance import Provenance
 from openmind.doxastic.model.record import Record
-from openmind.rule.model.python_rule import PythonRule
+from openmind.rbs.model.python_rule import PythonRule
 
 
 class RecordJsonMapper:

@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 
 from openmind.entrypoint.distill_values import main
-from openmind.rbs.mapper.value_base_json_mapper import ValueBaseJsonMapper
-from openmind.rbs.repository.value_base_repository import ValueBaseRepository
+from openmind.doxastic.constant.rule_kind_constant import POSITION
+from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
 from openmind.testing.service.log_reader import said
 
 pytestmark = pytest.mark.log_level("INFO")
@@ -16,21 +16,22 @@ SMALL = (
 )
 
 
-def test_distill_values_prints_and_saves_value_rules(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+def test_distill_values_prints_and_declares_position_rules(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     main(
         [
             "tictactoe",
             *SMALL,
-            *("--workers", "1", "--log-directory", str(tmp_path / "log"), "--values-directory", str(tmp_path / "values")),
+            *("--workers", "1", "--log-directory", str(tmp_path / "log"), "--knowledge", str(tmp_path / "knowledge")),
         ]
     )
 
-    (values_file,) = (tmp_path / "values" / "tictactoe").glob("*.json")
-    assert ValueBaseRepository(ValueBaseJsonMapper()).load(values_file).domain == "tictactoe"
+    declared = create_knowledge_base("tictactoe", tmp_path / "knowledge").rules("tictactoe distilled", (POSITION,))
+    assert declared
     output = capsys.readouterr().out
-    assert output.startswith("bias ")
+    assert re.search(r"^[+-]\d", output)
     assert re.search(
-        r"\nValue rules: \d+ of \d+ candidate terms, chosen at price (0\.1|0\.01); payoffs from 0\.0 to 1\.0\n", output
+        r"\nPosition rules: \d+ of \d+ candidate terms, chosen at price (0\.1|0\.01); declared under tictactoe distilled\n",
+        output,
     )
     assert "\nprice  terms kept  steps  settled  training loss  held-out loss\n" in output
     assert re.search(
@@ -38,28 +39,28 @@ def test_distill_values_prints_and_saves_value_rules(capsys: pytest.CaptureFixtu
         r"0\.\d+\n",
         output,
     )
-    assert output.endswith(f"Saved values {values_file}\n")
+    assert output.endswith("Declared under tictactoe distilled\n")
     (log_file,) = (tmp_path / "log" / "tictactoe").glob("*.log")
     assert said(log_file)[-1] == (
-        f"INFO  openmind.entrypoint.distill_values Saved values {values_file}"
+        "INFO  openmind.entrypoint.distill_values Declared the position rules under tictactoe distilled"
     )
 
 
-def test_several_workers_distill_the_same_value_rules(tmp_path: Path) -> None:
-    value_bases = []
+def test_several_workers_distill_the_same_position_rules(tmp_path: Path) -> None:
+    fitted = []
     for workers in ("1", "2"):
         main(
             [
                 "tictactoe",
                 *SMALL,
                 *("--workers", workers, "--log-directory", str(tmp_path / workers / "log")),
-                *("--values-directory", str(tmp_path / workers / "values")),
+                *("--knowledge", str(tmp_path / workers / "knowledge")),
             ]
         )
-        (values_file,) = (tmp_path / workers / "values" / "tictactoe").glob("*.json")
-        value_bases.append(ValueBaseRepository(ValueBaseJsonMapper()).load(values_file))
+        rules = create_knowledge_base("tictactoe", tmp_path / workers / "knowledge").rules("tictactoe distilled", (POSITION,))
+        fitted.append(tuple((rule.name, rule.weight("tictactoe distilled")) for rule in rules))
 
-    assert value_bases[0] == value_bases[1]
+    assert fitted[0] == fitted[1]
 
 
 def test_a_rollout_limit_stops_the_self_play_rollouts(tmp_path: Path) -> None:
@@ -68,7 +69,7 @@ def test_a_rollout_limit_stops_the_self_play_rollouts(tmp_path: Path) -> None:
             "tictactoe",
             *SMALL,
             *("--rollout-limit", "0", "--unfinished-payoff", "0.25", "--workers", "1"),
-            *("--log-directory", str(tmp_path / "log"), "--values-directory", str(tmp_path / "values")),
+            *("--log-directory", str(tmp_path / "log"), "--knowledge", str(tmp_path / "knowledge")),
         ]
     )
 
@@ -89,7 +90,7 @@ def test_distill_values_on_a_training_clock_remembers_its_games_where_it_is_told
             "tictactoe",
             *SMALL,
             *("--training-time-control", "0.05+0", "--knowledge", str(tmp_path / "knowledge")),
-            *("--workers", "1", "--log-directory", str(tmp_path / "log"), "--values-directory", str(tmp_path / "values")),
+            *("--workers", "1", "--log-directory", str(tmp_path / "log")),
         ]
     )
 

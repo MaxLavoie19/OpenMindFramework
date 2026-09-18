@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from openmind.doxastic.constant.doxastic_constant import CHAIN_SEPARATOR, KEY_SEPARATOR, SUBJECT_SEPARATOR
-from openmind.rule.model.rule import Rule
+from openmind.rbs.model.rule import Rule
 
 
 @dataclass(frozen=True, slots=True)

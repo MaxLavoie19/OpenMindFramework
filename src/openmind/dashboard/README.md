@@ -13,8 +13,8 @@ the process file system and the system log.
 |---|---|
 | `model/dashboard_settings.py` | `DashboardSettings(domain, report_directory, log_directory, syslog, proc=Path("/proc"))`: where to read a domain's training from |
 | `model/log_progress.py` | `LogProgress(path, round, rounds, round_note, games, matches, searched, deduced, recent, draws=0, decisive=0)`: where a training is, from its log, with how many of the round's self-play games were drawn and how many decisive |
-| `model/round_row.py` | `RoundRow(number, rules, held_out_loss, held_out_error, baselines, against_previous, pondering, seconds)`: a finished round; `pondering` is (positions pondered, proven, seeds, seeds kept, seeds in rules), one column each on the page, and `seconds` shows as `3 h 06 min` |
-| `model/report_summary.py` | `ReportSummary(path, created_at, complete, rounds, latest_rules, latest_arms=())`: a training report, with the signals its latest round followed as (name, agreements, disagreements, accuracy, reliability) |
+| `model/round_row.py` | `RoundRow(number, rules, held_out_loss, held_out_error, baselines, against_previous, seconds)`: a finished round |
+| `model/report_summary.py` | `ReportSummary(path, created_at, complete, rounds, latest_rules)`: a training report |
 | `model/process_status.py` | `ProcessStatus(pid, role, rss_bytes, seconds, command)`: a training process: the loop script, the training, or a worker |
 | `model/machine_status.py` | `MachineStatus(memory_total, memory_available, swap_total, swap_free, processes, earlyoom)` |
 | `model/round_games.py` | `RoundGames(number, games, decisive, draws, plies, shortest, longest, endings)`: what a round's self-play games came to, with `mean_plies` and `decisive_share`; the round being played holds the games finished so far |
@@ -26,7 +26,7 @@ the process file system and the system log.
 | `service/model_score_reader.py` | `ModelScoreReader.scores(directory, domain)`: every model the knowledge base remembers with its games, the latest to play first |
 | `model/game_view.py` | `GameView(label, ended, players, payoffs, ending, record, moves, pictures, pictured, id='', previous_id=None, next_id=None)`: a game as a page shows it, one picture per position, with its record id and its neighbours' |
 | `model/game_listing.py` | `GameListing(id, label, ended, players, payoffs, ending, plies)`: a decisive game as the list shows it, without its positions |
-| `service/game_browser.py` | `GameBrowser(domain_factory=create_domain)`: `decisive(directory, domain)` lists every decisive game the knowledge base remembers, newest first, without replaying any; `game(directory, domain, id)` replays and draws the one under that record id, position by position with the domain's picture rule or laid out as text, with the ids of the decisive games just before and after it, None for no such game; `latest(directory, domain)` draws the newest; the game last drawn is kept |
+| `service/game_browser.py` | `GameBrowser(game_factory=create_game)`: `decisive(directory, domain)` lists every decisive game the knowledge base remembers, newest first, without replaying any; `game(directory, domain, id)` replays and draws the one under that record id, position by position with the domain's picture rule or laid out as text, with the ids of the decisive games just before and after it, None for no such game; `latest(directory, domain)` draws the newest; the game last drawn is kept |
 | `service/report_reader.py` | `ReportReader.summary(directory)`: the newest report's rounds and latest rules |
 | `service/machine_reader.py` | `MachineReader.status(proc, syslog)`: memory and swap, the training's processes, earlyoom's latest kills |
 | `service/dashboard_service.py` | `DashboardService.snapshot(settings)`: a snapshot from the three readers, which keep their places between snapshots |
@@ -42,7 +42,7 @@ the process file system and the system log.
   twice), drawn among them when every payoff is the same and decisive otherwise, games against opponents (`Game with
   seeds ... finished ...`), searched moves (`Searching ...`) and deduced moves (`Deduced ...`) are counted from there. Workers log each game as soon as it
   ends, so the counts grow during a round; searches grow even while every game is still being played. The latest
-  15 INFO and WARNING lines of the training's main loggers (training loop, distiller, ponderer, expression search,
+  15 INFO and WARNING lines of the training's main loggers (training loop, distiller, ending walker, expression search,
   value generator, entrypoint, task runner) are kept. A newer log starts over.
 - **Plots.** The same streamed log gives each round its own tally — games, decisive, drawn, the plies they took with the
   shortest and the longest, and how each ended where the domain says — kept per round rather than only for the round in
@@ -50,8 +50,7 @@ the process file system and the system log.
   whether or not it carries the time it was produced at, so logs written before lines were timed still read.
 - **Rounds.** The newest `*.json` report under `<report directory>/<domain>/`, as `TrainingReportJsonMapper` writes it,
   read whole at every snapshot: reports are small. A round handed over before its games shows none against each
-  opponent. With the signals target, a table shows the signals the latest round followed, one column each for
-  agreements, disagreements, accuracy, reliability, games between arms, wins, draws, losses and score.
+  opponent.
 - **Models.** The domain's knowledge base under `data/knowledge/<domain>/` (the settings' `knowledge_directory`), read
   whole at every snapshot: every model remembered, with the sides it played, its wins, draws and losses as `GameMemory`
   remembered them at the end of each game, its score and its latest game, the latest to play first. No table without a

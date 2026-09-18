@@ -1,4 +1,3 @@
-from openmind.agent.model.domain import Domain
 from openmind.mcts.constant.mcts_constant import PRIORS, RATER_PRIOR, UNIFORM_PRIOR, VALUE_PRIOR
 from openmind.mcts.model.action_rater import ActionRater
 from openmind.mcts.model.move_prior import MovePrior
@@ -6,13 +5,13 @@ from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.service.rater_prior import RaterPrior
 from openmind.mcts.service.uniform_prior import UniformPrior
 from openmind.mcts.service.valuation_prior import ValuationPrior
-from openmind.predictor.factory.predictor_factory import create_predictor
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 
 
 def create_move_prior(
     kind: str,
     temperature: float,
-    domain: Domain,
+    rbs: RuleBasedSystem,
     rater: ActionRater | None = None,
     valuer: PositionValuer | None = None,
 ) -> MovePrior:
@@ -27,5 +26,5 @@ def create_move_prior(
     if kind == VALUE_PRIOR:
         if valuer is None:
             raise ValueError("The value prior needs value rules")
-        return ValuationPrior(valuer, create_predictor(), domain.transitions, domain.players, temperature)
+        return ValuationPrior(valuer, rbs, rbs.players(), temperature)
     raise ValueError(f"A prior is one of {', '.join(PRIORS)}, not {kind!r}")

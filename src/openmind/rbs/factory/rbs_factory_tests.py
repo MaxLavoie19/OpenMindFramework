@@ -1,34 +1,36 @@
-from openmind.rbs.factory.rbs_factory import (
-    create_rule_generator,
-    create_rule_rater,
-    create_rule_valuer,
-    create_value_generator,
-)
-from openmind.rbs.model.rule import Rule
-from openmind.rbs.model.rule_base import RuleBase
-from openmind.rbs.model.value_base import ValueBase
-from openmind.rbs.service.rule_generator import RuleGenerator
-from openmind.rbs.service.rule_rater_tests import LIGHTS
+from collections.abc import Callable
+
+from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.rbs.factory.rbs_factory import create_rule_based_system, create_value_generator
+from openmind.rbs.model.python_rule import PythonRule
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.rbs.service.value_generator import ValueGenerator
-from openmind.world.model.action import Action
-from openmind.world.model.state import State
+
+type Game = Callable[[str], RuleBasedSystem]
 
 
-def test_create_rule_generator_gives_a_rule_generator() -> None:
-    assert isinstance(create_rule_generator(), RuleGenerator)
+def test_create_rule_based_system_holds_the_rules_of_its_context(game: Game) -> None:
+    rbs = game("tictactoe")
+
+    assert rbs.context == "tictactoe"
+    assert len(rbs.actions(rbs.start())) == 9
 
 
-def test_create_rule_rater_rates_with_the_rule_base() -> None:
-    rater = create_rule_rater(RuleBase("test", (Rule("press", (), 0.5, 40),)), LIGHTS)
+def test_a_context_with_position_rules_values_a_position_with_them(
+    game: Game, knowledge: KnowledgeBase
+) -> None:
+    rbs = game("tictactoe")
+    declarer = RuleDeclarer(knowledge, rbs.context)
+    declarer.position("a mark on the middle cell", PythonRule("cell[2, 2] == me"), 0.75)
+    declarer.position("a constant", PythonRule("1.0"), 0.25)
 
-    assert rater.rate(State(()), (Action("press", ()),)) == (0.5,)
+    valued = create_rule_based_system(knowledge, rbs.context)
+    middle = valued.outcomes(valued.start(), valued.actions(valued.start())[4]).outcomes[0][0]
+
+    assert valued.value(valued.start(), "X") == 0.25
+    assert valued.value(middle, "X") == 1.0
 
 
 def test_create_value_generator_gives_a_value_generator() -> None:
     assert isinstance(create_value_generator(), ValueGenerator)
-
-
-def test_create_rule_valuer_values_with_the_value_base() -> None:
-    valuer = create_rule_valuer(ValueBase("test", 0.0, 0.0, 2.0, ()), LIGHTS)
-
-    assert valuer.value(State(())) == (1.0,)

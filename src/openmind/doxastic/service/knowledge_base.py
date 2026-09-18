@@ -6,6 +6,8 @@ from openmind.doxastic.model.belief import Belief
 from openmind.doxastic.model.claim import Claim
 from openmind.doxastic.model.record import Record
 from openmind.doxastic.model.record_store import RecordStore
+from openmind.doxastic.model.rule_record import RuleRecord
+from openmind.doxastic.model.rule_store import RuleStore
 from openmind.doxastic.service.evidence_weigher import EvidenceWeigher
 from openmind.doxastic.service.recall_cache import RecallCache
 from openmind.doxastic.service.record_index import RecordIndex
@@ -14,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 #: How many digits a record's id has before it needs more.
 ID_DIGITS = 6
+
+#: What a rule's id starts with, so it is never taken for a record's.
+RULE_PREFIX = "r"
 
 
 class KnowledgeBase:
@@ -28,7 +33,12 @@ class KnowledgeBase:
     evidence against it, and both show. Nothing is overwritten and nothing is averaged away.
 
     The store keeps the records; the index says where each one is, and holds ids rather than records; the cache holds
-    the ones in context, so what the agent is working on is at hand and the rest stays on disk until asked for."""
+    the ones in context, so what the agent is working on is at hand and the rest stays on disk until asked for.
+
+    Rules are kept beside them, in a store of their own: a game project declares the rules of its game, the inference
+    engine declares the heuristics it generates, and whatever plays retrieves the rules relevant to its context. A rule
+    is held in memory once it is declared, since a context's rules are few beside what the agent remembers of its
+    games."""
 
     def __init__(
         self,
@@ -37,13 +47,17 @@ class KnowledgeBase:
         record_index: RecordIndex,
         recall_cache: RecallCache,
         evidence_weigher: EvidenceWeigher,
+        rule_store: RuleStore,
     ) -> None:
         self._domain = domain
         self._store = record_store
         self._index = record_index
         self._cache = recall_cache
         self._weigher = evidence_weigher
+        self._rule_store = rule_store
         self._last_id = 0
+        self._last_rule_id = 0
+        self._rules: dict[str, RuleRecord] = {}
         self._load()
 
     @property
@@ -69,6 +83,51 @@ class KnowledgeBase:
             "Remembered %s %s: %s", kept.provenance.source, kept.id, kept.text[:200].replace("\n", " ")
         )
         return kept
+
+    def declare(self, rule: RuleRecord) -> RuleRecord:
+        """Keeps the rule and gives it back with the id it can be found by. A rule already carrying an id is written
+        anew under that id, which is how its weight in a context changes. This is how a game project registers the
+        rules of its game and how the inference engine injects the ones it generates."""
+        kept = rule
+        if not kept.id:
+            self._last_rule_id += 1
+            kept = replace(kept, id=f"{RULE_PREFIX}{self._last_rule_id:0{ID_DIGITS}d}")
+        if kept.provenance.when is None:
+            kept = replace(kept, provenance=replace(kept.provenance, when=datetime.now()))
+        self._rule_store.append(kept)
+        self._rules[kept.id] = kept
+        logger.debug(
+            "Declared %s rule %s %s for %s",
+            kept.kind,
+            kept.id,
+            kept.name,
+            ", ".join(f"{context} at {weight:g}" for context, weight in kept.contexts) or "no context",
+        )
+        return kept
+
+    def rules(self, context: str, kinds: tuple[str, ...] = ()) -> tuple[RuleRecord, ...]:
+        """Every rule relevant to that context, of those kinds or of any kind where none is named, the heaviest
+        first; rules of the same weight keep the order they were declared in."""
+        found = [rule for rule in self._rules.values() if rule.relevant(context) and (not kinds or rule.kind in kinds)]
+        return tuple(sorted(found, key=lambda rule: -rule.weight(context)))
+
+    def contexts(self) -> tuple[str, ...]:
+        """Every context the rules bear on, once each, in the order they were first declared."""
+        found: dict[str, None] = {}
+        for rule in self._rules.values():
+            for context, _ in rule.contexts:
+                found[context] = None
+        return tuple(found)
+
+    def rule(self, rule_id: str) -> RuleRecord | None:
+        """The rule with that id, or None where none was declared under it."""
+        return self._rules.get(rule_id)
+
+    def undeclare(self, rule_id: str) -> None:
+        """Drops the rule: it is retrieved no more."""
+        if self._rules.pop(rule_id, None) is None:
+            return
+        self._rule_store.forget(rule_id)
 
     def cite(self, record_id: str) -> Record | None:
         """The record with that id, word for word, or None where nothing was remembered under it."""
@@ -146,11 +205,21 @@ class KnowledgeBase:
         self._cache.drop(record_id)
 
     def _load(self) -> None:
-        """Takes in what the store already holds: the index learns where every record is, and the ids carry on from the
-        last one used."""
+        """Takes in what the stores already hold: the index learns where every record is, the rules come back in hand,
+        and the ids carry on from the last one used."""
         for place, record in self._store.load():
             self._index.add(record, place)
             if record.id.isdigit():
                 self._last_id = max(self._last_id, int(record.id))
-        if len(self._index):
-            logger.info("Knowledge of %s: %d records remembered", self._domain, len(self._index))
+        for _, rule in self._rule_store.load():
+            self._rules[rule.id] = rule
+            digits = rule.id.removeprefix(RULE_PREFIX)
+            if digits.isdigit():
+                self._last_rule_id = max(self._last_rule_id, int(digits))
+        if len(self._index) or self._rules:
+            logger.info(
+                "Knowledge of %s: %d records remembered, %d rules declared",
+                self._domain,
+                len(self._index),
+                len(self._rules),
+            )

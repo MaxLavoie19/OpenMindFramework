@@ -1,9 +1,8 @@
 import math
 import random
 
-from openmind.agent.model.domain import Domain
 from openmind.agent.model.game_summary import GameSummary
-from openmind.predictor.service.predictor import Predictor
+from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.training.model.played_game import PlayedGame
 from openmind.world.model.state import State
 
@@ -13,13 +12,10 @@ class GameReplayer:
     its positions come back exactly as they were. Its search values aren't remembered: each position gets the mean of
     the final payoffs instead."""
 
-    def __init__(self, predictor: Predictor) -> None:
-        self._predictor = predictor
-
-    def replay(self, domain: Domain, summary: GameSummary) -> PlayedGame:
+    def replay(self, rbs: RuleBasedSystem, summary: GameSummary) -> PlayedGame:
         """The game with the positions its moves were played from, its payoffs, arms and actions. A summary without an
         outcome seed raises ValueError."""
-        states = self.positions(domain, summary)[:-1]
+        states = self.positions(rbs, summary)[:-1]
         mean = math.fsum(summary.payoffs) / len(summary.payoffs)
         return PlayedGame(
             (),
@@ -38,16 +34,16 @@ class GameReplayer:
             summary.ending,
         )
 
-    def positions(self, domain: Domain, summary: GameSummary) -> tuple[State, ...]:
+    def positions(self, rbs: RuleBasedSystem, summary: GameSummary) -> tuple[State, ...]:
         """Every position of the game, from the start to the position its last move led to: one more than its moves. A
         summary without an outcome seed raises ValueError."""
         if len(summary.seeds) < 2:
             raise ValueError(f"{summary.label} has no outcome seed to replay it from")
         rng = random.Random(summary.seeds[1])
-        state = domain.initial_state
+        state = rbs.start()
         states: list[State] = [state]
         for action in summary.actions:
-            outcomes = self._predictor.predict(domain.transitions, state, action).outcomes
+            outcomes = rbs.outcomes(state, action).outcomes
             (state,) = rng.choices([outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes])
             states.append(state)
         return tuple(states)
