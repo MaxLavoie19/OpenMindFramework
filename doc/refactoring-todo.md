@@ -43,7 +43,8 @@ approved, then its code is approved.
 - [ ] Adapt OpenMindChess to the game API
 - [x] heuristic + model (registry per task, measured precision and processing time) — interfaces approved
       (`doc/interfaces/heuristic-model.md`)
-- [ ] heuristic + model — code approved
+- [x] heuristic + model — code approved: models are records measured as they run; a heuristic reads a node whose
+      features are extracted once and shared
 - [ ] tactic + optimizer + utility (default tactic; the CSP gives valid values; optimizers from cheap to costly: a random
       picker, listing candidates, proposing solutions as for NLP or coding agents; a tactic value heuristic; a tactic
       takes its move's utility; a move's utility is the expectation over outcomes, binned when continuous, by a binning
