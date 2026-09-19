@@ -5,15 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from openmind.knowledge.constant.knowledge_constant import (
-    DECLARATION,
-    DIRECT_EXPERIENCE,
-    DONE,
-    INFERENCE,
-    PENDING,
-    POSITION_VALUE,
-    SIMULATION,
-)
+from openmind.knowledge.constant.knowledge_constant import DECLARATION, DIRECT_EXPERIENCE, DONE, INFERENCE, PENDING
+from openmind.knowledge.constant.task_constant import POSITION_VALUE, SIMULATION
 from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, MOVE, POSITION
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.knowledge.model.belief import Belief
@@ -188,7 +181,7 @@ def test_everything_kept_is_still_there_for_a_base_opened_again_and_ids_carry_on
     assert opened.contexts() == (variant,)
     assert any(
         "Knowledge of cheat: 1 direct experiences, 1 beliefs, 1 opinions, 1 tasks, 1 contexts, 0 mechanisms, 0 rules, "
-        "0 rulesets"
+        "0 rulesets, 0 models"
         == message
         for message in caplog.messages
     )

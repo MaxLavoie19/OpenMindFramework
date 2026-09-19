@@ -3,7 +3,8 @@ import logging
 import pytest
 
 from openmind.game.service.game_declarer import GameDeclarer
-from openmind.knowledge.constant.knowledge_constant import DECLARATION, SIMULATION
+from openmind.knowledge.constant.knowledge_constant import DECLARATION
+from openmind.knowledge.constant.task_constant import SIMULATION
 from openmind.knowledge.constant.rule_kind_constant import (
     CONSTRAINT,
     COOLDOWN,

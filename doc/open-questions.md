@@ -277,3 +277,19 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
         packages.
       - How a rationalizing ruleset is measured: by how often it agrees with the model it explains. Deferred to the
         training step.
+
+17. **The heuristic and model step.**
+    - **Decided (Maxime):**
+      - The time management policy picks a *set* of models solving each step — outcome prediction, move value per
+        player, state value per player, … — from the time available, the models available and what each one trades.
+      - Every piece of information OMF produces is stored in the knowledge base, for introspection: a model's measured
+        accuracy and processing time among them.
+      - A model has a record of its own: an id, a name, its task, its context and where its data lives; the data itself
+        lives in `data/` or the integrator's storage.
+      - Every task is named now, with a port of its own.
+      - Every reading is timed, and the timings build each model's processing-time profile, which a specialized build
+        (a competitive chess solver with its parts built in) is later generated from.
+      - A heuristic is given a node — the state, its game and its extracted features — not a bare state. The node
+        extracts a feature on demand, a possibly memoized call, and shares it with every model after. The search builds
+        nodes for its tree; anything else valuing a position, training included, builds one too.
+      - A win always carries the payoff value, whatever the heuristic.

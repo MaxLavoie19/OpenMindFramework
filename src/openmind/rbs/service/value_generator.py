@@ -4,12 +4,15 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
+from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
 from openmind.inference.constant.inference_constant import SINGLE_TARGET
-from openmind.knowledge.constant.knowledge_constant import INFERENCE, POSITION_VALUE
+from openmind.knowledge.constant.knowledge_constant import INFERENCE
+from openmind.knowledge.constant.task_constant import POSITION_VALUE
 from openmind.knowledge.constant.rule_kind_constant import POSITION
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.model.source import Source
+from openmind.model.service.model_registry import ModelRegistry
 from openmind.inference.model.expression import Expression
 from openmind.inference.model.expression_search_result import ExpressionSearchResult
 from openmind.inference.model.search_budget import SearchBudget
@@ -221,9 +224,12 @@ class ValueGenerator:
         knowledge_base = target.knowledge_base
         context_id = knowledge_base.ensure_context(target.context).id
         mechanism = knowledge_base.ensure_mechanism(INFERENCE).id
-        ruleset = knowledge_base.ruleset_named(context_id, POSITION_VALUE) or knowledge_base.ruleset(
-            Ruleset(POSITION_VALUE, context_id, POSITION_VALUE, Source(mechanism, (("method", "fit"),)), open=True)
-        )
+        ruleset = knowledge_base.ruleset_named(context_id, POSITION_VALUE)
+        if ruleset is None:
+            ruleset = knowledge_base.ruleset(
+                Ruleset(POSITION_VALUE, context_id, POSITION_VALUE, Source(mechanism, (("method", "fit"),)), open=True)
+            )
+            ModelRegistry(AccuracyScorer()).register_ruleset(knowledge_base, ruleset)
         standing = next((held for held, _ in knowledge_base.ruleset_rules(ruleset.id, (POSITION,)) if held.name == name), None)
         declared = knowledge_base.declare(
             RuleRecord(

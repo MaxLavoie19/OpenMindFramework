@@ -41,7 +41,8 @@ approved, then its code is approved.
       the constraints say who can act. The tests of the code still to be reworked were deleted. Noted: a memory-guard
       test left a thread spinning, which had been slowing every suite; the suite now runs in 17 seconds
 - [ ] Adapt OpenMindChess to the game API
-- [ ] heuristic + model (registry per task, measured precision and processing time) — interfaces approved
+- [x] heuristic + model (registry per task, measured precision and processing time) — interfaces approved
+      (`doc/interfaces/heuristic-model.md`)
 - [ ] heuristic + model — code approved
 - [ ] tactic + optimizer + utility (default tactic; the CSP gives valid values; optimizers from cheap to costly: a random
       picker, listing candidates, proposing solutions as for NLP or coding agents; a tactic value heuristic; a tactic

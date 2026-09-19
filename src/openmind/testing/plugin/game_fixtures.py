@@ -5,11 +5,13 @@ import pytest
 
 from openmind.rbs.factory.rbs_factory import create_game
 from openmind.game.service.game_declarer import GameDeclarer
-from openmind.knowledge.constant.knowledge_constant import INFERENCE, MOVE_VALUE, POSITION_VALUE, SIMULATION
+from openmind.knowledge.constant.knowledge_constant import INFERENCE
+from openmind.knowledge.constant.task_constant import MOVE_VALUE, POSITION_VALUE, SIMULATION
 from openmind.knowledge.constant.rule_kind_constant import MOVE, POSITION
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.model.source import Source
+from openmind.model.factory.model_factory import create_model_registry
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_game
@@ -99,7 +101,10 @@ def heuristic(knowledge: KnowledgeBase) -> Callable[..., RuleRecord]:
         task = MOVE_VALUE if kind == MOVE else POSITION_VALUE
         context_id = knowledge.ensure_context(context).id
         source = Source(knowledge.ensure_mechanism(INFERENCE).id, (("method", "fit"),))
-        ruleset = knowledge.ruleset_named(context_id, task) or knowledge.ruleset(Ruleset(task, context_id, task, source))
+        ruleset = knowledge.ruleset_named(context_id, task)
+        if ruleset is None:
+            ruleset = knowledge.ruleset(Ruleset(task, context_id, task, source))
+            create_model_registry().register_ruleset(knowledge, ruleset)
         standing = next((held for held, _ in knowledge.ruleset_rules(ruleset.id) if held.name == name), None)
         declared = knowledge.declare(RuleRecord(name, kind, rule, source, id="" if standing is None else standing.id))
         knowledge.link(ruleset.id, declared.id, weight)

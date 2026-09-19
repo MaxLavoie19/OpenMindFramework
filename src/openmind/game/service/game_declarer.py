@@ -2,7 +2,9 @@ import logging
 from collections.abc import Collection
 from dataclasses import replace
 
-from openmind.knowledge.constant.knowledge_constant import DECLARATION, SIMULATION
+from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
+from openmind.knowledge.constant.knowledge_constant import DECLARATION
+from openmind.knowledge.constant.task_constant import SIMULATION
 from openmind.knowledge.constant.rule_kind_constant import (
     CONSTRAINT,
     COOLDOWN,
@@ -21,6 +23,7 @@ from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.model.ruleset_link import RulesetLink
 from openmind.knowledge.model.source import Source
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.model.service.model_registry import ModelRegistry
 from openmind.rule.constant.rule_constant import EFFECTS_DEFINITIONS, RULES_DEFINITIONS
 from openmind.rule.model.python_rule import PythonRule
 from openmind.rule.model.rule import Rule
@@ -54,12 +57,14 @@ class GameDeclarer:
         ruleset: str = SIMULATION,
         open: bool = False,
         rule_caller: RuleCaller | None = None,
+        model_registry: ModelRegistry | None = None,
     ) -> None:
         self._knowledge_base = knowledge_base
         self._context = context
         self._context_id = knowledge_base.ensure_context(context).id
         self._open = open
         self._caller = rule_caller
+        self._registry = ModelRegistry(AccuracyScorer()) if model_registry is None else model_registry
         self._declared = 0
         mechanism = knowledge_base.ensure_mechanism(DECLARATION).id
         standing = knowledge_base.ruleset_named(self._context_id, ruleset)
@@ -78,6 +83,10 @@ class GameDeclarer:
                 )
             )
         )
+
+    def _registered(self) -> None:
+        """Registers the ruleset as a model of its task, so whatever reads that task finds it."""
+        self._registry.register_ruleset(self._knowledge_base, self._ruleset)
 
     @property
     def context(self) -> str:
@@ -206,7 +215,8 @@ class GameDeclarer:
         return self._ruleset
 
     def done(self) -> str:
-        """Says what was declared and gives back the context, so a declaring function can end on it."""
+        """Registers the ruleset as a model of its task, says what was declared and gives back the context, so a declaring function can end on it."""
+        self._registered()
         logger.info(
             "Declared %d rules of %s into ruleset %s%s",
             self._declared,

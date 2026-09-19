@@ -1,28 +1,21 @@
 import json
 import logging
-import math
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
-
-import numpy as np
 
 from openmind.csp.model.solve_statistics import SolveStatistics
-from openmind.debug.factory.debugger_factory import process_debugger
-from openmind.knowledge.constant.rule_kind_constant import MOVE, PICTURE, POSITION, RECORD
+from openmind.knowledge.constant.rule_kind_constant import PICTURE, RECORD
+from openmind.knowledge.constant.task_constant import MOVE_VALUE, POSITION_VALUE
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.predictor.model.outcome_distribution import OutcomeDistribution
 from openmind.rbs.constant.game_record_constant import ACTIONS, PAYOFFS
 from openmind.rbs.model.rule_based_system import RuleBasedSystem
+from openmind.heuristic.model.node import Node
+from openmind.heuristic.service.rule_heuristic import RuleHeuristic
 from openmind.rbs.service.simulation import Simulation
-from openmind.rule.constant.rule_constant import RULES_DEFINITIONS
-from openmind.rule.service.rule_caller import RuleCaller
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
-
-if TYPE_CHECKING:
-    from openmind.rbs.service.consequence_library import ConsequenceLibrary
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +34,7 @@ class RuleBasedGame:
         simulation_rbs: RuleBasedSystem | None,
         heuristics: tuple[RuleBasedSystem, ...],
         simulation: Simulation,
-        rule_caller: RuleCaller,
-        consequence_library: "ConsequenceLibrary | None" = None,
+        heuristic: RuleHeuristic,
         context_id: str | None = None,
     ) -> None:
         self._context = context
@@ -50,14 +42,11 @@ class RuleBasedGame:
         self._game = simulation_rbs
         self._heuristics = heuristics
         self._simulation = simulation
-        self._rule_caller = rule_caller
-        self._consequence_library = consequence_library
+        self._heuristic = heuristic
         systems = (() if simulation_rbs is None else (simulation_rbs,)) + heuristics
         self._rules = tuple(rule for system in systems for rule, _ in system.rules)
-        self._weighted = {
-            kind: tuple((rule, weight) for system in heuristics for rule, weight in system.rules if rule.kind == kind)
-            for kind in (POSITION, MOVE)
-        }
+        self._position = next((system for system in heuristics if system.ruleset.task == POSITION_VALUE), None)
+        self._move = next((system for system in heuristics if system.ruleset.task == MOVE_VALUE), None)
         self._start: State | None = None
         self._players: Players | None = None
 
@@ -85,10 +74,9 @@ class RuleBasedGame:
 
     def weight(self, rule: RuleRecord) -> float:
         """What a heuristic rule weighs in its ruleset; 0 for a rule none of its heuristics lists."""
-        for kind in (POSITION, MOVE):
-            for held, weight in self._weighted[kind]:
-                if held.id == rule.id:
-                    return weight
+        for system in (self._position, self._move):
+            if system is not None and system.weight(rule):
+                return system.weight(rule)
         return 0.0
 
     def start(self) -> State:
@@ -144,86 +132,36 @@ class RuleBasedGame:
             return None
         return self._simulation.call(self._game, PICTURE, state, parameters)  # type: ignore[return-value]
 
+    def node(self, state: State) -> Node:
+        """A node for that state of this game: what a heuristic is given, its features extracted through the game."""
+        return Node(state, self)
+
     def value(self, state: State, player: str) -> float | None:
-        """What the position is worth to the player, by the position heuristics: each rule's reading times its weight,
-        summed. None where the context has no such rule, or where none could be read."""
-        rules = self._weighted[POSITION]
-        if not rules:
-            return None
-        with process_debugger().frame("evaluation", context=self._context, state=state, details={"player": player}):
-            return self._weighed(rules, state, self._names(state, player))
+        """What the position is worth to the player, by its position value RBS; None where it has none, or where no
+        rule could be read."""
+        return None if self._position is None else self._heuristic.value(self._position, self.node(state), player)
 
     def values(self, state: State) -> tuple[float, ...] | None:
         """Each player's value, in the order of the players' names; None where any of them can't be valued."""
-        valued = [self.value(state, player) for player in self.players().names]
-        return None if any(value is None for value in valued) else tuple(valued)  # type: ignore[arg-type]
+        if self._position is None:
+            return None
+        return self._heuristic.values(self._position, self.node(state), self.players().names)
 
-    def rate(
-        self, state: State, actions: tuple[Action, ...], player: str | None = None
-    ) -> tuple[float | None, ...]:
-        """What each move is worth to the player taking it, by the move heuristics: each rule's reading times its
-        weight, summed. Without a player, the one player acting in the state. None for a move where there is no such
-        rule, or where none could be read."""
-        rules = self._weighted[MOVE]
-        if not rules:
+    def rate(self, state: State, actions: tuple[Action, ...], player: str | None = None) -> tuple[float | None, ...]:
+        """What each move is worth to the player taking it, by its move value RBS. Without a player, the one player
+        acting in the state."""
+        if self._move is None:
             return (None,) * len(actions)
-        player = self.acting_player(state) if player is None else player
-        names = self._names(state, player)
-        with process_debugger().frame("evaluation", context=self._context, state=state, details={"moves": len(actions)}):
-            return tuple(
-                self._weighed(rules, state, names | {"action": action.name} | dict(action.parameters)) for action in actions
-            )
-
-    def describe(self) -> str:
-        """The RBS as the heuristics it judges with: its context and every position and move rule with its weight
-        there. Two RBSs describe alike when they judge alike, whatever else their context holds."""
-        return json.dumps(
-            {
-                "context": self._context,
-                "position": [[rule.name, weight] for rule, weight in self._weighted[POSITION]],
-                "move": [[rule.name, weight] for rule, weight in self._weighted[MOVE]],
-            },
-            indent=2,
-        )
+        acting = self.acting_player(state) if player is None else player
+        return self._heuristic.rate(self._move, self.node(state), actions, acting)
 
     def explain(self, state: State, player: str) -> tuple[tuple[RuleRecord, float], ...]:
-        """Each position heuristic with what it adds to the player's value: its weight here times its reading."""
-        return self._readings(self._weighted[POSITION], state, self._names(state, player))
+        """Each position rule with what it adds to the player's value: its weight times its reading."""
+        return () if self._position is None else self._heuristic.explain(self._position, self.node(state), player)
 
-    def _names(self, state: State, player: str) -> dict[str, object]:
-        """What a heuristic reads besides the state's variables: `me`, `other`, `win_chance`, `wins`, `near`, `here`."""
-        if self._consequence_library is None:
-            return {"me": player}
-        return self._consequence_library.names(self, state, player)
-
-    def _weighed(
-        self, rules: Sequence[tuple[RuleRecord, float]], state: State, names: dict[str, object]
-    ) -> float | None:
-        """The rules' readings, each times its weight in this context, summed; None where none could be read."""
-        readings = self._readings(rules, state, names)
-        return math.fsum(added for _, added in readings) if readings else None
-
-    def _readings(
-        self, rules: Sequence[tuple[RuleRecord, float]], state: State, names: dict[str, object]
-    ) -> tuple[tuple[RuleRecord, float], ...]:
-        """Each rule with what it adds: its weight here times its reading. A rule reading nothing at this moment adds
-        nothing; one that raises, or gives something other than a finite number, is left out."""
-        added: list[tuple[RuleRecord, float]] = []
-        definitions = self._definitions()
-        for rule, weight in rules:
-            try:
-                read = self._rule_caller.value(rule.rule, state, None, names, definitions)  # type: ignore[arg-type]
-            except (KeyError, NameError, TypeError, AttributeError, ValueError, ArithmeticError):
-                continue
-            if read is None:
-                added.append((rule, 0.0))
-                continue
-            if not isinstance(read, bool | int | float | np.bool_ | np.number):
-                continue
-            reading = float(read)  # type: ignore[arg-type]
-            if math.isfinite(reading):
-                added.append((rule, weight * reading))
-        return tuple(added)
-
-    def _definitions(self) -> object:
-        return None if self._game is None else self._game.definitions(RULES_DEFINITIONS)
+    def describe(self) -> str:
+        """The game as the heuristics it judges with: its context and every position and move rule with its weight.
+        Two facades describe alike when they judge alike, whatever else their context holds."""
+        position = [] if self._position is None else json.loads(self._heuristic.describe(self._position))["position"]
+        move = [] if self._move is None else json.loads(self._heuristic.describe(self._move))["move"]
+        return json.dumps({"context": self._context, "position": position, "move": move}, indent=2)

@@ -1,7 +1,7 @@
 import logging
 from dataclasses import replace
 
-from openmind.knowledge.constant.knowledge_constant import SIMULATION
+from openmind.knowledge.constant.task_constant import SIMULATION
 from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT
 from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.service.knowledge_base import KnowledgeBase

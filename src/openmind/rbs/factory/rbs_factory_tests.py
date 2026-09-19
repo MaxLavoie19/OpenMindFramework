@@ -53,7 +53,7 @@ def test_a_context_without_a_ruleset_of_its_own_for_a_task_takes_the_one_it_inhe
 def test_the_rbs_of_a_context_s_ruleset_for_a_task_is_that_ruleset_s_rules_at_their_weights(
     game: Game, knowledge: KnowledgeBase, heuristic: Callable[..., object]
 ) -> None:
-    from openmind.knowledge.constant.knowledge_constant import POSITION_VALUE, SIMULATION
+    from openmind.knowledge.constant.task_constant import POSITION_VALUE, SIMULATION
     from openmind.rbs.factory.rbs_factory import create_rule_based_system
 
     game("tictactoe")

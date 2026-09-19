@@ -1,10 +1,11 @@
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.game.service.game_registry import GameRegistry
-from openmind.knowledge.constant.knowledge_constant import MOVE_VALUE, POSITION_VALUE, SIMULATION
+from openmind.knowledge.constant.task_constant import MOVE_VALUE, POSITION_VALUE, SIMULATION
 from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.predictor.factory.predictor_factory import create_rule_predictor
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
+from openmind.heuristic.service.rule_heuristic import RuleHeuristic
 from openmind.rbs.builder.value_generator_builder import ValueGeneratorBuilder
 from openmind.rbs.model.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_based_game import RuleBasedGame
@@ -17,6 +18,12 @@ def create_value_generator(workers: int = 1) -> ValueGenerator:
     """A value generator with its term generator, term evaluator and sparse fitter, evaluating terms in that many worker
     processes."""
     return ValueGeneratorBuilder().with_workers(workers).build()
+
+
+def create_rule_heuristic() -> RuleHeuristic:
+    """The service running a heuristic ruleset's RBS, with its rule caller and consequence library. Build it once and
+    give it to whatever reads a heuristic."""
+    return RuleHeuristic(create_rule_caller(), ConsequenceLibraryBuilder().build())
 
 
 def create_simulation() -> Simulation:
@@ -47,7 +54,10 @@ def find_rule_based_system(knowledge_base: KnowledgeBase, context: str, task: st
 
 
 def create_rule_based_game(
-    knowledge_base: KnowledgeBase, context: str, simulation: Simulation | None = None
+    knowledge_base: KnowledgeBase,
+    context: str,
+    simulation: Simulation | None = None,
+    heuristic: RuleHeuristic | None = None,
 ) -> RuleBasedGame:
     """The temporary facade over a context's RBSs: its simulation's and its position and move value heuristics', each
     taken from a context it inherits from where it has none. A context the knowledge base holds no ruleset for gives a
@@ -61,8 +71,7 @@ def create_rule_based_game(
         find_rule_based_system(knowledge_base, context, SIMULATION),
         heuristics,
         create_simulation() if simulation is None else simulation,
-        create_rule_caller(),
-        ConsequenceLibraryBuilder().build(),
+        create_rule_heuristic() if heuristic is None else heuristic,
         None if known is None else known.id,
     )
 

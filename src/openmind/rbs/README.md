@@ -9,8 +9,8 @@ play style — and any other model may fill the same task instead.
 An RBS is a **model**: one ruleset's rules, each with its weight there, for a context — `tictactoe`, a variant such as
 `tictactoe/fourinarow`, a relaxation, a round of training, an arm. A context without a ruleset for a task takes the one
 of a context it inherits from. Stateless services, built once and injected, run the RBSs they are given: the
-simulation runs a simulation ruleset's. The heuristics are still run by the temporary `RuleBasedGame` facade, until
-their own step.
+simulation runs a simulation ruleset's. The heuristics are run by `RuleHeuristic` (see `heuristic/README.md`), which the
+temporary `RuleBasedGame` facade calls for the packages not yet reworked.
 
 | Task | What the RBS runs |
 |---|---|
@@ -54,9 +54,9 @@ source file.
 |---|---|
 | `model/rule_based_system.py` | `RuleBasedSystem(context, context_id, ruleset, rules)`: the model, one ruleset's rules with their weights there; `of(*kinds)`, `weight(rule)`, `action_names()`, `values(action)`, `constraints(action)`, `effects(action)`, `definitions(name)` |
 | `service/simulation.py` | `Simulation(solver, predictor, rule_caller)`: stateless, built once, runs a simulation ruleset's RBS given with every call: `start`, `players`, `actions` (without a player, the one player acting's), `actions_with_statistics`, `acting`, `acting_player`, `joint_actions`, `outcomes`, `joint_outcomes`, `ended`, `call` |
-| `service/rule_based_game.py` | `RuleBasedGame(context, simulation_rbs, heuristics, simulation, rule_caller, consequence_library=None, context_id=None)`: a temporary facade over a game's RBSs for the packages not yet reworked, each dropping it at its own step: the simulation's methods without the RBS argument, `start()` and `players()` read once, and the heuristics' `value(state, player)`, `values(state)`, `rate(state, actions, player=None)`, `explain(state, player)`, `weight(rule)`, `describe()`, each rule weighed in its own ruleset |
+| `service/rule_based_game.py` | `RuleBasedGame(context, simulation_rbs, heuristics, simulation, heuristic, context_id=None)`, with `node(state)` for what a heuristic reads: a temporary facade over a game's RBSs for the packages not yet reworked, each dropping it at its own step: the simulation's methods without the RBS argument, `start()` and `players()` read once, and the heuristics' `value(state, player)`, `values(state)`, `rate(state, actions, player=None)`, `explain(state, player)`, `weight(rule)`, `describe()`, each rule weighed in its own ruleset |
 | `service/game_relaxer.py` | `GameRelaxer(knowledge_base)`: `relaxations(context)`, each constraint dropped; `relax(context, name)` makes that relaxation a context of its own, its simulation ruleset an open copy of the game's |
-| `factory/rbs_factory.py` | `create_simulation()`, built once; `create_rule_based_system(knowledge_base, context, task="simulation")` and `find_rule_based_system(...)`, the RBS of the context's ruleset for the task, or of a context it inherits from; `create_rule_based_game(knowledge_base, context, simulation=None)` and `create_game(name, knowledge_base, registry=None)`, the facades; `context_ruleset(knowledge_base, context_id, task)`; `create_value_generator(workers=1)` |
+| `factory/rbs_factory.py` | `create_simulation()` and `create_rule_heuristic()`, built once; `create_rule_based_system(knowledge_base, context, task="simulation")` and `find_rule_based_system(...)`, the RBS of the context's ruleset for the task, or of a context it inherits from; `create_rule_based_game(knowledge_base, context, simulation=None)` and `create_game(name, knowledge_base, registry=None)`, the facades; `context_ruleset(knowledge_base, context_id, task)`; `create_value_generator(workers=1)` |
 | `constant/game_record_constant.py` | What a record rule reads: `actions`, `payoffs` |
 | `model/heuristic_target.py` | `HeuristicTarget(knowledge_base, context)`: where a producer of heuristic rules links what it fits |
 | `constant/consequence_constant.py` | The names heuristics read (`me`, `other`, `action`, `win_chance`, `wins`, `near`, `OUTSIDE`) |

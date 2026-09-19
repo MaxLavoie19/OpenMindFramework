@@ -9,12 +9,14 @@ from openmind.knowledge.constant.knowledge_constant import (
     DECLARATION,
     EXPERIENCE,
     MECHANISM,
+    MODEL,
     OPINION,
     RULE,
     RULESET,
     TASK,
 )
 from openmind.knowledge.mapper.knowledge_json_mapper import KnowledgeJsonMapper
+from openmind.knowledge.mapper.model_record_json_mapper import ModelRecordJsonMapper
 from openmind.knowledge.mapper.rule_record_json_mapper import RuleRecordJsonMapper
 from openmind.knowledge.mapper.ruleset_json_mapper import RulesetJsonMapper
 from openmind.knowledge.model.belief import Belief
@@ -22,6 +24,7 @@ from openmind.knowledge.model.context import Context
 from openmind.knowledge.model.direct_experience import DirectExperience
 from openmind.knowledge.model.identifier import new_identifier
 from openmind.knowledge.model.mechanism import Mechanism
+from openmind.knowledge.model.model_record import ModelRecord
 from openmind.knowledge.model.opinion import Opinion
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.knowledge.model.ruleset import Ruleset
@@ -37,8 +40,8 @@ logger = logging.getLogger(__name__)
 class KnowledgeBase:
     """Everything the agent knows about a domain: its direct experiences, kept word for word; its beliefs, each a
     variable with a value, a certainty and optional evidence, including what it believes others believe; its own
-    opinions; its tasks; its contexts; the mechanisms its evidence comes from; the rules it knows, and the rulesets
-    listing them. Everything
+    opinions; its tasks; its contexts; the mechanisms its evidence comes from; the rules it knows, the rulesets
+    listing them, and the models that perform its tasks. Everything
     carries tags it can be retrieved by, and a GUID every link uses; contexts and mechanisms also have names, which
     people and applications use and which the knowledge base resolves to their ids.
 
@@ -57,9 +60,11 @@ class KnowledgeBase:
         mechanisms: Store,
         rules: Store,
         rulesets: Store,
+        models: Store,
         knowledge_json_mapper: KnowledgeJsonMapper | None = None,
         rule_record_json_mapper: RuleRecordJsonMapper | None = None,
         ruleset_json_mapper: RulesetJsonMapper | None = None,
+        model_record_json_mapper: ModelRecordJsonMapper | None = None,
     ) -> None:
         self._domain = domain
         self._experience_store = experiences
@@ -70,9 +75,11 @@ class KnowledgeBase:
         self._mechanism_store = mechanisms
         self._rule_store = rules
         self._ruleset_store = rulesets
+        self._model_store = models
         self._mapper = KnowledgeJsonMapper() if knowledge_json_mapper is None else knowledge_json_mapper
         self._rule_mapper = RuleRecordJsonMapper(self._mapper) if rule_record_json_mapper is None else rule_record_json_mapper
         self._ruleset_mapper = RulesetJsonMapper(self._mapper) if ruleset_json_mapper is None else ruleset_json_mapper
+        self._model_mapper = ModelRecordJsonMapper(self._mapper) if model_record_json_mapper is None else model_record_json_mapper
         self._experiences: dict[str, DirectExperience] = {}
         self._beliefs: dict[str, Belief] = {}
         self._belief_ids: dict[tuple[str, str, tuple[str, ...]], str] = {}
@@ -85,6 +92,7 @@ class KnowledgeBase:
         self._mechanism_ids: dict[str, str] = {}
         self._rules: dict[str, RuleRecord] = {}
         self._rulesets: dict[str, Ruleset] = {}
+        self._models: dict[str, ModelRecord] = {}
         self._load()
 
     @property
@@ -478,6 +486,46 @@ class KnowledgeBase:
         rule = self._rules.get(rule_id)
         return f"{rule.name} ({rule.id})" if rule is not None else rule_id
 
+    # models
+
+    def model(self, model: ModelRecord) -> ModelRecord:
+        """Keeps the model, or writes it anew under its id, and gives it back with its id."""
+        kept = replace(model, id=model.id or new_identifier(MODEL))
+        self._models[kept.id] = kept
+        self._model_store.append(self._model_mapper.to_data(kept))
+        logger.debug(
+            "Model %s of %s in %s, a %s",
+            self.readable_model(kept.id),
+            kept.task,
+            self.readable_context(kept.context),
+            kept.family,
+        )
+        return kept
+
+    def model_by_id(self, model_id: str) -> ModelRecord | None:
+        return self._models.get(model_id)
+
+    def model_named(self, context_id: str, name: str) -> ModelRecord | None:
+        for model in self._models.values():
+            if model.context == context_id and model.name == name:
+                return model
+        return None
+
+    def models(self, context_id: str | None = None, task: str | None = None, tags: Tags = ()) -> tuple[ModelRecord, ...]:
+        """Every model of that context (an id), performing that task, carrying all the tags, in the order first kept."""
+        return tuple(
+            model
+            for model in self._models.values()
+            if (context_id is None or model.context == context_id)
+            and (task is None or model.task == task)
+            and carries(model.tags, tags)
+        )
+
+    def readable_model(self, model_id: str) -> str:
+        """A model as logs show it: its name and its id."""
+        model = self._models.get(model_id)
+        return f"{model.name} ({model.id})" if model is not None else model_id
+
     def _load(self) -> None:
         """Takes in what the stores already hold."""
         for data in self._context_store.load():
@@ -508,10 +556,13 @@ class KnowledgeBase:
         for data in self._ruleset_store.load():
             ruleset = self._ruleset_mapper.from_data(data)
             self._rulesets[ruleset.id] = ruleset
+        for data in self._model_store.load():
+            model = self._model_mapper.from_data(data)
+            self._models[model.id] = model
         if self._experiences or self._beliefs or self._rules or self._contexts:
             logger.info(
                 "Knowledge of %s: %d direct experiences, %d beliefs, %d opinions, %d tasks, %d contexts, %d mechanisms, "
-                "%d rules, %d rulesets",
+                "%d rules, %d rulesets, %d models",
                 self._domain,
                 len(self._experiences),
                 len(self._beliefs),
@@ -521,4 +572,5 @@ class KnowledgeBase:
                 len(self._mechanisms),
                 len(self._rules),
                 len(self._rulesets),
+                len(self._models),
             )

@@ -43,14 +43,17 @@ OpenMindChess project, with python-chess.
   position heuristic, the move heuristic, or one known agent's play style. A rule belongs to the rulesets that list it,
   with a weight in each.
 - **Tactic**: a general direction that guides the optimizer, such as charge, kite sideways or retreat.
+- **Node**: a state with what has been worked out about it — its extracted features, and, in a search, what exploring
+  it found. A feature is extracted by the first model that asks for it and shared with every model after, like a
+  memoized call. A search builds nodes for its tree, and anything else valuing a position builds one too.
 - **Heuristic**: a fast estimate. OMF uses three kinds:
   - the **position value**: what a state is worth to each agent;
   - the **move value**: what an action is worth in a state;
   - the **tactic value**: which tactic is worth exploring.
 - **Task**: something OMF can spend time on, such as valuing a position, predicting an outcome, self-play or reviewing
   a game.
-- **Model**: one way to perform a task: rules, a lookup table, a decision tree, an ensemble, a DNN, … Models are
-  chosen by:
+- **Model**: one way to perform a task: rules, a lookup table, a decision tree, an ensemble, a DNN, … A step is solved
+  by a set of models, one per task it needs. Models are chosen by:
   - their measured accuracy;
   - their cost, in processing time;
   - their explainability, if necessary.
@@ -172,12 +175,12 @@ action, so it can only plan.
 
 ### The time management policy
 
-At every step, OMF can choose between several models for a task. It might use a fast heuristic when time-constrained,
-or a slower, more accurate model when time allows.
-
-The **time management policy** makes that choice from:
+Every step is solved by several models at once: predicting outcomes, valuing a move for each player, valuing a state
+for each player, and so on. The **time management policy** picks the set of models that solves the step, not one model.
+It chooses from:
 - the time available;
-- the tradeoff between precision and processing time.
+- the models available;
+- what each one trades: its precision against its processing time.
 
 It works at every level:
 - theory of mind: how many agent models and nested beliefs to consider;
@@ -192,6 +195,10 @@ It works at every level:
 
 The policy is trainable. It learns which choices paid off under which time pressure. It starts from a simple bootstrap
 policy, and precisions and processing times are measured, never assumed.
+
+**Every reading is timed**, and from those timings OMF builds a model of each model's processing time: its performance
+profile. The profiles are what a specialized build is generated from later, such as a competitive chess solver shipping
+with the parts it needs built in.
 
 ## Bootstrap
 
@@ -363,6 +370,18 @@ and more explainable than any ruleset.
 
 A ruleset can also become a tool for rationalization: where another model decides, a ruleset attempts to explain that
 model's decision.
+
+## Heuristics read nodes
+
+A heuristic is given a node, not a bare state: the state, the game it is in, and the features extracted from it. A
+model that uses features either extracts them or fetches them from where they are stored, and when several models want
+the same features they are extracted once and shared.
+
+- A rule-based heuristic reads a board's tactics, mobility, win chances and whatever else its rules name.
+- A network heuristic may read none of that, and the node costs it nothing.
+
+**A win always carries the payoff value.** Whatever the heuristic, a finished position is worth what the game paid,
+never what a model guesses.
 
 ## Tactics and the optimizer
 
@@ -597,8 +616,13 @@ vary by agent, time and context.
 
 ## Knowledge base and doxastic logic
 
+Everything OMF produces is stored in the knowledge base, so that it can look back on it: what its models measured, what
+it decided and why, as much as what it believes.
+
 The knowledge base stores:
 - rules and rulesets;
+- models, each with a record of its own — its name, its task, its context and where its data lives — and its measured
+  accuracy and processing time as beliefs;
 - facts;
 - beliefs;
 - opinions;
