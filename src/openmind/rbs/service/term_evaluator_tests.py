@@ -6,13 +6,12 @@ from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rbs.model.position_row import PositionRow
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.consequence_library_tests import Declare, position, strip_domain
 from openmind.rbs.service.reading_cache import ReadingCache
 from openmind.rbs.service.rule_compiler import RuleCompiler
 from openmind.rbs.service.rule_runner import RuleRunner
 from openmind.rbs.service.term_evaluator import TermEvaluator
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -26,7 +25,7 @@ ROWS = (
 
 def new_evaluator(workers: int = 1) -> TermEvaluator:
     compiler = RuleCompiler()
-    runner = RuleRunner(StateNamespaceMapper(VariableNameMapper()))
+    runner = RuleRunner(StateNamespaceMapper())
     library = ConsequenceLibraryBuilder().build()
     return TermEvaluator(compiler, runner, library, TaskRunner(workers), ReadingCache(compiler, runner, library, MemoryMeter()))
 
@@ -34,7 +33,7 @@ def new_evaluator(workers: int = 1) -> TermEvaluator:
 def test_a_term_reads_the_state_and_the_names_with_me_being_the_row_player(declared: Declare) -> None:
     evaluator = new_evaluator()
 
-    counts = evaluator.column(strip_domain(declared), ROWS, PythonRule("sum(value == me for value in cell.values())"))
+    counts = evaluator.column(strip_domain(declared), ROWS, PythonRule("len(cell.where(me))"))
     wins = evaluator.column(strip_domain(declared), ROWS, PythonRule("wins(me)"))
     my_turn = evaluator.column(strip_domain(declared), ROWS, PythonRule("turn == me"))
 

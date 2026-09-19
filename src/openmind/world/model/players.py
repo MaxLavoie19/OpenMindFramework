@@ -3,8 +3,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class Players:
-    """The players, the variable naming the player to act, and each player's payoff variable in the order of names."""
+    """The players, in order; the model saying who acts — a Scalar naming the one player to act, or, where players act
+    at once, a Map flagging each player acting; and the Map holding each player's payoff by name."""
 
     names: tuple[str, ...]
     to_act: str
-    payoffs: tuple[str, ...]
+    payoff: str

@@ -5,7 +5,7 @@ import pytest
 
 from openmind.csp.builder.solver_builder import SolverBuilder
 from openmind.predictor.builder.predictor_builder import PredictorBuilder
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_value_generator
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
@@ -64,10 +64,9 @@ def test_the_search_deduces_a_guaranteed_win_by_looking_two_actions_ahead(
     rbs = game("tictactoe")
     rows: list[PositionRow] = []
     for state in reachable(rbs):
-        variables = dict(state.variables)
-        if variables["turn"] != "O" or variables["payoff(X)"] is not None:
+        if state.value("turn") != "O" or state.model("payoff")["X"] is not None:
             continue
-        cells = {(row, col): variables[f"cell({row},{col})"] for row in (1, 2, 3) for col in (1, 2, 3)}
+        cells = dict(state.model("cell").items())
         rows.append(PositionRow(state, "X", 1.0 if guaranteed_win(cells) else 0.0))
     training, held_out = rows[::2], rows[1::2]
     settings = ValueSettings(

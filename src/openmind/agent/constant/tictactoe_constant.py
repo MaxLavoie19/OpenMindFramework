@@ -21,8 +21,6 @@ DROP = "drop"
 ROW = "row"
 COL = "col"
 
-DIRECTIONS = ((0, 1), (1, 0), (1, 1), (1, -1))
-
 STANDARD = TicTacToeVariant("standard", width=3, height=3, line=3, gravity=False)
 VARIANTS = {
     variant.name: variant

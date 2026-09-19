@@ -68,18 +68,6 @@ GAME_SCRIPT = """
 })();
 """
 
-#: What each column of the rounds table means, in the table's order.
-ROUND_COLUMNS = (
-    ("round", "the round's number; each round plays self-play games, fits value rules to them, then plays games against each opponent"),
-    ("rules", "how many value rules the round's fit kept: weighted terms that value a position"),
-    ("held-out loss", "how far the rules' values are from the targets of the held-out games' positions, as log loss; lower is better, 0.693 is what valuing every position at 0.5 gives"),
-    ("held-out error", "the mean absolute difference between the rules' values and those targets"),
-    ("against <opponent>", "the round's agent's wins / draws / losses against that opponent"),
-    ("against the previous", "the same against the previous round's agent"),
-    ("time", "how long the round took, as the report recorded it"),
-)
-
-
 class DashboardHtmlMapper:
     """Maps a snapshot to a page that reloads itself: the current round's progress, the machine and the training's
     processes, every finished round, the latest value rules, the latest notable log lines, and earlyoom's latest
@@ -101,8 +89,6 @@ class DashboardHtmlMapper:
             self._machine(snapshot),
             self._plots(snapshot),
             self._latest_game(snapshot),
-            self._rounds(snapshot),
-            self._rules(snapshot),
             self._models(snapshot),
             self._recent(snapshot),
             "</body></html>",
@@ -110,7 +96,7 @@ class DashboardHtmlMapper:
         return "\n".join(parts)
 
     def _progress(self, snapshot: DashboardSnapshot) -> str:
-        progress, report = snapshot.progress, snapshot.report
+        progress = snapshot.progress
         processes = snapshot.machine.processes
         training = next((process for process in processes if process.role == "training"), None)
         workers = sum(1 for process in processes if process.role == "worker")
@@ -132,8 +118,6 @@ class DashboardHtmlMapper:
                     ("Moves deduced this round", str(progress.deduced)),
                 )
             )
-        if report is not None:
-            cards.append(("Rounds saved", f"{len(report.rounds)}{', complete' if report.complete else ''}"))
         note = "" if progress is None else f"<div class='muted'>{html.escape(progress.round_note)} &middot; log {html.escape(str(progress.path))}</div>"
         command = "" if training is None else f"<div class='muted'>{html.escape(training.command)}</div>"
         body = "".join(f"<div class='card'>{html.escape(label)}<b>{html.escape(value)}</b></div>" for label, value in cards)
@@ -165,14 +149,12 @@ class DashboardHtmlMapper:
         return f"<h2>Machine</h2><div class='cards'>{cards}</div><details><summary>Processes</summary>{table}</details>{kills}"
 
     def _plots(self, snapshot: DashboardSnapshot) -> str:
-        """The training's numbers round by round, drawn: how its games ended, how long they were, what it fitted and
-        how long each round took. The round being played counts the games it has finished so far, so the plots grow
+        """The training's games round by round, drawn: how they ended and how long they were. The round being played counts the games it has finished so far, so the plots grow
         while it runs. Nothing to draw before the first game ends."""
         played = snapshot.played
-        rounds = snapshot.report.rounds if snapshot.report is not None else ()
-        if not played and not rounds:
+        if not played:
             return ""
-        charts = [*self._game_plots(played), *self._fit_plots(rounds)]
+        charts = self._game_plots(played)
         if not charts:
             return ""
         return f"<h2>Round by round</h2><div class='charts'>{''.join(charts)}</div>"
@@ -207,62 +189,6 @@ class DashboardHtmlMapper:
                 )
             )
         return charts
-
-    def _fit_plots(self, rounds: Sequence[object]) -> list[str]:
-        if not rounds:
-            return []
-        columns = [f"round {item.number}" for item in rounds]  # type: ignore[attr-defined]
-        charts = [
-            self._charts.stacked(
-                "Value rules fitted", columns, (("rules", [item.rules for item in rounds]),)  # type: ignore[attr-defined]
-            ),
-            self._charts.stacked(
-                "Minutes a round", columns, (("minutes", [item.seconds / 60 for item in rounds]),)  # type: ignore[attr-defined]
-            ),
-        ]
-        errors = [item.held_out_error for item in rounds]  # type: ignore[attr-defined]
-        if any(error is not None for error in errors):
-            charts.append(self._charts.line("Held-out error", columns, [error or 0.0 for error in errors]))
-        return charts
-
-    def _rounds(self, snapshot: DashboardSnapshot) -> str:
-        report = snapshot.report
-        if report is None or not report.rounds:
-            return "<h2>Rounds</h2><p>No round saved yet.</p>"
-        opponents = list(dict.fromkeys(opponent for item in report.rounds for opponent, _ in item.baselines))
-        header = (
-            "round",
-            "rules",
-            "held-out loss",
-            "held-out error",
-            *(f"against {opponent}" for opponent in opponents),
-            "against the previous",
-            "time",
-        )
-        rows = [
-            (
-                str(item.number),
-                str(item.rules),
-                "none" if item.held_out_loss is None else f"{item.held_out_loss:.6f}",
-                "none" if item.held_out_error is None else f"{item.held_out_error:.4f}",
-                *(dict(item.baselines).get(opponent, "none") for opponent in opponents),
-                item.against_previous or "none",
-                self._duration(item.seconds),
-            )
-            for item in report.rounds
-        ]
-        started = f"<div class='muted'>Training started {html.escape(report.created_at)} &middot; report {html.escape(str(report.path))}</div>"
-        legend = "".join(f"<li><b>{html.escape(name)}</b>: {html.escape(meaning)}</li>" for name, meaning in ROUND_COLUMNS)
-        return f"<h2>Rounds</h2>{started}{self._table(header, rows)}<details open><summary>What the columns mean</summary><ul class='legend'>{legend}</ul></details>"
-
-    def _rules(self, snapshot: DashboardSnapshot) -> str:
-        report = snapshot.report
-        if report is None or not report.rounds:
-            return ""
-        if not report.latest_rules:
-            return "<h2>Latest round's rules</h2><p>No value rule: every position valued the same.</p>"
-        rows = [(f"{weight:+.6g}", name) for name, weight in report.latest_rules]
-        return f"<h2>Latest round's rules</h2>{self._table(('weight', 'rule'), rows)}"
 
     def _page(self, title: str, refresh_seconds: int, body: str) -> str:
         """A page of its own, under the title, reloading itself every so many seconds (never at 0)."""

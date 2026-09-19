@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 
+from openmind.debug.factory.debugger_factory import process_debugger
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.training.model.continuous_training_settings import ContinuousTrainingSettings
@@ -17,6 +18,18 @@ class GameStudy:
         self._ending_walker = ending_walker
 
     def play_and_study(
+        self,
+        rbs: RuleBasedSystem,
+        builders: Sequence[AgentBuilder],
+        arms: tuple[str, ...],
+        agent_seed: int,
+        outcome_seed: int,
+        settings: ContinuousTrainingSettings,
+    ) -> GameLesson:
+        with process_debugger().frame("task", context=rbs.context, details={"task": "play and study", "arms": ", ".join(arms)}):
+            return self._play_and_study(rbs, builders, arms, agent_seed, outcome_seed, settings)
+
+    def _play_and_study(
         self,
         rbs: RuleBasedSystem,
         builders: Sequence[AgentBuilder],

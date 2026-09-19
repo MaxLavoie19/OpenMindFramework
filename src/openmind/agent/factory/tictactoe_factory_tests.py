@@ -11,14 +11,15 @@ from openmind.agent.factory.tictactoe_factory import (
     declare_tictactoe,
 )
 from openmind.agent.model.tictactoe_variant import TicTacToeVariant
-from openmind.doxastic.constant.rule_kind_constant import CONSTRAINT, EFFECTS, TIMEOUT
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, EFFECTS, TIMEOUT
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_compiler import RuleCompiler
 from openmind.rbs.service.rule_runner import RuleRunner
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
@@ -26,14 +27,9 @@ type Game = Callable[[str], RuleBasedSystem]
 
 
 def test_the_standard_game_starts_with_nine_empty_cells() -> None:
-    variables = dict(create_tictactoe_initial_state().variables)
-
-    assert variables == {
-        **{f"cell({row},{col})": None for row in range(1, 4) for col in range(1, 4)},
-        "turn": "X",
-        "payoff(X)": None,
-        "payoff(O)": None,
-    }
+    assert create_tictactoe_initial_state() == State.of(
+        cell=Grid.filled((3, 3), None), turn="X", payoff=Map.of({"X": None, "O": None})
+    )
 
 
 def test_a_mark_is_placed_on_an_empty_cell_while_no_payoff_is_set(game: Game) -> None:
@@ -45,14 +41,9 @@ def test_a_mark_is_placed_on_an_empty_cell_while_no_payoff_is_set(game: Game) ->
 
 
 def test_fourinarow_starts_with_42_empty_cells() -> None:
-    variables = dict(create_tictactoe_initial_state(VARIANTS["fourinarow"]).variables)
-
-    assert variables == {
-        **{f"cell({row},{col})": None for row in range(1, 7) for col in range(1, 8)},
-        "turn": "X",
-        "payoff(X)": None,
-        "payoff(O)": None,
-    }
+    assert create_tictactoe_initial_state(VARIANTS["fourinarow"]) == State.of(
+        cell=Grid.filled((6, 7), None), turn="X", payoff=Map.of({"X": None, "O": None})
+    )
 
 
 def test_fourinarow_drops_a_mark_in_a_column_whose_top_cell_is_empty(game: Game) -> None:
@@ -72,28 +63,28 @@ def test_definitions_give_the_sizes_and_the_lines_through_the_centre(name: str, 
         create_tictactoe_definitions(VARIANTS[name]),
     )
 
-    assert RuleRunner(StateNamespaceMapper(VariableNameMapper())).value(reading, State(())) == expected
+    assert RuleRunner(StateNamespaceMapper()).value(reading, State(())) == expected
 
 
 @pytest.mark.parametrize(("name", "action"), [("standard", "place"), ("fourinarow", "drop"), ("gomoku", "place")])
 def test_each_variant_s_move_leads_somewhere_certain(knowledge: KnowledgeBase, name: str, action: str) -> None:
     context = declare_tictactoe(knowledge, VARIANTS[name])
 
-    (effects,) = knowledge.rules(context, (EFFECTS,))
+    (effects,) = knowledge.rules(knowledge.context_named(context).id, (EFFECTS,))
 
     assert (effects.action, effects.probability) == (action, 1.0)
 
 
-def test_players_are_x_and_o_with_turn_and_payoff_variables() -> None:
-    assert create_tictactoe_players() == Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)"))
+def test_players_are_x_and_o_with_the_turn_and_the_payoff_map() -> None:
+    assert create_tictactoe_players() == Players(("X", "O"), "turn", "payoff")
 
 
 def test_the_declared_game_holds_the_rules_of_tic_tac_toe(knowledge: KnowledgeBase) -> None:
     context = declare_tictactoe(knowledge)
 
     assert context == "tictactoe"
-    assert [rule.action for rule in knowledge.rules(context, (CONSTRAINT,))] == ["place", "place", "place"]
-    assert [rule.kind for rule in knowledge.rules(context, (TIMEOUT,))] == [TIMEOUT]
+    assert [rule.action for rule in knowledge.rules(knowledge.context_named(context).id, (CONSTRAINT,))] == ["place", "place", "place"]
+    assert [rule.kind for rule in knowledge.rules(knowledge.context_named(context).id, (TIMEOUT,))] == [TIMEOUT]
 
 
 def test_a_variant_is_declared_under_its_own_name_and_the_standard_game_keeps_its_name(knowledge: KnowledgeBase) -> None:

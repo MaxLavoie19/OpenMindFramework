@@ -7,7 +7,7 @@ from openmind.agent.mapper.sudoku_collection_mapper import SudokuCollectionMappe
 from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
 from openmind.agent.factory.sudoku_factory import declare_sudoku
 from openmind.agent.repository.sudoku_puzzle_repository import SudokuPuzzleRepository
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 
@@ -40,8 +40,8 @@ def test_every_published_puzzle_has_one_solution_that_keeps_its_clues_and_follow
 
     assert len(actions) == 1
     ((outcome, probability),) = rbs.outcomes(rbs.start(), actions[0]).outcomes
-    values = dict(outcome.variables)
-    grid = [[values[f"cell({row + 1},{col + 1})"] for col in POSITIONS] for row in POSITIONS]
+    cell = outcome.model("cell")
+    grid = [[cell[row + 1, col + 1] for col in POSITIONS] for row in POSITIONS]
     assert all(sorted(grid[row][col] for row, col in unit) == list(range(1, 10)) for unit in UNITS)
     assert all(mark == "." or grid[index // 9][index % 9] == int(mark) for index, mark in enumerate(puzzle.grid))
-    assert (probability, values["payoff"]) == (1.0, 1.0)
+    assert (probability, outcome.model("payoff")["solver"]) == (1.0, 1.0)

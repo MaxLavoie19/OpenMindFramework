@@ -6,16 +6,14 @@ from openmind.dashboard.service.game_browser import GameBrowser
 from openmind.dashboard.service.log_progress_reader import LogProgressReader
 from openmind.dashboard.service.machine_reader import MachineReader
 from openmind.dashboard.service.model_score_reader import ModelScoreReader
-from openmind.dashboard.service.report_reader import ReportReader
 
 
 class DashboardService:
-    """Takes snapshots of a domain's training: its newest report, its newest log's progress, the machine, and every
+    """Takes snapshots of a domain's training: its newest log's progress, the machine, and every
     model's games, and the latest decisive game. Keeps its log readers' places between snapshots, so each snapshot reads only what's new."""
 
     def __init__(
         self,
-        report_reader: ReportReader,
         log_progress_reader: LogProgressReader,
         machine_reader: MachineReader,
         model_score_reader: ModelScoreReader | None = None,
@@ -23,7 +21,6 @@ class DashboardService:
     ) -> None:
         self._game_browser = GameBrowser() if game_browser is None else game_browser
         self._model_score_reader = ModelScoreReader() if model_score_reader is None else model_score_reader
-        self._report_reader = report_reader
         self._log_progress_reader = log_progress_reader
         self._machine_reader = machine_reader
 
@@ -31,7 +28,6 @@ class DashboardService:
         return DashboardSnapshot(
             settings.domain,
             datetime.now().replace(microsecond=0).isoformat(sep=" "),
-            self._report_reader.summary(settings.report_directory / settings.domain),
             self._log_progress_reader.progress(settings.log_directory / settings.domain),
             self._machine_reader.status(settings.proc, settings.syslog),
             self._log_progress_reader.played(),

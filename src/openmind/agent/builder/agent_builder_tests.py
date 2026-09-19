@@ -8,16 +8,13 @@ import pytest
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.mcts.model.action_statistics import ActionStatistics
-from openmind.mcts.model.hypothesis import Hypothesis
-from openmind.mcts.service.semi_determinized_search_tests import Believes, coin_game
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.timing.model.clock import Clock
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
-from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
@@ -36,14 +33,9 @@ class FavourCenter:
 @pytest.mark.log_level("INFO")
 def test_build_gives_an_agent_that_searches(game: Game) -> None:
     rbs = game("tictactoe")
-    builder = StateBuilder()
-    x_can_win = {"cell(1,1)": "X", "cell(1,2)": "X", "cell(2,1)": "O", "cell(2,2)": "O"}
-    for name, value in (dict(rbs.start().variables) | x_can_win).items():
-        builder.with_variable(name, value)
-
     agent = AgentBuilder().with_iterations(100).with_exploration(1.4).with_seed(1).build()
 
-    assert agent.choose(rbs, builder.build()) == Action("place", (("col", 3), ("row", 1)))
+    assert agent.choose(rbs, x_can_win(rbs)) == Action("place", (("col", 3), ("row", 1)))
 
 
 @pytest.mark.log_level("INFO")
@@ -119,11 +111,11 @@ type Game = Callable[[str], RuleBasedSystem]
 
 def x_can_win(rbs: RuleBasedSystem) -> State:
     """X to act, with X on (1,1) and (1,2) and O on (2,1) and (2,2)."""
-    builder = StateBuilder()
-    marks = {"cell(1,1)": "X", "cell(1,2)": "X", "cell(2,1)": "O", "cell(2,2)": "O"}
-    for name, value in (dict(rbs.start().variables) | marks).items():
-        builder.with_variable(name, value)
-    return builder.build()
+    start = rbs.start()
+    cell = start.model("cell")
+    for where, mark in (((1, 1), "X"), ((1, 2), "X"), ((2, 1), "O"), ((2, 2), "O")):
+        cell = cell.placed(where, mark)
+    return start.with_model("cell", cell)
 
 
 class KnowsNothing:
@@ -137,7 +129,7 @@ class ValuesTheCorner:
     """A valuer valuing a position 1.0 for X once X holds (3,3), 0.0 otherwise."""
 
     def values(self, state: State) -> tuple[float, ...] | None:
-        return (1.0, 0.0) if dict(state.variables)["cell(3,3)"] == "X" else (0.0, 1.0)
+        return (1.0, 0.0) if state.model("cell")[3, 3] == "X" else (0.0, 1.0)
 
 
 @pytest.mark.log_level("INFO")
@@ -210,68 +202,6 @@ def test_build_with_a_time_budget_estimator_gives_an_agent_searching_on_time_alo
 def test_build_rejects_fewer_than_one_iteration(game: Game) -> None:
     with pytest.raises(ValueError, match="0"):
         AgentBuilder().with_iterations(0).with_exploration(1.4).build()
-
-
-def test_an_agent_with_a_theory_of_mind_searches_once_per_hypothesis(tmp_path: Path) -> None:
-    rbs = coin_game(tmp_path, "tails")
-
-    result = AgentBuilder().with_iterations(40).with_exploration(1.4).with_seed(1).with_theory_of_mind(Believes(0.8)).build().search(
-        rbs, rbs.start()
-    )
-
-    assert result.chosen == Action("guess", (("side", "heads"),))
-    assert [hypothesis.probability for hypothesis in result.hypotheses] == [0.8, pytest.approx(0.2)]
-
-
-def test_an_agent_whose_theory_holds_the_position_as_it_stands_searches_it_alone(game: Game) -> None:
-    rbs = game("tictactoe")
-
-    result = AgentBuilder().with_iterations(20).with_exploration(1.4).with_seed(1).with_theory_of_mind(
-        Certain()
-    ).build().search(rbs, rbs.start())
-    plain = AgentBuilder().with_iterations(20).with_exploration(1.4).with_seed(1).build().search(rbs, rbs.start())
-
-    assert [probability for _, probability in ((h.label, h.probability) for h in result.hypotheses)] == [1.0]
-    assert result.chosen == plain.chosen
-
-
-def test_a_semi_determinized_agent_needs_a_theory_of_mind() -> None:
-    with pytest.raises(ValueError, match="needs a theory of mind"):
-        AgentBuilder().with_iterations(20).with_exploration(1.4).with_theory_of_mind(None).build()  # type: ignore[arg-type]
-
-
-class Certain:
-    """A theory of mind believing the position is exactly what it looks like."""
-
-    def hypotheses(self, rbs: object, state: State, player: str) -> tuple[tuple[Hypothesis, float], ...]:
-        return ((Hypothesis("as it stands", ((state, 1.0),)), 1.0),)
-
-    def strategy(self, rbs: object, state: State, player: str, other: str) -> None:
-        return None
-
-
-def throw(shape: str) -> Action:
-    return Action("throw", (("shape", shape),))
-
-
-class PredictsRock:
-    """A theory of mind predicting the other player throws rock 0.6 of the time."""
-
-    def hypotheses(self, domain: object, observed: State, player: str) -> tuple[()]:
-        return ()
-
-    def strategy(self, domain: object, state: State, player: str, other: str) -> tuple[tuple[Action, float], ...]:
-        return (throw("rock"), 0.6), (throw("paper"), 0.2), (throw("scissors"), 0.2)
-
-
-def test_an_agent_acting_at_once_searches_for_its_player_against_the_strategy_its_theory_predicts(game: Game) -> None:
-    rbs = game("rockpaperscissors")
-    agent = AgentBuilder().with_iterations(2000).with_exploration(1.4).with_seed(1).with_theory_of_mind(PredictsRock()).build()  # type: ignore[arg-type]
-
-    result = agent.search(rbs, rbs.start(), "A")
-
-    assert result.player == "A" and dict(result.strategy)[throw("paper")] > 0.5
-    assert agent.choose(rbs, rbs.start(), "B") in (throw("rock"), throw("paper"), throw("scissors"))
 
 
 def test_a_description_is_the_same_for_the_same_settings_whatever_the_seed_and_changes_with_any_setting(game: Game) -> None:

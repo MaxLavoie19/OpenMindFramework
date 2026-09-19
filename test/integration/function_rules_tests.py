@@ -9,24 +9,25 @@ import pytest
 
 from openmind.rbs.factory.rule_factory import create_rule_caller
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.consequence_library_tests import Declare, place, position, strip_domain
 from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.structure.model.map import Map
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 COLUMNS = (1, 2, 3, 4)
 
 
 def marks(state: State) -> dict[int, Value]:
-    values = dict(state.variables)
-    return {col: values[f"cell(1,{col})"] for col in COLUMNS}
+    cell = state.model("cell")
+    return {col: cell[1, col] for col in COLUMNS}
 
 
 def is_over(state: State) -> bool:
-    return dict(state.variables)["payoff(X)"] is not None
+    return state.model("payoff")["X"] is not None
 
 
 def free_columns(state: State) -> tuple[Value, ...]:
@@ -41,26 +42,26 @@ def is_empty(state: State, col: int) -> bool:
 
 def place_mark(state: State, col: int) -> State:
     """The effects: the player to act marks the column, two marks side by side win, a full strip draws."""
-    values = dict(state.variables)
-    turn, other = values["turn"], "O" if values["turn"] == "X" else "X"
-    values[f"cell(1,{col})"] = turn
-    placed = {column: values[f"cell(1,{column})"] for column in COLUMNS}
+    turn = state.value("turn")
+    other = "O" if turn == "X" else "X"
+    cell = state.model("cell").placed((1, col), turn)
+    payoff = state.model("payoff")
+    placed = {column: cell[1, column] for column in COLUMNS}
     if any(placed[column] == turn == placed[column + 1] for column in COLUMNS[:-1]):
-        values[f"payoff({turn})"], values[f"payoff({other})"] = 1.0, 0.0
+        payoff = Map.of({turn: 1.0, other: 0.0})
     elif all(mark is not None for mark in placed.values()):
-        values["payoff(X)"] = values["payoff(O)"] = 0.5
-    values["turn"] = other
-    return State(tuple(sorted(values.items())))
+        payoff = Map.of({"X": 0.5, "O": 0.5})
+    return state.with_model("cell", cell).with_model("payoff", payoff).with_model("turn", other)
 
 
 def why_it_ended(state: State) -> str | None:
     """The ending: who made a line, a full strip, or nothing while the game goes on."""
-    values = dict(state.variables)
-    if values["payoff(X)"] is None:
+    payoff = state.model("payoff")
+    if payoff["X"] is None:
         return None
-    if values["payoff(X)"] == 0.5:
+    if payoff["X"] == 0.5:
         return "a full strip"
-    return f"{'X' if values['payoff(X)'] == 1.0 else 'O'} made a line"
+    return f"{'X' if payoff['X'] == 1.0 else 'O'} made a line"
 
 
 def game_record(state: State, actions: tuple) -> str:  # type: ignore[type-arg]
@@ -72,7 +73,7 @@ def function_strip(knowledge: KnowledgeBase) -> RuleBasedSystem:
     """The strip game with every rule declared as one of this module's functions."""
     declarer = RuleDeclarer(knowledge, "function strip", rule_caller=create_rule_caller())
     declarer.starts_at(position({}, "X"))
-    declarer.played_by(Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)")))
+    declarer.played_by(Players(("X", "O"), "turn", "payoff"))
     declarer.values("place", "col", free_columns)
     declarer.constraint("place", 1, is_empty)
     declarer.leads_to("place", place_mark)
@@ -140,7 +141,7 @@ def keyword_record(state: State, **parameters: object) -> str:
 
 def test_a_function_gets_only_the_parameters_its_signature_names_or_all_of_them_when_it_takes_any_keyword() -> None:
     caller = create_rule_caller()
-    state = State((("turn", "X"),))
+    state = State.of(turn="X")
     offered = {"actions": (), "flagged": None, "payoffs": None}
 
     assert caller.value(older_record, state, offered) == "0"

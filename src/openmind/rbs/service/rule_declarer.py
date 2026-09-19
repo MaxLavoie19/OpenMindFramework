@@ -2,8 +2,8 @@ import logging
 from collections.abc import Collection
 from dataclasses import replace
 
-from openmind.doxastic.constant.doxastic_constant import COUNTED, TOLD
-from openmind.doxastic.constant.rule_kind_constant import (
+from openmind.knowledge.constant.knowledge_constant import DECLARATION, INFERENCE
+from openmind.knowledge.constant.rule_kind_constant import (
     CONSTRAINT,
     MOVE,
     POSITION,
@@ -18,16 +18,16 @@ from openmind.doxastic.constant.rule_kind_constant import (
     TIMEOUT,
     VALUES,
 )
-from openmind.doxastic.model.provenance import Provenance
-from openmind.doxastic.model.rule_record import RuleRecord
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.model.source import Source
+from openmind.knowledge.model.rule_record import RuleRecord
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.constant.rule_based_constant import EFFECTS_DEFINITIONS, RULES_DEFINITIONS
-from openmind.rbs.model.python_rule import PythonRule
-from openmind.rbs.model.rule import Rule
+from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.model.rule import Rule
 from openmind.rbs.service.rule_caller import RuleCaller
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ class RuleDeclarer:
     ) -> None:
         self._knowledge_base = knowledge_base
         self._context = context
+        self._context_id = knowledge_base.ensure_context(context).id
         self._weight = weight
         self._caller = rule_caller
         self._declared = 0
@@ -82,22 +83,22 @@ class RuleDeclarer:
                 name,
                 kind,
                 rule,
-                Provenance(TOLD, self._context),
+                Source(self._knowledge_base.ensure_mechanism(DECLARATION).id, (("context", self._context),)),
                 self._contexts(standing, self._weight),
                 action,
                 parameter,
                 probability,
-                "" if standing is None else standing.id,
+                id="" if standing is None else standing.id,
             )
         )
 
     def starts_at(self, state: State) -> RuleRecord:
         """Where the game starts."""
-        return self.rule("where the game starts", INITIAL, PythonRule(repr(state.variables)))
+        return self.rule("where the game starts", INITIAL, PythonRule(repr(state.models)))
 
     def played_by(self, players: Players) -> RuleRecord:
-        """Who plays, in what order, the variable naming the player to act and each player's payoff variable."""
-        return self.rule("who plays", PLAYERS, PythonRule(repr((players.names, players.to_act, players.payoffs))))
+        """Who plays, in what order, the model saying who acts, and the map of payoffs."""
+        return self.rule("who plays", PLAYERS, PythonRule(repr((players.names, players.to_act, players.payoff))))
 
     def empty(self, base: str, value: Value) -> RuleRecord:
         """What a cell of that grid holds when nothing is on it, as the game defines what can be on its board."""
@@ -155,13 +156,17 @@ class RuleDeclarer:
         relaxation are all games in their own right."""
         left = set(leaving)
         taken = 0
-        for rule in self._knowledge_base.rules(context):
-            if rule.relevant(self._context) or (rule.kind, rule.name) in left:
+        game = self._knowledge_base.ensure_context(context).id
+        for rule in self._knowledge_base.rules(game):
+            if rule.relevant(self._context_id) or (rule.kind, rule.name) in left:
                 continue
             self._knowledge_base.declare(
-                replace(rule, contexts=(*rule.contexts, (self._context, rule.weight(context))))
+                replace(rule, contexts=(*rule.contexts, (self._context_id, rule.weight(game))))
             )
             taken += 1
+        known = self._knowledge_base.context_by_id(self._context_id) or self._knowledge_base.ensure_context(self._context)
+        if game not in known.inherits:
+            self._knowledge_base.context(replace(known, inherits=(*known.inherits, game)))
         logger.debug("%s inherits %d rules from %s", self._context, taken, context)
         return taken
 
@@ -182,7 +187,7 @@ class RuleDeclarer:
                 name,
                 kind,
                 rule,
-                Provenance(COUNTED, self._context),
+                Source(self._knowledge_base.ensure_mechanism(INFERENCE).id, (("method", "fit"), ("context", self._context))),
                 self._contexts(standing, weight),
                 id="" if standing is None else standing.id,
             )
@@ -191,8 +196,8 @@ class RuleDeclarer:
     def _contexts(self, standing: RuleRecord | None, weight: float) -> tuple[tuple[str, float], ...]:
         """The rule's weight here, beside whatever weights it already has elsewhere: declaring a game again changes
         what its rules weigh in it, never what they weigh in the variants, rounds and arms that inherited them."""
-        elsewhere = () if standing is None else tuple(item for item in standing.contexts if item[0] != self._context)
-        return ((self._context, weight), *elsewhere)
+        elsewhere = () if standing is None else tuple(item for item in standing.contexts if item[0] != self._context_id)
+        return ((self._context_id, weight), *elsewhere)
 
     def done(self) -> str:
         """Says what was declared and gives back the context, so a factory can end on it."""
@@ -201,7 +206,7 @@ class RuleDeclarer:
 
     def _standing(self, name: str, kind: str) -> RuleRecord | None:
         """The rule already declared under that name and kind for the context, or None where there is none."""
-        for rule in self._knowledge_base.rules(self._context, (kind,)):
+        for rule in self._knowledge_base.rules(self._context_id, (kind,)):
             if rule.name == name:
                 return rule
         return None

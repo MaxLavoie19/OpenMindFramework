@@ -33,7 +33,7 @@ Nothing here knows a game. Game projects declare their rules; the inference engi
 Every rule is Python: a constraint, an effect, a heuristic's term. Each is a `PythonRule`, the source of a Python
 expression or of a whole script, **or one of the project's own functions**, given to OMF and called as it is.
 
-A project that writes its game in Python hands OMF functions of the prototypes in `model/rule.py`: a constraint
+A project that writes its game in Python hands OMF functions of the prototypes in `rule/model/rule.py`: a constraint
 `(state, **parameters) -> bool`, a parameter's values `(state) -> Iterable[Value]`, effects `(state, **parameters) ->
 State`, an ending `(state) -> str | None` and a record `(state, actions) -> str | None`. `RuleCaller` calls either kind,
 so nothing else in OMF cares which it is; the rules the inference engine generates stay source. A function must live at
@@ -54,11 +54,9 @@ source file.
 | `service/rule_based_system.py` | `RuleBasedSystem(context, rules, solver, predictor, rule_caller, state_reader, consequence_library=None)`: one game, as the rules retrieved for a context. `start()`, `players()` (both read once), `actions(state, limit, player)`, `actions_with_statistics(...)`, `joint_actions(state)`, `outcomes(state, action)`, `joint_outcomes(state, joint)`, `ended(state)`, `record(actions, flagged, payoffs)`, `flagged(state, flagged=…)`, `timed()`, `picture(state, last=…)`, `empty(base)`, `empties()`, `value(state, player)`, `values(state)`, `rate(state, actions)`, `explain(state, player)`, `describe()` |
 | `service/rule_declarer.py` | `RuleDeclarer(knowledge_base, context, weight=1.0, rule_caller=None)`: how a game project writes its rules into the knowledge base: `starts_at`, `played_by`, `empty`, `definitions`, `constraint`, `constraints`, `values`, `leads_to`, `together`, `ending`, `record`, `timeout`, `picture`; `position` and `move` for heuristics, declared `counted`; `inherits(context)` makes this context a variant of another; `done()` logs and gives back the context |
 | `service/game_relaxer.py` | `GameRelaxer(knowledge_base, rule_caller)`: `relaxations(context)`, each constraint dropped and, where one player acts at a time, a player passing; `relax(context, name)` declares that relaxation as a context of its own |
-| `factory/rbs_factory.py` | `create_rule_based_system(knowledge_base, context)`, `create_value_generator(workers=1)`, `create_rule_explainer()` |
+| `factory/rbs_factory.py` | `create_rule_based_system(knowledge_base, context)`, `create_value_generator(workers=1)` |
 | `constant/rule_based_constant.py` | The names of the two definitions scripts, the one a context's rules see and the one its effects see |
 | `constant/game_record_constant.py` | What a record rule reads: `actions`, `flagged`, `payoffs` |
-| `model/python_rule.py` | `PythonRule(source)`: an expression, or a script |
-| `model/rule.py` | `Rule`, a game's rule: `PythonRule` source OMF compiles, or one of the project's own functions; and the prototypes a function follows, `ConstraintRule`, `ValuesRule`, `EffectsRule`, `EndingRule` and `RecordRule` |
 | `model/called_rule.py` | `CalledRule(rule, compiled, arguments, source)`: a rule ready to call, its compiled code when it is source, the parameters it reads, and how it reads in a log |
 | `service/rule_caller.py` | `RuleCaller`: calls a rule whichever way it is written; `prepare(rule, parameters, definitions)`, `call(prepared, state, parameters, names)`, `value(...)`, `apply(rule, state, parameters, definitions)` for effects, `check(rule)` rejecting a function no worker could find, and `source(rule)` |
 | `factory/rule_factory.py` | `create_rule_caller()`: a caller with its own compiler and runner |
@@ -82,16 +80,10 @@ source file.
 | `service/sparse_fitter.py` | `SparseFitter`: a linear fit of the payoffs themselves, with an L1 price on its weights, optionally multiplied per weight by a cost, by accelerated proximal gradient |
 | `service/value_generator.py` | `ValueGenerator`: searches expressions with the inference engine, fits them at every price, and declares the fit best on held-out rows as `position` rules; `generate_for_targets(...)` does it for several targets at once |
 | `builder/value_generator_builder.py` | `ValueGeneratorBuilder`: sets how many worker processes terms are evaluated in and the memory each holds at most, and wires the generator |
-| `model/rule_explanation.py` | `RuleExplanation(source, weight, reading, sentence, model)`: a position rule's literal reading and, with a language model, its sentence |
-| `service/rule_explainer.py` | `RuleExplainer.explain(rules, rbs, language_model=None, cache_directory=None)`: every rule's literal reading, and the model's sentence, asked once per rule and cached |
-| `mapper/position_rule_explanation_mapper.py` | `PositionRuleExplanationMapper.to_markdown(context, explanations)`: a heading, then a table of Weight, Explanation, Literal reading, Rule |
-| `repository/explanation_cache_repository.py` | `ExplanationCacheRepository`: the sentences by rule source, with their readings, in `<directory>/<context>/<model>.json` |
-| `constant/explanation_constant.py` | `EXPLANATION_PROMPT`, `DEFAULT_EXPLAINER_TIMEOUT` (300 seconds), `DEFAULT_EXPLANATIONS_DIRECTORY` (`data/explanations`) |
-| `service/ollama_language_model.py` | `OllamaLanguageModel(url, model, timeout, transport)`: `complete(prompt)` posts to Ollama's `/api/generate`; None when the server doesn't answer |
 
 ## The kinds of rules
 
-A rule's kind, recorded with it in the knowledge base (see `doxastic/README.md`), says what it is a rule about:
+A rule's kind, recorded with it in the knowledge base (see `knowledge/README.md`), says what it is a rule about:
 
 | Kind | What the rule gives | Declared by |
 |---|---|---|
@@ -202,7 +194,7 @@ A game, from its declared rules:
 
 ```python
 from openmind.agent.factory.game_factory import create_game
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 
 knowledge_base = create_knowledge_base("tictactoe")
 rbs = create_game("tictactoe", knowledge_base)   # declares tic-tac-toe's rules where they aren't there yet
@@ -217,7 +209,7 @@ A variant with heuristics of its own, and a relaxation:
 ```python
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.factory.rule_factory import create_rule_caller
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.game_relaxer import GameRelaxer
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 
@@ -272,6 +264,5 @@ The RBS's roles don't log: they run inside searches.
 - Tests: `service/rule_based_system_tests.py`, `service/rule_declarer_tests.py`, `service/game_relaxer_tests.py`,
   `factory/rbs_factory_tests.py`, `service/consequence_library_tests.py`, `service/sparse_fitter_tests.py`,
   `service/term_evaluator_tests.py`, `service/value_generator_tests.py`, `service/reading_cache_tests.py`,
-  `service/rule_explainer_tests.py`, `mapper/position_rule_explanation_mapper_tests.py`,
   `builder/value_generator_builder_tests.py`, `mapper/call_operand_mapper_tests.py`,
   `mapper/state_namespace_mapper_tests.py`, `service/rule_compiler_tests.py`, `service/rule_runner_tests.py`.

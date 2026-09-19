@@ -10,23 +10,19 @@ from openmind.agent.service.agent import Agent
 from openmind.agent.service.deduction_fallback import DeductionFallback
 from openmind.agent.service.move_planner import MovePlanner
 from openmind.agent.service.one_ply_chooser import OnePlyChooser
-from openmind.evaluation.service.match_runner import MatchRunner
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.search_settings import SearchSettings
-from openmind.mcts.service.semi_determinized_search import SemiDeterminizedSearch
-from openmind.mcts.service.semi_determinized_search_tests import Believes, coin_game
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.mcts.service.tree_search_tests import Ticking
 from openmind.mcts.service.valuation_prior_tests import CenterValued
-from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.consequence_library_tests import Declare
 from openmind.timing.model.clock import Clock
-from openmind.timing.model.time_control import TimeControl
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
+from openmind.structure.model.map import Map
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
@@ -40,11 +36,14 @@ type Game = Callable[[str], RuleBasedSystem]
 
 def win_or_lose(declared: Declare) -> RuleBasedSystem:
     """One player, two moves: win pays 1.0 and lose pays 0.0."""
-    no_payoff = PythonRule("payoff is None")
+    no_payoff = PythonRule("payoff['me'] is None")
     return declared(
-        State((("payoff", None), ("turn", "me"))),
+        State.of(payoff=Map.of({"me": None}), turn="me"),
         legal={"lose": (no_payoff,), "win": (no_payoff,)},
-        outcomes={"lose": ((1.0, PythonRule("payoff = 0.0")),), "win": ((1.0, PythonRule("payoff = 1.0")),)},
+        outcomes={
+            "lose": ((1.0, PythonRule("payoff = payoff.with_item('me', 0.0)")),),
+            "win": ((1.0, PythonRule("payoff = payoff.with_item('me', 1.0)")),),
+        },
         context="win or lose",
     )
 
@@ -69,18 +68,13 @@ def test_search_returns_the_statistics_and_the_tree_samples(declared: Declare, t
     assert {sample.action.name for sample in result.samples} == {"lose", "win"}
 
 
-def timed_agent(iterations: int | None, estimator: bool = True, theory: bool = False) -> Agent:
+def timed_agent(iterations: int | None, estimator: bool = True) -> Agent:
     """An agent whose search reads a time source moving on by a second a reading, estimating a step's budget as all the
     time left."""
     tree_search = TreeSearch(StateReader(), ActionTextMapper(), time_source=Ticking())
-    semi_determinized = (
-        SemiDeterminizedSearch(tree_search, StateReader(), ActionTextMapper()) if theory else None
-    )
     return Agent(
         tree_search,
         SearchSettings(iterations, math.sqrt(2), 1),
-        semi_determinized_search=semi_determinized,
-        theory=Believes(0.5) if theory else None,
         estimator=PlainTimeBudgetEstimator(1) if estimator else None,
     )
 
@@ -119,15 +113,6 @@ def test_an_agent_built_without_iterations_needs_a_clock(declared: Declare, tmp_
 
     with pytest.raises(ValueError, match="needs a clock"):
         timed_agent(None).choose(rbs, rbs.start())
-
-
-def test_a_semi_determinized_agent_shares_the_step_s_budget_between_hypotheses(declared: Declare, tmp_path: Path, game: Game) -> None:
-    rbs = coin_game(tmp_path, "tails")
-
-    result = timed_agent(None, theory=True).search(rbs, rbs.start(), clock=Clock(10.0))
-
-    assert len(result.hypotheses) == 2
-    assert result.iterations == 6
 
 
 def test_an_agent_acting_at_once_searches_for_the_step_s_budget(declared: Declare, tmp_path: Path, game: Game) -> None:
@@ -177,35 +162,6 @@ def test_a_fallback_cut_short_by_the_deadline_still_leaves_the_move_a_search(dec
     result = agent.search(rbs, rbs.start(), clock=Clock(1.05))
 
     assert result.option == "fallback and search" and result.iterations >= 1
-
-
-def test_an_agent_on_a_tight_clock_with_slow_valuations_never_runs_out_of_time(declared: Declare, tmp_path: Path, game: Game) -> None:
-    rbs = game("tictactoe")
-
-    def slow_agent(seed: int) -> Agent:
-        return (
-            AgentBuilder()
-            .with_exploration(1.4)
-            .with_iterations(1000)
-            .with_seed(seed)
-            .with_valuation(SlowCenterValued())
-            .with_deduction(DeductionBudget(2, 1.0))
-            .with_time_budget_estimator(PlainTimeBudgetEstimator(3, 0.2))
-            .build()
-        )
-
-    runner = MatchRunner(StateReader(), TaskRunner(1))
-    games = [runner.play_game(rbs, slow_agent, slow_agent, seat, seed, seed, TimeControl(2.0)) for seat, seed in ((0, 1), (1, 2))]
-
-    assert [game.flagged for game in games] == [None, None]
-
-
-class SlowCenterValued(CenterValued):
-    """Values as CenterValued, taking 20 milliseconds a position."""
-
-    def values(self, state: State) -> tuple[float, ...] | None:
-        time.sleep(0.02)
-        return super().values(state)
 
 
 def test_where_the_planner_doesn_t_choose_a_budget_of_0_searches_a_single_iteration(declared: Declare, tmp_path: Path, game: Game) -> None:

@@ -41,7 +41,7 @@ def test_game_x_wins_ends_with_the_final_payoffs(game: Game,
 ) -> None:
     play(monkeypatch, tmp_path, *X_WINS)
 
-    assert capsys.readouterr().out.endswith("payoff(O) = 0.0\npayoff(X) = 1.0\nturn = 'O'\n")
+    assert capsys.readouterr().out.endswith("payoff = Map(items=(('O', 0.0), ('X', 1.0)))\nturn = 'O'\n")
 
 
 def test_invalid_input_asks_again(game: Game, 
@@ -111,7 +111,7 @@ def test_on_a_clock_the_clocks_are_shown_and_a_player_whose_time_runs_out_loses(
     assert "X 0:01.5  O 0:01.5" in output
     assert "X 0:00.5  O 0:01.5" in output
     assert "X's time ran out" in output
-    assert output.endswith("payoff(O) = 1.0\npayoff(X) = 0.0\nturn = 'X'\n")
+    assert output.endswith("payoff = Map(items=(('O', 1.0), ('X', 0.0)))\nturn = 'X'\n")
 
 
 def test_a_game_on_a_clock_plays_to_its_end_when_no_one_runs_out(game: Game, 
@@ -121,7 +121,7 @@ def test_a_game_on_a_clock_plays_to_its_end_when_no_one_runs_out(game: Game,
 
     output = capsys.readouterr().out
     assert "X 10:00.0  O 10:00.0" in output
-    assert output.endswith("payoff(O) = 0.0\npayoff(X) = 1.0\nturn = 'O'\n")
+    assert output.endswith("payoff = Map(items=(('O', 0.0), ('X', 1.0)))\nturn = 'O'\n")
     assert any(" took " in line and " seconds, " in line for line in log_lines(tmp_path))
 
 

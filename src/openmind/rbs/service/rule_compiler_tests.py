@@ -3,7 +3,7 @@ import pickle
 import pytest
 
 from openmind.rbs.constant.rule_constant import DEFINITIONS, EFFECTS, VALUE
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_compiler import RuleCompiler
 
 

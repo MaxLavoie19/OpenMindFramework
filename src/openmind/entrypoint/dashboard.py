@@ -1,16 +1,15 @@
 import argparse
 import logging
 import subprocess
-from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
 
+from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.dashboard.constant.dashboard_constant import DEFAULT_PORT, DEFAULT_REFRESH_SECONDS
 from openmind.dashboard.factory.dashboard_factory import create_dashboard_service
 from openmind.dashboard.mapper.dashboard_html_mapper import DashboardHtmlMapper
 from openmind.dashboard.model.dashboard_settings import DashboardSettings
-from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--refresh", type=int, default=DEFAULT_REFRESH_SECONDS, help=f"seconds between page reloads (default: {DEFAULT_REFRESH_SECONDS})"
     )
-    parser.add_argument("--report-directory", default="data/training", help="where training reports are (default: data/training)")
     parser.add_argument(
         "--log-directory", default="data/log/train-values", help="where training logs are (default: data/log/train-values)"
     )
@@ -43,23 +41,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--dashboard-log-directory", default="data/log/dashboard", help="where the dashboard's log is saved (default: data/log/dashboard)"
     )
+    add_debug_option(parser)
     arguments = parser.parse_args(argv)
     host = arguments.host or _tailscale_address()
     if host is None:
         parser.error("no Tailscale IPv4 address found: give --host")
     settings = DashboardSettings(
         arguments.domain,
-        Path(arguments.report_directory),
         Path(arguments.log_directory),
         None if arguments.syslog == "none" else Path(arguments.syslog),
     )
-    directory = Path(arguments.dashboard_log_directory)
-    directory.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    root = logging.getLogger()
-    root.addHandler(handler)
-    root.setLevel(logging.INFO)
+    debugger = start_debugging(arguments, "dashboard", Path(arguments.dashboard_log_directory))
     server = ThreadingHTTPServer((host, arguments.port), _handler(settings, arguments.refresh))
     logger.info("Serving the %s training on http://%s:%d", settings.domain, host, arguments.port)
     print(f"Serving the {settings.domain} training on http://{host}:{arguments.port}", flush=True)
@@ -69,8 +61,7 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("Stopped")
     finally:
         server.server_close()
-        root.removeHandler(handler)
-        handler.close()
+        debugger.stop()
 
 
 def page(settings: DashboardSettings, refresh: int, path: str = "/") -> tuple[int, bytes]:

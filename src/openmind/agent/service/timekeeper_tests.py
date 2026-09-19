@@ -3,20 +3,23 @@ from pathlib import Path
 import pytest
 
 from openmind.agent.service.timekeeper import Timekeeper
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.mcts.service.tree_search_tests import Ticking
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.factory.rule_factory import create_rule_caller
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.structure.model.map import Map
 from openmind.timing.model.clock import Clock
 from openmind.timing.model.time_control import TimeControl
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
 #: A timeout rule: the player whose time ran out gets 0.0, the other 1.0.
-TIMEOUT = PythonRule("payoff['A'] = 0.0 if flagged == 'A' else 1.0\npayoff['B'] = 0.0 if flagged == 'B' else 1.0")
+TIMEOUT = PythonRule(
+    "payoff = payoff.with_item('A', 0.0 if flagged == 'A' else 1.0).with_item('B', 0.0 if flagged == 'B' else 1.0)"
+)
 
 
 def alternating_steps(
@@ -25,8 +28,8 @@ def alternating_steps(
     """A and B take turns stepping; once the steps reach `stages`, the game is a draw."""
     knowledge_base = create_knowledge_base(context, tmp_path)
     declarer = RuleDeclarer(knowledge_base, context)
-    declarer.starts_at(State((("payoff(A)", None), ("payoff(B)", None), ("stage", 0), ("turn", "A"))))
-    declarer.played_by(Players(("A", "B"), "turn", ("payoff(A)", "payoff(B)")))
+    declarer.starts_at(State.of(payoff=Map.of({"A": None, "B": None}), stage=0, turn="A"))
+    declarer.played_by(Players(("A", "B"), "turn", "payoff"))
     declarer.constraint("step", 1, PythonRule("payoff['A'] is None"))
     declarer.leads_to(
         "step",
@@ -34,8 +37,7 @@ def alternating_steps(
             "stage = stage + 1\n"
             "turn = 'B' if turn == 'A' else 'A'\n"
             f"if stage >= {stages}:\n"
-            "    payoff['A'] = 0.5\n"
-            "    payoff['B'] = 0.5"
+            "    payoff = payoff.with_item('A', 0.5).with_item('B', 0.5)"
         ),
     )
     if timeout is not None:
@@ -63,4 +65,4 @@ def test_the_timeout_rule_says_what_running_out_of_time_does(tmp_path: Path) -> 
 
     state = Timekeeper(create_rule_caller()).flag(rbs, rbs.start(), "A")
 
-    assert (dict(state.variables)["payoff(A)"], dict(state.variables)["payoff(B)"]) == (0.0, 1.0)
+    assert state.model("payoff") == Map.of({"A": 0.0, "B": 1.0})

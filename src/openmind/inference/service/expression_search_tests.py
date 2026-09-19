@@ -17,7 +17,7 @@ from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rbs.model.position_row import PositionRow
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.consequence_library_tests import Declare, strip_domain
 from openmind.rbs.service.rule_compiler import RuleCompiler
 from openmind.rbs.service.rule_runner import RuleRunner
@@ -25,7 +25,6 @@ from openmind.rbs.service.sparse_fitter import SparseFitter
 from openmind.rbs.service.term_evaluator import TermEvaluator
 from openmind.rbs.service.term_evaluator_tests import new_evaluator
 from openmind.rbs.service.value_generator_tests import strip_rows
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
 
 pytestmark = pytest.mark.log_level("INFO")
@@ -38,7 +37,7 @@ class CountingEvaluator(TermEvaluator):
 
     def __init__(self) -> None:
         super().__init__(
-            RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build(), TaskRunner(1)
+            RuleCompiler(), RuleRunner(StateNamespaceMapper()), ConsequenceLibraryBuilder().build(), TaskRunner(1)
         )
         self.clears = 0
 
@@ -52,7 +51,7 @@ class RecordingEvaluator(TermEvaluator):
 
     def __init__(self) -> None:
         super().__init__(
-            RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build(), TaskRunner(1)
+            RuleCompiler(), RuleRunner(StateNamespaceMapper()), ConsequenceLibraryBuilder().build(), TaskRunner(1)
         )
         self.batches: list[list[PythonRule]] = []
 
@@ -66,7 +65,7 @@ class OverMemoryEvaluator(TermEvaluator):
 
     def __init__(self) -> None:
         super().__init__(
-            RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper())), ConsequenceLibraryBuilder().build(), TaskRunner(1)
+            RuleCompiler(), RuleRunner(StateNamespaceMapper()), ConsequenceLibraryBuilder().build(), TaskRunner(1)
         )
 
     def columns(self, rbs, rows, sources):  # type: ignore[no-untyped-def]
@@ -89,7 +88,7 @@ def new_search(
     generator: ExpressionGenerator | None = None,
 ) -> ExpressionSearch:
     parts = (
-        generator or ExpressionGenerator(VariableNameMapper()),
+        generator or ExpressionGenerator(),
         evaluator or new_evaluator(),
         SparseFitter(),
         MemoryMeter(),
@@ -108,7 +107,7 @@ def test_kept_expressions_look_ahead_and_their_columns_are_their_sources_values(
     result = search.search(rbs, rows, rows[:5], targets(), 0.01, 500, 1e-6, SearchBudget(300.0, GIGABYTE, 3000))
 
     assert result.expressions and max(expression.plies for expression in result.expressions) >= 1
-    generator = ExpressionGenerator(VariableNameMapper())
+    generator = ExpressionGenerator()
     sources = [generator.source(expression) for expression in result.expressions]
     for column, held, evaluated, evaluated_held in zip(
         result.training,
@@ -135,7 +134,7 @@ def test_without_a_board_the_search_relates_real_positions(declared: Declare) ->
     scaled = np.array([row.target for row in rows])
     frozen = declared(
         line_position(0.0, 2.0, "A"),
-        players=Players(("A", "B"), "turn", ("payoff(A)", "payoff(B)")),
+        players=Players(("A", "B"), "turn", "payoff"),
         context="line without moves",
     )
 
@@ -153,7 +152,7 @@ def test_without_a_board_the_search_relates_real_positions(declared: Declare) ->
 
 
 def test_the_search_stops_when_it_has_tried_its_candidates_even_when_they_never_end(declared: Declare) -> None:
-    result = new_search(generator=EndlessGenerator(VariableNameMapper())).search(
+    result = new_search(generator=EndlessGenerator()).search(
         strip_domain(declared), strip_rows(), (), targets(), 0.01, 500, 1e-6, SearchBudget(300.0, GIGABYTE, 600)
     )
 
@@ -206,7 +205,7 @@ def test_a_search_whose_process_holds_more_than_its_memory_budget_clears_its_vie
 
 def first_generation_budget(declared: Declare) -> SearchBudget:
     """A budget of exactly the first generation's candidates, the strip's leaves."""
-    generator = ExpressionGenerator(VariableNameMapper())
+    generator = ExpressionGenerator()
     leaves = generator.leaves(generator.vocabulary(strip_domain(declared), (row.state for row in strip_rows())))
     return SearchBudget(300.0, GIGABYTE, len(leaves))
 

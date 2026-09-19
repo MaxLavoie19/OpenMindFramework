@@ -13,7 +13,6 @@ from openmind.rbs.service.rule_runner import RuleRunner
 from openmind.rbs.service.sparse_fitter import SparseFitter
 from openmind.rbs.service.term_evaluator import TermEvaluator
 from openmind.rbs.service.value_generator import ValueGenerator
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 
 class ValueGeneratorBuilder:
@@ -34,8 +33,7 @@ class ValueGeneratorBuilder:
         return self
 
     def build(self) -> ValueGenerator:
-        names = VariableNameMapper()
-        compiler, runner, library = RuleCompiler(), RuleRunner(StateNamespaceMapper(names)), ConsequenceLibraryBuilder().build()
+        compiler, runner, library = RuleCompiler(), RuleRunner(StateNamespaceMapper()), ConsequenceLibraryBuilder().build()
         evaluator = TermEvaluator(
             compiler,
             runner,
@@ -43,6 +41,6 @@ class ValueGeneratorBuilder:
             TaskRunner(self._workers, self._memory_cap),
             ReadingCache(compiler, runner, library, MemoryMeter()),
         )
-        generator, fitter = ExpressionGenerator(names), SparseFitter()
+        generator, fitter = ExpressionGenerator(), SparseFitter()
         search = ExpressionSearch(generator, evaluator, fitter, MemoryMeter())
         return ValueGenerator(search, generator, fitter)

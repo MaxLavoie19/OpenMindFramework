@@ -13,9 +13,9 @@ from openmind.csp.service.arc_consistency import ArcConsistency
 from openmind.csp.service.backtracking_search import BacktrackingSearch
 from openmind.csp.service.constraint_checker import ConstraintChecker
 from openmind.rbs.factory.rule_factory import create_rule_caller
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 
 def search(

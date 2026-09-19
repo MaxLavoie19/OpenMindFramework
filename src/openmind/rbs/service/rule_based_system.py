@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from openmind.debug.factory.debugger_factory import process_debugger
 from openmind.csp.model.solve_statistics import SolveStatistics
 from openmind.csp.service.solver import Solver
-from openmind.doxastic.constant.rule_kind_constant import (
+from openmind.knowledge.constant.rule_kind_constant import (
     CONSTRAINT,
     DEFINITIONS,
     EFFECTS,
@@ -23,18 +24,18 @@ from openmind.doxastic.constant.rule_kind_constant import (
     TIMEOUT,
     VALUES,
 )
-from openmind.doxastic.model.rule_record import RuleRecord
+from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.predictor.model.outcome_distribution import OutcomeDistribution
 from openmind.predictor.service.predictor import Effects, Predictor
 from openmind.rbs.constant.game_record_constant import ACTIONS, FLAGGED_PLAYER, PAYOFFS
 from openmind.rbs.constant.rule_based_constant import EFFECTS_DEFINITIONS, RULES_DEFINITIONS
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_caller import RuleCaller
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 from openmind.world.service.state_reader import StateReader
 
 if TYPE_CHECKING:
@@ -67,8 +68,10 @@ class RuleBasedSystem:
         rule_caller: RuleCaller,
         state_reader: StateReader,
         consequence_library: "ConsequenceLibrary | None" = None,
+        context_id: str | None = None,
     ) -> None:
         self._context = context
+        self._context_id = context if context_id is None else context_id
         self._rules = rules
         self._solver = solver
         self._predictor = predictor
@@ -81,6 +84,11 @@ class RuleBasedSystem:
         self._action_names = tuple(dict.fromkeys(rule.action for rule in self._of(CONSTRAINT, VALUES) if rule.action))
         self._start: State | None = None
         self._players: Players | None = None
+
+    @property
+    def context_id(self) -> str:
+        """The id the knowledge base links the context by, which the rules' weights are kept under."""
+        return self._context_id
 
     @property
     def context(self) -> str:
@@ -100,14 +108,14 @@ class RuleBasedSystem:
         return self._start
 
     def players(self) -> Players:
-        """Who plays, the variable naming the player to act, and each player's payoff variable; read once."""
+        """Who plays, the model saying who acts, and the map of payoffs; read once."""
         if self._players is None:
             read = self._read(PLAYERS, "who plays")
             if isinstance(read, Players):
                 self._players = read
             else:
-                names, to_act, payoffs = read  # type: ignore[misc]
-                self._players = Players(tuple(names), to_act, tuple(payoffs))
+                names, to_act, payoff = read  # type: ignore[misc]
+                self._players = Players(tuple(names), to_act, payoff)
         return self._players
 
     def empty(self, base: str) -> Value:
@@ -215,7 +223,10 @@ class RuleBasedSystem:
         """What the position is worth to the player, by the position heuristics retrieved for this context: each rule's
         reading times its weight here, summed. None where the context has no such rule, or where none could be read."""
         rules = self._by_kind.get(POSITION, ())
-        return self._weighed(rules, state, self._names(state, player)) if rules else None
+        if not rules:
+            return None
+        with process_debugger().frame("evaluation", context=self._context, state=state, details={"player": player}):
+            return self._weighed(rules, state, self._names(state, player))
 
     def values(self, state: State) -> tuple[float, ...] | None:
         """Each player's value, in the order of the players' names; None where any of them can't be valued."""
@@ -231,9 +242,10 @@ class RuleBasedSystem:
             return (None,) * len(actions)
         player = self.players().names[self._state_reader.player_to_act(state, self.players())]
         names = self._names(state, player)
-        return tuple(
-            self._weighed(rules, state, names | {"action": action.name} | dict(action.parameters)) for action in actions
-        )
+        with process_debugger().frame("evaluation", context=self._context, state=state, details={"moves": len(actions)}):
+            return tuple(
+                self._weighed(rules, state, names | {"action": action.name} | dict(action.parameters)) for action in actions
+            )
 
     def describe(self) -> str:
         """The RBS as the heuristics it judges with: its context and every position and move rule with its weight
@@ -241,8 +253,8 @@ class RuleBasedSystem:
         return json.dumps(
             {
                 "context": self._context,
-                "position": [[rule.name, rule.weight(self._context)] for rule in self._by_kind.get(POSITION, ())],
-                "move": [[rule.name, rule.weight(self._context)] for rule in self._by_kind.get(MOVE, ())],
+                "position": [[rule.name, rule.weight(self._context_id)] for rule in self._by_kind.get(POSITION, ())],
+                "move": [[rule.name, rule.weight(self._context_id)] for rule in self._by_kind.get(MOVE, ())],
             },
             indent=2,
         )
@@ -280,7 +292,7 @@ class RuleBasedSystem:
                 continue
             reading = float(read)  # type: ignore[arg-type]
             if math.isfinite(reading):
-                added.append((rule, rule.weight(self._context) * reading))
+                added.append((rule, rule.weight(self._context_id) * reading))
         return tuple(added)
 
     def _of(self, *kinds: str) -> list[RuleRecord]:
@@ -290,21 +302,21 @@ class RuleBasedSystem:
         """Each parameter of the action with the rule giving its values, in the order they were declared."""
         return {
             str(rule.parameter): rule.rule
-            for rule in sorted(self._by_kind.get(VALUES, ()), key=lambda rule: rule.id)
+            for rule in self._by_kind.get(VALUES, ())
             if rule.action == action and rule.parameter
         }
 
     def _constraints(self, action: str) -> tuple[object, ...]:
         """The rules every legal action of that name satisfies, in the order they were declared."""
         return tuple(
-            rule.rule for rule in sorted(self._by_kind.get(CONSTRAINT, ()), key=lambda rule: rule.id) if rule.action == action
+            rule.rule for rule in self._by_kind.get(CONSTRAINT, ()) if rule.action == action
         )
 
     def _effects(self, action: str) -> Effects:
         """What the action leads to: each effects rule with the chance it happens."""
         return tuple(
             (rule.probability, rule.rule)
-            for rule in sorted(self._by_kind.get(EFFECTS, ()), key=lambda rule: rule.id)
+            for rule in self._by_kind.get(EFFECTS, ())
             if rule.action == action
         )
 

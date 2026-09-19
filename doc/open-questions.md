@@ -226,3 +226,9 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
       - READMEs are written with each component.
       - Tutorials and examples get a step of their own, once enough works end to end.
       - Coding-agent instructions are for agents using OMF: writing games and applications with it.
+15. **What "no learning" freezes.**
+    - Maxime: a no-learning entrypoint runs trained models frozen, for production.
+    - **Decided (Maxime):** by default it freezes:
+      - trained models;
+      - rules, tactics and facts: no new ones;
+      - beliefs: none are persisted. Those a task needs are kept in the task's instance context.

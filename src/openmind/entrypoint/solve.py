@@ -1,9 +1,9 @@
 import argparse
 import logging
 import time
-from datetime import datetime
 from pathlib import Path
 
+from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.agent.constant.sudoku_constant import NAME as SUDOKU
 from openmind.agent.constant.sudoku_constant import SEPARATOR
 from openmind.agent.factory.game_factory import create_game
@@ -13,12 +13,11 @@ from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
 from openmind.agent.repository.sudoku_puzzle_repository import SudokuPuzzleRepository
 from openmind.csp.constant.solver_constant import DEFAULT_SOLUTION_LIMIT
 from openmind.entrypoint.clock_options import add_knowledge_option
-from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.world.mapper.state_text_mapper import StateTextMapper
+from openmind.world.mapper.grid_text_mapper import GridTextMapper
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +54,7 @@ def main(argv: list[str] | None = None) -> None:
         help="where sudoku collections are read from (default: data/sudoku)",
     )
     add_knowledge_option(parser)
+    add_debug_option(parser)
     arguments = parser.parse_args(argv)
     repository = SudokuPuzzleRepository(SudokuCollectionMapper())
     knowledge_base = create_knowledge_base("sudoku", arguments.knowledge)
@@ -62,16 +62,11 @@ def main(argv: list[str] | None = None) -> None:
         _resolve(parser, repository, Path(arguments.puzzle_directory), name, knowledge_base) for name in arguments.domains
     ]
 
-    state_text = StateTextMapper()
+    state_text = GridTextMapper()
     for name, domains, is_collection in runs:
-        directory = Path(arguments.log_directory) / name
-        directory.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-        handler.setFormatter(logging.Formatter(LOG_FORMAT))
-        root = logging.getLogger()
-        level = root.level
-        root.addHandler(handler)
-        root.setLevel(arguments.log_level)
+        debugger = start_debugging(
+            arguments, f"solve {name}", Path(arguments.log_directory) / name, arguments.log_level, knowledge_base
+        )
         try:
             if is_collection:
                 logger.info("Solving %s", name)
@@ -105,9 +100,7 @@ def main(argv: list[str] | None = None) -> None:
                     f"{dead_ends} dead ends, {pruned_values} values pruned, {total_seconds:.4f} seconds"
                 )
         finally:
-            root.setLevel(level)
-            root.removeHandler(handler)
-            handler.close()
+            debugger.stop()
 
 
 def _resolve(

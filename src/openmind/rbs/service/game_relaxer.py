@@ -1,14 +1,14 @@
 import logging
 from dataclasses import replace
 
-from openmind.doxastic.constant.doxastic_constant import ASSUMED
-from openmind.doxastic.constant.rule_kind_constant import CONSTRAINT, EFFECTS, VALUES
-from openmind.doxastic.model.provenance import Provenance
-from openmind.doxastic.model.rule_record import RuleRecord
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.constant.knowledge_constant import INFERENCE
+from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, EFFECTS, VALUES
+from openmind.knowledge.model.source import Source
+from openmind.knowledge.model.rule_record import RuleRecord
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.constant.rule_based_constant import RULES_DEFINITIONS
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_caller import RuleCaller
 from openmind.world.model.players import Players
 
@@ -40,7 +40,7 @@ class GameRelaxer:
         """The relaxations the game's own rules allow: each constraint dropped, and, where one player acts at a time,
         every player also being able to pass. Wider values for a parameter aren't among them, since the rules don't say
         what wider would mean; a project declares such a variant itself."""
-        rules = self._knowledge_base.rules(context)
+        rules = self._knowledge_base.rules(self._id(context))
         found = [
             WITHOUT.format(context=context, rule=rule.name)
             for rule in rules
@@ -58,11 +58,14 @@ class GameRelaxer:
         passing = relaxation == PASSING.format(context=context)
         dropped = None if passing else relaxation.removeprefix(f"{context} without ")
         kept = 0
-        for rule in self._knowledge_base.rules(context):
+        game = self._id(context)
+        relaxed = self._knowledge_base.ensure_context(relaxation)
+        self._knowledge_base.context(replace(relaxed, inherits=(game,)))
+        for rule in self._knowledge_base.rules(game):
             if rule.kind == CONSTRAINT and rule.name == dropped:
                 continue
             self._knowledge_base.declare(
-                replace(rule, contexts=(*rule.contexts, (relaxation, rule.weight(context))))
+                replace(rule, contexts=(*rule.contexts, (relaxed.id, rule.weight(game))))
             )
             kept += 1
         if passing:
@@ -73,7 +76,8 @@ class GameRelaxer:
     def _passing(self, context: str, relaxation: str) -> int:
         """The rules a passing player needs, declared in the relaxation alone: the constraints that read no parameter,
         so a player can pass while the game goes on and not once it is over, and effects handing the turn over."""
-        rules = self._knowledge_base.rules(context)
+        game, relaxed = self._id(context), self._id(relaxation)
+        rules = self._knowledge_base.rules(game)
         definitions = next(
             (rule.rule for rule in rules if rule.name == RULES_DEFINITIONS and isinstance(rule.rule, PythonRule)), None
         )
@@ -89,14 +93,17 @@ class GameRelaxer:
             if not prepared.arguments and all(rule.rule != kept.rule for kept in free):
                 free.append(rule)
         declared = 0
+        source = Source(
+            self._knowledge_base.ensure_mechanism(INFERENCE).id, (("method", "relaxation"), ("relaxation", relaxation))
+        )
         for number, rule in enumerate(free, start=1):
             self._knowledge_base.declare(
                 RuleRecord(
                     f"{PASS} is legal, {number}",
                     CONSTRAINT,
                     rule.rule,
-                    Provenance(ASSUMED, relaxation),
-                    ((relaxation, rule.weight(context)),),
+                    source,
+                    ((relaxed, rule.weight(game)),),
                     PASS,
                 )
             )
@@ -106,12 +113,15 @@ class GameRelaxer:
                 f"what {PASS} leads to",
                 EFFECTS,
                 self._handover(self._players(context)),
-                Provenance(ASSUMED, relaxation),
-                ((relaxation, 1.0),),
+                source,
+                ((relaxed, 1.0),),
                 PASS,
             )
         )
         return declared + 1
+
+    def _id(self, name: str) -> str:
+        return self._knowledge_base.ensure_context(name).id
 
     def _handover(self, players: Players) -> PythonRule:
         """Effects that give the turn to the next player, in the players' order."""
@@ -122,9 +132,9 @@ class GameRelaxer:
         return create_rule_based_system(self._knowledge_base, context).players()
 
     def _hands_over(self, context: str) -> bool:
-        """Whether a variable names the player to act, without which no player can pass."""
+        """Whether a model says who acts, without which no player can pass."""
         rbs = create_rule_based_system(self._knowledge_base, context)
         try:
-            return rbs.players().to_act in {name for name, _ in rbs.start().variables}
+            return rbs.start().has(rbs.players().to_act)
         except ValueError:
             return False

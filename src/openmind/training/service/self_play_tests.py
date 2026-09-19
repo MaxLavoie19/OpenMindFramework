@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.service.timekeeper import Timekeeper
@@ -19,7 +19,7 @@ from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.timing.model.clock import Clock
 from openmind.timing.model.time_control import TimeControl
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.training.model.played_game import PlayedGame

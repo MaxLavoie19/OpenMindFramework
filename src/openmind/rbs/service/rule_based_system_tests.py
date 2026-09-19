@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import pytest
 
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.world.model.action import Action
@@ -15,7 +15,7 @@ def test_a_declared_game_says_where_it_starts_and_who_plays(game: Game) -> None:
     rbs = game("tictactoe")
 
     assert rbs.context == "tictactoe"
-    assert dict(rbs.start().variables)["turn"] == "X"
+    assert rbs.start().value("turn") == "X"
     assert rbs.players().names == ("X", "O")
     assert rbs.players().to_act == "turn"
 
@@ -36,8 +36,8 @@ def test_a_move_leads_where_its_effects_rule_says(game: Game) -> None:
     ((outcome, probability),) = rbs.outcomes(rbs.start(), Action("place", (("col", 2), ("row", 2)))).outcomes
 
     assert probability == 1.0
-    assert dict(outcome.variables)["cell(2,2)"] == "X"
-    assert dict(outcome.variables)["turn"] == "O"
+    assert outcome.model("cell")[2, 2] == "X"
+    assert outcome.value("turn") == "O"
 
 
 def test_a_game_is_played_to_its_end_through_the_rbs_alone(game: Game) -> None:
@@ -49,7 +49,7 @@ def test_a_game_is_played_to_its_end_through_the_rbs_alone(game: Game) -> None:
         played += 1
 
     assert played == 7
-    assert dict(state.variables)["payoff(X)"] == 1.0
+    assert state.model("payoff")["X"] == 1.0
 
 
 def test_sudoku_s_all_different_constraints_and_computed_values_come_through(game: Game) -> None:
@@ -101,7 +101,7 @@ def test_a_game_that_says_what_running_out_of_time_does_can_be_played_on_a_clock
     flagged = rbs.flagged(rbs.start(), flagged="X")
 
     assert flagged is not None
-    assert dict(flagged.variables)["payoff(X)"] == 0.0
+    assert flagged.model("payoff")["X"] == 0.0
 
 
 def test_a_game_that_says_nothing_about_time_can_t_be_played_on_a_clock(game: Game) -> None:
@@ -134,12 +134,12 @@ def test_a_context_without_heuristics_judges_neither_position_nor_move(game: Gam
 
 
 def test_the_search_s_statistics_are_summed_over_the_game_s_actions(declared: object) -> None:
-    from openmind.rbs.model.python_rule import PythonRule
+    from openmind.rule.model.python_rule import PythonRule
     from openmind.world.model.state import State
 
     bit = PythonRule("(0, 1)")
     rbs = declared(  # type: ignore[operator]
-        State((("payoff", None), ("turn", "me"))),
+        State.of(payoff=None, turn="me"),
         legal={"set": (PythonRule("a == 1"),), "put": (PythonRule("a == 1"),)},
         outcomes={"set": ((1.0, PythonRule("payoff = 1.0")),), "put": ((1.0, PythonRule("payoff = 0.0")),)},
         parameters={"set": {"a": bit, "b": bit}, "put": {"a": bit, "b": bit}},

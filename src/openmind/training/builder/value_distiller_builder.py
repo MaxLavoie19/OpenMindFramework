@@ -4,7 +4,7 @@ from openmind.agent.service.game_memory import GameMemory
 from openmind.parallel.model.memory_cap import MemoryCap
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.value_generator_builder import ValueGeneratorBuilder
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.training.mapper.position_row_mapper import PositionRowMapper
 from openmind.training.service.self_play import SelfPlay
 from openmind.training.service.value_distiller import ValueDistiller

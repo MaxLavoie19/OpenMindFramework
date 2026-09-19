@@ -3,7 +3,7 @@ from collections.abc import Iterable
 
 from openmind.csp.model.support_table import SupportTable
 from openmind.csp.model.wipeout import Wipeout
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 
 class ArcConsistency:

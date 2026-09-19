@@ -3,9 +3,9 @@ from collections.abc import Callable
 
 import pytest
 
-from openmind.doxastic.constant.doxastic_constant import ASSUMED
-from openmind.doxastic.constant.rule_kind_constant import CONSTRAINT
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.constant.knowledge_constant import INFERENCE
+from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.factory.rule_factory import create_rule_caller
 from openmind.rbs.service.game_relaxer import GameRelaxer
@@ -49,11 +49,11 @@ def test_a_relaxation_is_a_game_of_its_own_with_one_constraint_fewer(game: Game,
 
 def test_relaxing_leaves_the_game_it_relaxes_as_it_was(game: Game, knowledge: KnowledgeBase) -> None:
     rbs = game("tictactoe")
-    before = len(knowledge.rules("tictactoe", (CONSTRAINT,)))
+    before = len(knowledge.rules(knowledge.context_named("tictactoe").id, (CONSTRAINT,)))
 
     relaxer(knowledge).relax("tictactoe", EMPTY_CELL)
 
-    assert len(knowledge.rules("tictactoe", (CONSTRAINT,))) == before
+    assert len(knowledge.rules(knowledge.context_named("tictactoe").id, (CONSTRAINT,))) == before
     assert len(create_rule_based_system(knowledge, "tictactoe").actions(rbs.start())) == 9
 
 
@@ -65,8 +65,8 @@ def test_in_the_passing_relaxation_a_player_may_hand_the_turn_over(game: Game, k
     ((after, _),) = relaxed.outcomes(start, Action("pass", ())).outcomes
 
     assert Action("pass", ()) in relaxed.actions(start)
-    assert (dict(start.variables)["turn"], dict(after.variables)["turn"]) == ("X", "O")
-    assert after.variables != start.variables
+    assert (start.value("turn"), after.value("turn")) == ("X", "O")
+    assert after != start
 
 
 def test_the_rules_a_relaxation_invents_are_assumed_and_live_in_it_alone(game: Game, knowledge: KnowledgeBase) -> None:
@@ -74,10 +74,15 @@ def test_the_rules_a_relaxation_invents_are_assumed_and_live_in_it_alone(game: G
 
     relaxer(knowledge).relax("tictactoe", PASSING)
 
-    invented = [rule for rule in knowledge.rules(PASSING) if rule.action == "pass"]
-    assert invented and all(rule.provenance.source == ASSUMED for rule in invented)
-    assert all(rule.contexts == ((PASSING, rule.weight(PASSING)),) for rule in invented)
-    assert not [rule for rule in knowledge.rules("tictactoe") if rule.action == "pass"]
+    invented = [rule for rule in knowledge.rules(knowledge.context_named(PASSING).id) if rule.action == "pass"]  # type: ignore[union-attr]
+    assert invented and all(
+        rule.source.mechanism == knowledge.mechanism_named(INFERENCE).id  # type: ignore[union-attr]
+        and rule.source.parameter("method") == "relaxation"
+        for rule in invented
+    )
+    passing = knowledge.context_named(PASSING).id  # type: ignore[union-attr]
+    assert all(rule.contexts == ((passing, rule.weight(passing)),) for rule in invented)
+    assert not [rule for rule in knowledge.rules(knowledge.context_named("tictactoe").id) if rule.action == "pass"]
 
 
 def test_a_name_that_is_not_one_of_the_game_s_relaxations_is_refused(game: Game, knowledge: KnowledgeBase) -> None:

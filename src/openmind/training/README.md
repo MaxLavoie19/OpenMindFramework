@@ -3,39 +3,30 @@
 ## Purpose
 
 Trains models from the agent's own play. It fits value rules, which value positions, on the positions of self-play
-games, once or round after round, each round's self-play valuing positions with the previous round's rules; and it
-plays games continuously between arms, remembering every game and every position a decisive game's walk back proved.
+games; and it plays games continuously between arms, remembering every game and every position a decisive game's walk
+back proved.
 
 ## Content
 
 | File | What it is |
 |---|---|
-| `constant/training_constant.py` | Default games (20), held-out games (5), iterations (200) and seed (1); the range of per-game seeds |
+| `constant/training_constant.py` | Default iterations (200); the range of per-game seeds |
 | `service/self_play.py` | `SelfPlay`: an agent plays a domain against itself, games in the task runner's workers; returns every game, with its searches' samples unless `keep_samples` is false, and leaves out a game that took its worker over the memory cap in a fresh worker too; `play_arms(domain, builders, games, scores, selector, exploration, rng)` plays games between arms, a game's two arms chosen when a worker starts it. Both take `time_control`: games are then played on a clock, each move timed around the agent's search and charged to its player's clock, given to the agent with the steps its player has played, and a player whose time runs out doesn't play that move, the domain's timeout rule ending the game (the builders need a time budget estimator, see `agent/README.md`) |
 | `model/played_game.py` | `PlayedGame(samples, states, search_values, payoffs, arms=(), actions=(), time_control=None, seconds=(), budgets=(), clocks=(), flagged=None)`: a self-play game's search samples, its positions with the search's mean payoff for the player to act in each, its final payoffs, in a game between arms the arm each player followed, and the actions played in order; on a clock, the time control, each step's seconds and budget in order (a step that ran its player's time out included, though its action wasn't played), each player's clock at the end, and the player whose time ran out; then the game's seeds and why it ended |
-| `factory/training_factory.py` | `create_value_distiller(workers=1, memory_cap=None, game_memory=None)`, `create_value_training_loop(workers=1, memory_cap=None, game_memory=None)` and `create_continuous_trainer(knowledge_base, workers=1, memory_cap=None)` |
-| `constant/training_constant.py` | Also the value distillation defaults: 100 games and 25 held-out games; the targets, `outcome` and `search` |
+| `factory/training_factory.py` | `create_value_distiller(workers=1, memory_cap=None, game_memory=None)` and `create_continuous_trainer(knowledge_base, workers=1, memory_cap=None)` |
+| `constant/training_constant.py` | Also the value distillation targets, `outcome` and `search` |
 | `mapper/position_row_mapper.py` | `PositionRowMapper`: self-play games to the position rows value rules are fitted on, at a target |
-| `model/value_distillation_settings.py` | `ValueDistillationSettings(games, held_out_games, iterations, seed, target, values, time_control=None, expected_steps=30, time_reserve=0.05, selection='ucb1', puct_exploration=1.5, prior='uniform', prior_temperature=0.1)`; `values` is the value generator's `ValueSettings`; `time_control` puts self-play and the loop's games on a clock, every agent budgeting its moves with `PlainTimeBudgetEstimator(expected_steps)`; every agent searches by `selection`, following the `value` prior from its own value rules when it has them and the uniform prior otherwise |
+| `model/value_distillation_settings.py` | `ValueDistillationSettings(games, held_out_games, iterations, seed, target, values, time_control=None, expected_steps=30, time_reserve=0.05, selection='ucb1', puct_exploration=1.5, prior='uniform', prior_temperature=0.1)`; `values` is the value generator's `ValueSettings`; `time_control` puts self-play on a clock, every agent budgeting its moves with `PlainTimeBudgetEstimator(expected_steps)`; every agent searches by `selection`, following the `value` prior from its own value rules when it has them and the uniform prior otherwise |
 | `model/value_distillation_result.py` | `ValueDistillationResult(context, rules, fits, chosen, candidates, training_rows, held_out_rows, held_out_error, records=())`: the context the position rules were declared under and the rules themselves |
 | `service/value_distiller.py` | `ValueDistiller`: self-play, value rule generation, and the chosen rules' error on held-out rows; with a game memory (`ValueDistillerBuilder.with_game_memory`), every game, training and held-out, is remembered as it ends with the model each player played (`distill(..., round_number, model_name)` name them) |
 | `mapper/played_game_summary_mapper.py` | `PlayedGameSummaryMapper`: a self-play game as a `GameSummary`, with its kind, round, number, models and record |
 | `builder/value_distiller_builder.py` | `ValueDistillerBuilder`: sets how many worker processes self-play games and term evaluations run in (`with_workers`, 1 by default) and the memory each holds at most (`with_memory_cap`, no cap by default), and wires the value distiller |
 | `service/arm_selector.py` | `ArmSelector.pair(scores, pending, arms, exploration, rng)`: the two arms with the highest UCB1 bounds on their game scores; games under way count without points, an arm never chosen goes first, ties are drawn at random |
-| `model/value_training_settings.py` | `ValueTrainingSettings(rounds, distillation, rollout_actions, rollout_limit, unfinished_payoff, evaluation_games, start_file, deduction=None)`; `deduction` is the budget agents fall back on when their rules have no clue |
-| `model/training_round.py` | `TrainingRound(number, context, rules, fits, chosen, training_rows, held_out_rows, held_out_error, baselines, against_previous, seconds, records=())`: one round's value rules, fits and games |
-| `model/training_report.py` | `TrainingReport(domain, created_at, settings, rounds, complete)` |
-| `constant/training_constant.py` | Also the training loop defaults: 3 rounds, 200 games and 50 held out, 100 iterations, 10 rollout actions before valuing, 20 games per opponent; `START_RULES` |
 | `model/continuous_training_settings.py` | `ContinuousTrainingSettings(games, iterations, seed, arm_exploration, rollout_actions, rollout_limit, unfinished_payoff, deduction=None, ponder_endings=0, time_control=None, expected_steps=30, time_reserve=0.05, selection='ucb1', puct_exploration=1.5, prior='uniform', prior_temperature=0.1)`: how continuous training runs; walking back without a deduction, negative games, arm exploration or walked back positions raise `ValueError` |
 | `model/game_lesson.py` | `GameLesson(game, walk=())`: a game a worker played, and the deductions of its positions walked back from its end, the last position first |
 | `service/game_study.py` | `GameStudy(self_play, ending_walker).play_and_study(domain, builders, arms, agent_seed, outcome_seed, settings)`: plays a game between two arms and, for a decisive game with `ponder_endings` and a deduction, walks it back, in its worker |
 | `service/game_replayer.py` | `GameReplayer.replay(domain, summary)`: a remembered game played again from its actions and outcome seed, its positions exactly as they were |
 | `service/continuous_trainer.py` | `ContinuousTrainer.train(domain, library, settings)`: plays games continuously, remembering every game and every proof; `ContinuousTrainerBuilder` wires it with its workers, memory cap and knowledge base |
-| `service/value_training_loop.py` | `ValueTrainingLoop`: rounds of self-play valuing positions with the previous round's rules, value fitting, and games against the random policy, untrained MCTS and the previous round's agent; with a game memory (`ValueTrainingLoopBuilder.with_game_memory`), every game, evaluation series included, is remembered as it ends |
-| `builder/value_training_loop_builder.py` | `ValueTrainingLoopBuilder`: sets how many worker processes self-play, term evaluations and games run in (`with_workers`, 1 by default) and the memory each holds at most (`with_memory_cap`, no cap by default), and wires the loop |
-| `mapper/training_report_json_mapper.py` | `TrainingReportJsonMapper`: a training report as JSON text, every round's value rules, fits and games included |
-| `mapper/training_report_text_mapper.py` | `TrainingReportTextMapper`: a training report as a table, one line per round |
-| `repository/training_report_repository.py` | `TrainingReportRepository`: saves a report as `<directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.json`, named after the training's start, overwriting it as rounds end |
 | `service/ending_walker.py` | `EndingWalker(position_deducer).walk_back(domain, states, budget, limit)`: a game's positions deduced from the last one backward, stopping after the first one not proven or at the limit |
 | `model/arm_library.py` | `ArmLibrary(domain, contexts=())`: the context each of a game's arms plays, by arm name; an arm is a variant of the game carrying its own position rules |
 | `mapper/arm_library_json_mapper.py` | `ArmLibraryJsonMapper`: an arm library as JSON text and back, each arm with its context; an arm written under the older `signal` key reads the same |
@@ -61,8 +52,6 @@ plays games continuously between arms, remembering every game and every position
    row's target, over the rows the rules can value. The held-out rows also chose the price, so this error isn't
    independent of that choice.
 
-How the position rules play shows in `openmind-evaluate --heuristics <context>` (see `evaluation/README.md`).
-
 ## How continuous training works
 
 `ContinuousTrainer.train(rbs, library, settings)` plays games between arms, the contexts an arm library holds, one
@@ -76,7 +65,7 @@ nothing and falls back on the deduction where there is one.
    differ, is walked back from its end (`EndingWalker`), at most `ponder_endings` positions, stopping after the first
    position not proven.
 3. **The game is remembered here** as it arrives, with its arms' models, and every position its walk proved is
-   remembered as `proved` with the keyword `proof`, its game and its ply.
+   believed, its payoffs drawn by deduction, tagged with the keyword `proof`, its game and its ply.
 
 It stops after `games` games, or runs until stopped.
 
@@ -86,36 +75,13 @@ Logs, besides every game's own lines:
 - `INFO Walked back <n> positions from the end, <p> proven`, from the worker
 - `INFO Remembered arms game <n>: <p> of <w> positions walked back proven`
 
-## How the value training loop works
-
-`ValueTrainingLoop.train(domain, start, settings, on_round)` runs `rounds` rounds. In round k:
-
-1. **Self-play.** The self-play agents search with the distillation's iterations and the rollout limit. With value rules
-   from the previous round, or the `start` rules in round 1, they value the positions their rollouts reach after
-   `rollout_actions` rollout actions (see `mcts/README.md`); without, they play rollouts out. A few rollout actions
-   before valuing keep each round's positions from being valued only by the previous round's own estimates, and
-   finished games always keep their real payoffs. With a `deduction` budget, an agent whose rules have no clue in a
-   position deduces it first and plays a proven move without searching (see `agent/README.md`); self-play records the
-   proven payoff as that position's value. Untrained MCTS never deduces.
-2. **Fitting.** `ValueDistiller` distills new value rules with the distillation's settings, seeded with the seed plus
-   k (see "How value distillation works").
-3. **Games.** With `evaluation_games`, the new rules' agent, searching as in self-play, plays that many games against
-   the random policy, untrained MCTS searching with the same iterations and rollout limit, and the previous round's
-   agent (the start rules' in round 1, none without them), switching seats every game. Every agent searches with its
-   game's own seed (`create_seeded_agent`), so no two games are searched alike, and the games are seeded from the
-   seed plus k.
-4. **Report.** With `evaluation_games`, the report is first handed to `on_round` as soon as the round's rules are
-   fitted, the round without games yet, and again once its games are done; without, once. The last report is complete.
-
-The games run in the task runner's workers; the agents travel there with the RBS of their round, its rules with it.
-
 ## Usage
 
 ```python
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import EXPLORATION
 from openmind.agent.factory.game_factory import create_game
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.training.factory.training_factory import create_value_distiller
@@ -135,19 +101,6 @@ result = create_value_distiller(knowledge_base, workers=8).distill(
 result.rules   # the position rules declared under result.context
 ```
 
-From the terminal: `openmind-distill-values tictactoe`.
-
-```python
-from openmind.training.factory.training_factory import create_value_training_loop
-from openmind.training.model.value_training_settings import ValueTrainingSettings
-
-distillation = ValueDistillationSettings(200, 50, 100, 1, "search", values)
-settings = ValueTrainingSettings(3, distillation, 10, 100, 0.5, 20, None)   # 3 rounds, rollout limit 100, unfinished payoff 0.5
-report = create_value_training_loop(knowledge_base, workers=8).train(rbs, None, settings, on_round=print)
-report.rounds[-1].context   # the last round's context, a variant of the game with its position rules
-```
-
-
 ## Logs
 
 - `openmind.training.service.self_play`: `INFO Self-play game with seeds <agent seed> and <outcome seed> finished in
@@ -162,14 +115,6 @@ report.rounds[-1].context   # the last round's context, a variant of the game wi
   - `INFO Arms game <n>: <arm> against <arm>, payoffs <player>=<payoff> ...; <arm> scores <score> over <games> games, ...`, as each game's result comes back
 - `openmind.training.service.value_distiller`: `INFO Distilled <n> value rules from <m> training rows valued at the
   <target> target; mean absolute error <error> on <h> held-out rows`
-- `openmind.training.service.value_training_loop`:
-  - `INFO Round <k> of <n>: self-play without value rules`, or `... self-play valuing positions with the start rules`,
-    or `... with round <k-1>'s rules`
-  - `INFO Round <k>: <r> value rules, held-out loss <loss>, held-out error <error>`
-  - `INFO Round <k> fitted: handing it over before its games`, with evaluation games and an `on_round`
-  - `INFO Round <k> against <opponent>: <games> games, <wins> wins, <draws> draws, <losses> losses`, for `random`,
-    `untrained MCTS` and `start rules` or `round <k-1>`
-  - `INFO Round <k> took <seconds> seconds`
 
 Every search also logs its summary (see `mcts/README.md`), and value generation logs its search and fits (see
 `rbs/README.md`).
@@ -177,9 +122,5 @@ Every search also logs its summary (see `mcts/README.md`), and value generation 
 ## Notes
 
 - Tests: `factory/training_factory_tests.py`, `service/self_play_tests.py`, `mapper/position_row_mapper_tests.py`,
-  `service/value_distiller_tests.py`, `builder/value_distiller_builder_tests.py`, `service/value_training_loop_tests.py`,
-  `builder/value_training_loop_builder_tests.py`, `mapper/training_report_json_mapper_tests.py`,
-  `mapper/training_report_text_mapper_tests.py`, `repository/training_report_repository_tests.py`,
-  `service/arm_selector_tests.py`, `service/ending_walker_tests.py`, `service/game_replayer_tests.py`,
-  `mapper/arm_library_json_mapper_tests.py`; end-to-end: `test/end_to_end/distill_values_tictactoe_tests.py`,
-  `test/end_to_end/train_values_tictactoe_tests.py`.
+  `service/value_distiller_tests.py`, `builder/value_distiller_builder_tests.py`, `service/arm_selector_tests.py`,
+  `service/ending_walker_tests.py`, `service/game_replayer_tests.py`, `mapper/arm_library_json_mapper_tests.py`.

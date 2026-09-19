@@ -14,10 +14,11 @@ from openmind.rbs.constant.consequence_constant import (
     WINS,
 )
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.scalar import Scalar
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 from openmind.world.service.state_reader import StateReader
 
 
@@ -40,11 +41,9 @@ class ConsequenceLibrary:
     def __init__(
         self,
         state_reader: StateReader,
-        variable_name_mapper: VariableNameMapper,
         mechanics: Mechanics,
     ) -> None:
         self._state_reader = state_reader
-        self._variable_name_mapper = variable_name_mapper
         self._mechanics = mechanics
         self._games: dict[int, RuleBasedSystem] = {}
         self._cache: dict[tuple[object, ...], object] = {}
@@ -87,7 +86,8 @@ class ConsequenceLibrary:
         key = ("names", self._pin(rbs), state, player)
         names = self._cache.get(key)
         if names is None:
-            me = dict(state.variables).get(rbs.players().to_act) if player is None else player
+            acting = state.model(rbs.players().to_act) if state.has(rbs.players().to_act) else None
+            me = (acting.value if isinstance(acting, Scalar) else None) if player is None else player
             players = rbs.players().names
             other = players[(players.index(me) + 1) % len(players)] if me in players else None
             names = {
@@ -135,25 +135,27 @@ class ConsequenceLibrary:
         anchor = self.anchor(rbs, state, action)
         if anchor is None or len(anchor[1]) != len(offset):
             return OUTSIDE
-        base, indices = anchor
-        name = self._variable_name_mapper.to_name(base, tuple(index + step for index, step in zip(indices, offset)))
-        return self._variables(rbs, state).get(name, OUTSIDE)
+        name, coordinates = anchor
+        grid = state.model(name)
+        where = tuple(index + step for index, step in zip(coordinates, offset, strict=True))
+        return grid.at(where) if isinstance(grid, Grid) and grid.inside(where) else OUTSIDE
 
     def anchor(self, rbs: RuleBasedSystem, state: State, action: Action) -> tuple[str, tuple[int, ...]] | None:
-        """The base and whole-number indices of the first indexed variable, other than the players' variables, whose
-        value the action's first outcome changes; None when there is none."""
+        """The grid and the coordinates of the first cell the action's first outcome changes, grids read in the order
+        of their names and cells row-major; None when no grid changes."""
         key = ("anchor", self._pin(rbs), state, action)
         if key not in self._cache:
             anchor = None
-            players = {rbs.players().to_act, *rbs.players().payoffs}
             outcome = rbs.outcomes(state, action).outcomes[0][0]
-            previous = dict(state.variables)
-            for name, after in outcome.variables:
-                if name in players or (name in previous and after == previous[name]):
+            for name, after in outcome.models:
+                before = state.model(name) if state.has(name) else None
+                if not isinstance(after, Grid) or not isinstance(before, Grid) or after == before:
                     continue
-                base, texts = self._variable_name_mapper.from_name(name)
-                if texts and all(text.lstrip("-").isdecimal() for text in texts):
-                    anchor = (base, tuple(int(text) for text in texts))
+                changed = next(
+                    (where for where, value in after.items() if before.inside(where) and before.at(where) != value), None
+                )
+                if changed is not None:
+                    anchor = (name, changed)
                     break
             self._remember(key, anchor)
         return self._cache[key]  # type: ignore[return-value]
@@ -171,18 +173,10 @@ class ConsequenceLibrary:
         return not rbs.actions(state)
 
     def with_turn(self, rbs: RuleBasedSystem, state: State, player: str) -> State:
-        """The state with the player to act replaced."""
-        return State(
-            tuple((name, player if name == rbs.players().to_act else value) for name, value in state.variables)
-        )
-
-    def _variables(self, rbs: RuleBasedSystem, state: State) -> dict[str, Value]:
-        key = ("variables", self._pin(rbs), state)
-        variables = self._cache.get(key)
-        if variables is None:
-            variables = dict(state.variables)
-            self._remember(key, variables)
-        return variables  # type: ignore[return-value]
+        """The state with the player to act replaced; a map of players acting at once is left as it is."""
+        if state.has(rbs.players().to_act) and not isinstance(state.model(rbs.players().to_act), Scalar):
+            return state
+        return state.with_model(rbs.players().to_act, player)
 
     def _pin(self, rbs: RuleBasedSystem) -> int:
         """An identity for the game that stays valid: the RBS is kept alive as long as the library."""

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from openmind.rbs.model.python_rule import PythonRule
-from openmind.doxastic.model.rule_record import RuleRecord
+from openmind.rule.model.python_rule import PythonRule
+from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.rbs.model.value_fit import ValueFit
 
 

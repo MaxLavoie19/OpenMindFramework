@@ -23,10 +23,7 @@ rules, can value the positions its rollouts reach instead of playing them to the
 | `model/simultaneous_node.py` | `SimultaneousNode`: a state in the tree where players act at once, with each player's legal actions, regrets, summed strategies, visits and payoffs, and the strategies predicted for other players at the root; mutable |
 | `model/action_statistics.py` | `ActionStatistics(action, visits, mean_payoff)`: a root action's visits and mean payoff for the player acting at the root (0.0 when never visited) |
 | `model/action_sample.py` | `ActionSample(state, player, action, visits, mean_payoff)`: an action expanded anywhere in the tree, with its visits and mean payoff for the player to act |
-| `model/search_result.py` | `SearchResult(player, statistics, chosen, samples, hypotheses=(), strategy=(), iterations=0, seconds=0.0, budget=None, depth=0, option='search')`: every root action's statistics, the action chosen (the most visited, or a semi-determinized search's highest expected payoff), a sample for every expanded action, a semi-determinized search's hypotheses, the iterations completed in the seconds taken, on a clock the step's budget, and the tree's depth, the most actions from the root an iteration went; `option` says how the move was chosen (`fallback and search`, `search` or `random`, see `agent/README.md`); the seconds, the budget and the option don't take part in comparing results |
-| `model/hypothesis.py` | `Hypothesis(label, completions)`: a prediction about what a player can't see, such as another player's hidden move, and the states that could be true under it with their probabilities |
-| `model/hypothesis_result.py` | `HypothesisResult(label, probability, statistics)`: one hypothesis of a semi-determinized search, its probability, and the root actions' statistics of the search made as if it were true |
-| `model/theory_of_mind.py` | `TheoryOfMind`: the interface of what a player believes about what it can't see, `hypotheses(domain, observed, player)` giving hypotheses with probabilities summing to 1, and `strategy(domain, state, player, other)` giving the strategy it predicts another player acting at once will play, or `None`; `agent/service/completion_theory.py` is the first, a doxastic module's beliefs later |
+| `model/search_result.py` | `SearchResult(player, statistics, chosen, samples, strategy=(), iterations=0, seconds=0.0, budget=None, depth=0, option='search')`: every root action's statistics, the action chosen (the most visited), a sample for every expanded action, the iterations completed in the seconds taken, on a clock the step's budget, and the tree's depth, the most actions from the root an iteration went; `option` says how the move was chosen (`fallback and search`, `search` or `random`, see `agent/README.md`); the seconds, the budget and the option don't take part in comparing results |
 | `model/action_rater.py` | `ActionRater`: the interface of a model rating actions, `rate(state, actions)` giving each action's expected payoff for the player to act, or `None` |
 | `model/guidance.py` | `Guidance(rater, prior_weight, rollout_temperature, guided_rollouts=True)`: how a rater steers the search, and whether rollouts follow its ratings |
 | `model/position_valuer.py` | `PositionValuer`: the interface of a model valuing positions, `value(state)` giving each player's expected payoff in the order of the players' names, or `None` |
@@ -34,7 +31,6 @@ rules, can value the positions its rollouts reach instead of playing them to the
 | `model/decision_node.py` | `DecisionNode`: a state in the tree where a player picks an action, with the rater's ratings when guided and its actions' priors under PUCT, worked out once when the node is made; mutable |
 | `model/chance_node.py` | `ChanceNode`: an action, or actions taken at once, in the tree with its possible outcomes; mutable |
 | `service/tree_search.py` | `TreeSearch(state_reader, action_text_mapper, time_source=None)`: runs the search over a game's RBS, guided or not, drawing each iteration's state from the states a position could be when given them |
-| `service/semi_determinized_search.py` | `SemiDeterminizedSearch.search(domain, state, settings, theory, guidance=None, valuation=None)`: one information set search per hypothesis of a theory of mind, weighed into expected payoffs |
 
 ## Usage
 
@@ -42,7 +38,7 @@ rules, can value the positions its rollouts reach instead of playing them to the
 import math
 
 from openmind.agent.factory.game_factory import create_game
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
@@ -80,8 +76,7 @@ action's prior; N the node's visits and n the action's. Ties go to the higher pr
 untried action chosen is expanded as under UCB1. A move the prior dislikes can stay unvisited while the iterations go
 deep into the ones it likes, and √N still opens it eventually. Under drawn states, a legal action the node didn't have
 when made takes the mean of its priors. Under PUCT a rater guides through `RaterPrior`, not through UCB1's rating bonus;
-rollouts follow ratings as before. The semi-determinized search searches each hypothesis by PUCT; where players act at
-once, selection stays regret matching. A selection other than `ucb1` or `puct`, or a negative PUCT exploration, raises
+rollouts follow ratings as before. Where players act at once, selection stays regret matching. A selection other than `ucb1` or `puct`, or a negative PUCT exploration, raises
 `ValueError`.
 
 Without guidance, untried actions are tried in random order and rollouts pick actions uniformly. With guidance:
@@ -109,13 +104,13 @@ With a rollout limit:
 - A negative limit, or a limit without an unfinished payoff, raises `ValueError`.
 - Domains whose random games run long, such as chess, need one unless a valuer values their positions.
 
-Given the states a position could be (`search(..., possible)`, as the semi-determinized search passes one hypothesis's),
-each iteration draws one of them, by its probability, and plays on it: legal actions and outcomes come from the drawn
-state. The statistics of every drawn state add up in the same tree. Legal actions can differ between draws: untried
-ones are still tried first, and selection chooses among the tried actions legal in the drawn state.
+Given the states a position could be (`search(..., possible)`), each iteration draws one of them, by its probability,
+and plays on it: legal actions and outcomes come from the drawn state. The statistics of every drawn state add up in
+the same tree. Legal actions can differ between draws: untried ones are still tried first, and selection chooses among
+the tried actions legal in the drawn state.
 
-OMF runs agents, not the game, so nothing hides a state from the searching player: the states it draws are what its
-theory of mind says the position may be, never a referee's view of it.
+OMF runs agents, not the game, so nothing hides a state from the searching player: the states it draws are the ones
+it is given, never a referee's view of it.
 
 Where players act at once (`search(..., player=..., predicted=...)`, a state whose players to act are flags; see
 `world/README.md`), the search is simultaneous-move MCTS with regret matching (Lanctot, Lisý and Winands, 2013):
@@ -132,26 +127,9 @@ Where players act at once (`search(..., player=..., predicted=...)`, a state who
   root actions' visits and mean payoffs; `SearchResult.strategy` is its average strategy, the summed strategies
   normalized, and the action chosen is drawn from it, so the searching player isn't predictable.
 - `predicted` gives other players to act at the root, by name, the strategy they play there instead of regret matching,
-  as (action, probability) pairs: a theory of mind's prediction. The searching player's strategy then heads toward a
+  as (action, probability) pairs. The searching player's strategy then heads toward a
   best response to it. A player not to act, the searching player itself, an action it can't take, a negative
   probability, or probabilities not summing to 1 raise `ValueError`.
-
-With a theory of mind (`SemiDeterminizedSearch`, as `Agent` uses when built `with_theory_of_mind`), the search is
-semi-determinized MCTS (Bitan and Kraus, 2017):
-
-- The player to act asks its theory of mind for hypotheses about what it can't be sure of, from the position it's in.
-  A hypothesis says what the other player's move was, for instance, and which states could be true under it.
-- One search runs per hypothesis, over that hypothesis's states only, with an even share of the
-  iterations (at least 1 each, the remainder to the first ones) and the seed plus the hypothesis's index. With seconds,
-  each hypothesis gets the seconds still left over the hypotheses still to search, so time one leaves goes to the ones
-  after it; once the time is up, each hypothesis left gets 1 iteration. The result's iterations and seconds are totals.
-- Each root action's expected payoff is its mean payoffs weighed by the probabilities of the hypotheses whose search
-  visited it; its visits are summed. The action with the highest expected payoff is chosen, ties going to the most
-  visits, then to the first action. The samples of every search are kept.
-- The beliefs are the agent's own: a theory predicting better, such as one learned from what other players revealed,
-  chooses better. The root's decision combines the hypotheses, but deeper in each search the player plans as if the
-  hypothesis were known.
-- No hypothesis, a negative probability, or probabilities that don't sum to 1 raise `ValueError`.
 
 Also:
 
@@ -207,17 +185,7 @@ Where players act at once, the same logger writes instead:
 - `INFO Sampled from the average strategy: <action>`
 - `DEBUG Iteration <n>: <joint action> > ..., rollout of <n> actions, payoffs <player>=<payoff> ...`
 
-Logger `openmind.mcts.service.semi_determinized_search`, around each hypothesis's search lines:
-
-- `INFO <player> weighs <n> hypotheses: <label> at <probability>; ...; <shares>`, a label of variables written
-  `name='value', ...`, the shares written `<iterations>, ... iterations`, `<s> seconds shared as they go`, or both joined
-  by `and`
-- `INFO Searching as if <label>`, before each hypothesis's search
-- `INFO <player> has <s> seconds of the <s> left for this hypothesis`, with seconds
-- `INFO <player>'s time is up, so this hypothesis gets 1 iteration`, with seconds, once they have passed
-- `INFO Expected payoffs for <player>: <action>=<expected payoff> ...; chose <action>`
-
 ## Notes
 
-- Tests: `service/tree_search_tests.py`, `service/semi_determinized_search_tests.py`; integration:
-  `test/integration/tictactoe_search_tests.py`, `test/integration/prisoners_dilemma_search_tests.py`.
+- Tests: `service/tree_search_tests.py`; integration: `test/integration/tictactoe_search_tests.py`,
+  `test/integration/prisoners_dilemma_search_tests.py`.

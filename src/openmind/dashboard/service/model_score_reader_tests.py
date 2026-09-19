@@ -3,7 +3,7 @@ from pathlib import Path
 from openmind.agent.service.game_memory import GameMemory
 from openmind.agent.service.game_memory_tests import WEIGHTED_ARM, WIN_ARM, game
 from openmind.dashboard.service.model_score_reader import ModelScoreReader
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 
 
 def test_every_model_s_games_are_read_from_the_knowledge_base(tmp_path: Path) -> None:

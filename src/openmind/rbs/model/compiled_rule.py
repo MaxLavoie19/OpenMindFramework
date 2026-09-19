@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import CodeType
 
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,13 +1,14 @@
 import inspect
 from collections.abc import Mapping, Sequence
 
+from openmind.debug.factory.debugger_factory import process_debugger
 from openmind.rbs.model.called_rule import CalledRule
-from openmind.rbs.model.python_rule import PythonRule
-from openmind.rbs.model.rule import Rule
+from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.model.rule import Rule
 from openmind.rbs.service.rule_compiler import RuleCompiler
 from openmind.rbs.service.rule_runner import RuleRunner
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 #: What a function's qualified name holds when it was defined inside another function, so no other process can find it.
 LOCAL = "<locals>"
@@ -64,14 +65,21 @@ class RuleCaller:
         names: Mapping[str, object] | None = None,
         definitions: PythonRule | None = None,
     ) -> object:
-        """The rule's value, prepared and called; the compiler keeps what it compiled."""
-        return self.call(self.prepare(rule, tuple(parameters or ()), definitions), state, parameters, names)
+        """The rule's value, prepared and called, under a `rule` reasoning frame; the compiler keeps what it compiled."""
+        with process_debugger().frame("rule", state=state, details=_about(self, rule)):
+            return self.call(self.prepare(rule, tuple(parameters or ()), definitions), state, parameters, names)
 
     def apply(
         self, rule: Rule, state: State, parameters: Mapping[str, Value] | None = None, definitions: PythonRule | None = None
     ) -> State:
         """The state after the rule's effects: a script's assignments, or what the function gives. A function giving
-        anything but a state raises TypeError."""
+        anything but a state raises TypeError. It runs under a `rule` reasoning frame."""
+        with process_debugger().frame("rule", state=state, details=_about(self, rule)):
+            return self._applied(rule, state, parameters, definitions)
+
+    def _applied(
+        self, rule: Rule, state: State, parameters: Mapping[str, Value] | None, definitions: PythonRule | None
+    ) -> State:
         if isinstance(rule, PythonRule):
             return self._rule_runner.apply(self._rule_compiler.compile_effects(rule, definitions), state, parameters)
         outcome = rule(state, **(parameters or {}))
@@ -94,3 +102,11 @@ class RuleCaller:
             return rule.source
         module = inspect.getmodule(rule)
         return f"{getattr(module, '__name__', '?')}.{getattr(rule, '__qualname__', repr(rule))}"
+
+
+def _about(caller: "RuleCaller", rule: Rule) -> dict[str, Value] | None:
+    """What a rule frame says about its rule: its source's first line, only worked out when frames are kept."""
+    if not process_debugger().tracking:
+        return None
+    source = caller.source(rule)
+    return {"rule": source.splitlines()[0][:120] if source else ""}

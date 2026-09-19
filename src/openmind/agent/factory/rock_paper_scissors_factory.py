@@ -16,24 +16,25 @@ from openmind.agent.constant.rock_paper_scissors_constant import (
     WIN,
 )
 from openmind.rbs.service.rule_declarer import RuleDeclarer
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.rule.model.python_rule import PythonRule
+from openmind.structure.model.map import Map
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.constant.players_constant import PLAYER
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
 
 def create_rock_paper_scissors_initial_state() -> State:
-    """Both players to act at once, turn(A) and turn(B) true; no hand thrown, no payoff set."""
-    variable_name_mapper = VariableNameMapper()
-    builder = StateBuilder()
-    for player in PLAYERS:
-        builder.with_variable(variable_name_mapper.to_name(HAND, (player,)), UNSET)
-        builder.with_variable(variable_name_mapper.to_name(PAYOFF, (player,)), UNSET)
-        builder.with_variable(variable_name_mapper.to_name(TURN, (player,)), True)
-    return builder.build()
+    """Both players to act at once, the turn map flagging A and B true; the hand map holding no hand thrown; the payoff
+    map holding no payoff."""
+    return (
+        StateBuilder()
+        .with_model(HAND, Map.of(dict.fromkeys(PLAYERS, UNSET)))
+        .with_model(PAYOFF, Map.of(dict.fromkeys(PLAYERS, UNSET)))
+        .with_model(TURN, Map.of(dict.fromkeys(PLAYERS, True)))
+        .build()
+    )
 
 
 def create_rock_paper_scissors_definitions() -> PythonRule:
@@ -66,24 +67,23 @@ def declare_rock_paper_scissors_effects(declarer: RuleDeclarer) -> None:
         f"""\
         first, second = {HAND}[PLAYERS[0]], {HAND}[PLAYERS[1]]
         if first == second:
-            {PAYOFF}[PLAYERS[0]], {PAYOFF}[PLAYERS[1]] = DRAW, DRAW
+            {PAYOFF} = {PAYOFF}.with_item(PLAYERS[0], DRAW).with_item(PLAYERS[1], DRAW)
         elif BEATS[first] == second:
-            {PAYOFF}[PLAYERS[0]], {PAYOFF}[PLAYERS[1]] = WIN, LOSS
+            {PAYOFF} = {PAYOFF}.with_item(PLAYERS[0], WIN).with_item(PLAYERS[1], LOSS)
         else:
-            {PAYOFF}[PLAYERS[0]], {PAYOFF}[PLAYERS[1]] = LOSS, WIN
+            {PAYOFF} = {PAYOFF}.with_item(PLAYERS[0], LOSS).with_item(PLAYERS[1], WIN)
         for thrower in PLAYERS:
-            {TURN}[thrower] = False
+            {TURN} = {TURN}.with_item(thrower, False)
         """
     )
     declarer.definitions(create_rock_paper_scissors_definitions(), effects=True)
-    declarer.leads_to(THROW, PythonRule(f"{HAND}[{PLAYER}] = {SHAPE}"))
+    declarer.leads_to(THROW, PythonRule(f"{HAND} = {HAND}.with_item({PLAYER}, {SHAPE})"))
     declarer.together(PythonRule(resolution))
 
 
 def create_rock_paper_scissors_players() -> Players:
-    """A and B; turn(A) and turn(B) flag the players to act; payoff(A) and payoff(B) hold their payoffs."""
-    variable_name_mapper = VariableNameMapper()
-    return Players(PLAYERS, TURN, tuple(variable_name_mapper.to_name(PAYOFF, (player,)) for player in PLAYERS))
+    """A and B; the turn map flags the players to act; the payoff map holds each one's payoff."""
+    return Players(PLAYERS, TURN, PAYOFF)
 
 
 def declare_rock_paper_scissors(knowledge_base: KnowledgeBase, weight: float = 1.0) -> str:

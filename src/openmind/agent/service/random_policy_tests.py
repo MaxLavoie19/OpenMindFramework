@@ -7,7 +7,7 @@ import pytest
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.agent.service.random_policy import RandomPolicy
 from openmind.timing.model.clock import Clock
-from openmind.world.model.state import State
+from openmind.structure.model.map import Map
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -33,7 +33,7 @@ def test_the_same_seed_gives_the_same_choices(game: Game) -> None:
 
 def test_no_legal_action_raises(game: Game) -> None:
     rbs = game("tictactoe")
-    finished = State(tuple((name, 1.0 if name.startswith("payoff") else value) for name, value in rbs.start().variables))
+    finished = rbs.start().with_model("payoff", Map.of({"X": 1.0, "O": 0.0}))
 
     with pytest.raises(ValueError, match="No legal action"):
         RandomPolicy(random.Random(1)).choose(rbs, finished)

@@ -1,0 +1,373 @@
+import logging
+from dataclasses import replace
+from datetime import datetime
+
+from openmind.knowledge.constant.knowledge_constant import (
+    BELIEF,
+    CONTEXT,
+    DECLARATION,
+    EXPERIENCE,
+    MECHANISM,
+    OPINION,
+    RULE,
+    TASK,
+)
+from openmind.knowledge.mapper.knowledge_json_mapper import KnowledgeJsonMapper
+from openmind.knowledge.mapper.rule_record_json_mapper import RuleRecordJsonMapper
+from openmind.knowledge.model.belief import Belief
+from openmind.knowledge.model.context import Context
+from openmind.knowledge.model.direct_experience import DirectExperience
+from openmind.knowledge.model.identifier import new_identifier
+from openmind.knowledge.model.mechanism import Mechanism
+from openmind.knowledge.model.opinion import Opinion
+from openmind.knowledge.model.rule_record import RuleRecord
+from openmind.knowledge.model.store import Store
+from openmind.knowledge.model.tags import Tags, carries
+from openmind.knowledge.model.task import Task
+
+logger = logging.getLogger(__name__)
+
+
+class KnowledgeBase:
+    """Everything the agent knows about a domain: its direct experiences, kept word for word; its beliefs, each a
+    variable with a value, a certainty and optional evidence, including what it believes others believe; its own
+    opinions; its tasks; its contexts; the mechanisms its evidence comes from; and the rules it knows. Everything
+    carries tags it can be retrieved by, and a GUID every link uses; contexts and mechanisms also have names, which
+    people and applications use and which the knowledge base resolves to their ids.
+
+    Each kind is kept in a store of its own, JSON lines by default and the integrator's storage otherwise, and held in
+    memory once loaded. Nothing kept is rewritten in place: a belief, an opinion or a task updated is written anew under
+    its id, and the store keeps every version."""
+
+    def __init__(
+        self,
+        domain: str,
+        experiences: Store,
+        beliefs: Store,
+        opinions: Store,
+        tasks: Store,
+        contexts: Store,
+        mechanisms: Store,
+        rules: Store,
+        knowledge_json_mapper: KnowledgeJsonMapper | None = None,
+        rule_record_json_mapper: RuleRecordJsonMapper | None = None,
+    ) -> None:
+        self._domain = domain
+        self._experience_store = experiences
+        self._belief_store = beliefs
+        self._opinion_store = opinions
+        self._task_store = tasks
+        self._context_store = contexts
+        self._mechanism_store = mechanisms
+        self._rule_store = rules
+        self._mapper = KnowledgeJsonMapper() if knowledge_json_mapper is None else knowledge_json_mapper
+        self._rule_mapper = RuleRecordJsonMapper(self._mapper) if rule_record_json_mapper is None else rule_record_json_mapper
+        self._experiences: dict[str, DirectExperience] = {}
+        self._beliefs: dict[str, Belief] = {}
+        self._belief_ids: dict[tuple[str, str, tuple[str, ...]], str] = {}
+        self._opinions: dict[str, Opinion] = {}
+        self._opinion_ids: dict[tuple[str, str], str] = {}
+        self._tasks: dict[str, Task] = {}
+        self._contexts: dict[str, Context] = {}
+        self._context_ids: dict[str, str] = {}
+        self._mechanisms: dict[str, Mechanism] = {}
+        self._mechanism_ids: dict[str, str] = {}
+        self._rules: dict[str, RuleRecord] = {}
+        self._load()
+
+    @property
+    def domain(self) -> str:
+        return self._domain
+
+    # direct experience
+
+    def experience(self, experience: DirectExperience) -> DirectExperience:
+        """Keeps the raw data word for word and gives it back with its id; the time it arrived is now when not given."""
+        kept = replace(
+            experience,
+            id=experience.id or new_identifier(EXPERIENCE),
+            at=experience.at if experience.at is not None else datetime.now(),
+        )
+        self._experiences[kept.id] = kept
+        self._experience_store.append(self._mapper.experience_to_data(kept))
+        logger.debug(
+            "Experienced %s %s in %s from %s",
+            kept.id,
+            kept.variable,
+            self.readable_context(kept.context),
+            self.readable_mechanism(kept.source.mechanism),
+        )
+        return kept
+
+    def experienced(self, experience_id: str) -> DirectExperience | None:
+        return self._experiences.get(experience_id)
+
+    def experiences(self, context: str | None = None, tags: Tags = ()) -> tuple[DirectExperience, ...]:
+        """Every direct experience in that context (an id) carrying all the tags, in the order they came in."""
+        return tuple(
+            experience
+            for experience in self._experiences.values()
+            if (context is None or experience.context == context) and carries(experience.tags, tags)
+        )
+
+    # beliefs
+
+    def believe(self, belief: Belief) -> Belief:
+        """Sets the belief as given, or updates the one held for the same variable, context and holder, which keeps its
+        id; gives it back with its id."""
+        belief_id = self._belief_ids.get(belief.key) or belief.id or new_identifier(BELIEF)
+        kept = replace(belief, id=belief_id)
+        self._beliefs[belief_id] = kept
+        self._belief_ids[kept.key] = belief_id
+        self._belief_store.append(self._mapper.belief_to_data(kept))
+        logger.debug(
+            "Believes %s = %r in %s%s at %.3g (%s)",
+            kept.variable,
+            kept.value,
+            self.readable_context(kept.context),
+            f" as held by {' > '.join(kept.holder)}" if kept.holder else "",
+            kept.certainty,
+            kept.id,
+        )
+        return kept
+
+    def belief(self, variable: str, context: str, holder: tuple[str, ...] = ()) -> Belief | None:
+        belief_id = self._belief_ids.get((variable, context, holder))
+        return None if belief_id is None else self._beliefs[belief_id]
+
+    def belief_by_id(self, belief_id: str) -> Belief | None:
+        return self._beliefs.get(belief_id)
+
+    def beliefs(
+        self, context: str | None = None, holder: tuple[str, ...] | None = None, tags: Tags = ()
+    ) -> tuple[Belief, ...]:
+        """Every belief in that context (an id), held by that holder, carrying all the tags, in the order first
+        believed."""
+        return tuple(
+            belief
+            for belief in self._beliefs.values()
+            if (context is None or belief.context == context)
+            and (holder is None or belief.holder == holder)
+            and carries(belief.tags, tags)
+        )
+
+    # opinions
+
+    def hold(self, opinion: Opinion) -> Opinion:
+        """Sets the agent's own opinion, or updates the one it holds on the same variable in the same context; gives it
+        back with its id."""
+        key = (opinion.variable, opinion.context)
+        opinion_id = self._opinion_ids.get(key) or opinion.id or new_identifier(OPINION)
+        kept = replace(opinion, id=opinion_id, at=opinion.at if opinion.at is not None else datetime.now())
+        self._opinions[opinion_id] = kept
+        self._opinion_ids[key] = opinion_id
+        self._opinion_store.append(self._mapper.opinion_to_data(kept))
+        logger.debug("Holds %s %r in %s (%s)", kept.variable, kept.value, self.readable_context(kept.context), kept.id)
+        return kept
+
+    def opinion(self, variable: str, context: str) -> Opinion | None:
+        opinion_id = self._opinion_ids.get((variable, context))
+        return None if opinion_id is None else self._opinions[opinion_id]
+
+    def opinions(self, context: str | None = None, tags: Tags = ()) -> tuple[Opinion, ...]:
+        return tuple(
+            opinion
+            for opinion in self._opinions.values()
+            if (context is None or opinion.context == context) and carries(opinion.tags, tags)
+        )
+
+    # tasks
+
+    def task(self, task: Task) -> Task:
+        """Adds the task, or updates it under its id; gives it back with its id."""
+        kept = replace(task, id=task.id or new_identifier(TASK))
+        self._tasks[kept.id] = kept
+        self._task_store.append(self._mapper.task_to_data(kept))
+        logger.debug("Task %s in %s is %s (%s)", kept.name, self.readable_context(kept.context), kept.status, kept.id)
+        return kept
+
+    def tasks(self, context: str | None = None, status: str | None = None, tags: Tags = ()) -> tuple[Task, ...]:
+        return tuple(
+            task
+            for task in self._tasks.values()
+            if (context is None or task.context == context)
+            and (status is None or task.status == status)
+            and carries(task.tags, tags)
+        )
+
+    # contexts
+
+    def context(self, context: Context) -> Context:
+        """Registers the context, or updates the one with the same id."""
+        self._contexts[context.id] = context
+        self._context_ids[context.name] = context.id
+        self._context_store.append(self._mapper.context_to_data(context))
+        logger.debug(
+            "Context %s%s%s",
+            self.readable_context(context.id),
+            f" in {self.readable_context(context.parent)}" if context.parent else "",
+            f", inheriting from {', '.join(self.readable_context(each) for each in context.inherits)}" if context.inherits else "",
+        )
+        return context
+
+    def ensure_context(self, name: str, parent: str | None = None) -> Context:
+        """The context of that name, registered with a new id the first time it is named."""
+        known = self.context_named(name)
+        return known if known is not None else self.context(Context(new_identifier(CONTEXT), name, parent))
+
+    def context_named(self, name: str) -> Context | None:
+        context_id = self._context_ids.get(name)
+        return None if context_id is None else self._contexts[context_id]
+
+    def context_by_id(self, context_id: str) -> Context | None:
+        return self._contexts.get(context_id)
+
+    def contexts(self, tags: Tags = ()) -> tuple[Context, ...]:
+        """Every context registered, carrying all the tags, in the order first registered."""
+        return tuple(context for context in self._contexts.values() if carries(context.tags, tags))
+
+    def readable_context(self, context_id: str | None) -> str:
+        """A context as logs show it: its name and its id."""
+        context = None if context_id is None else self._contexts.get(context_id)
+        return f"{context.name} ({context.id})" if context is not None else str(context_id)
+
+    # mechanisms
+
+    def mechanism(self, mechanism: Mechanism) -> Mechanism:
+        """Registers the mechanism, or updates the one with the same id."""
+        self._mechanisms[mechanism.id] = mechanism
+        self._mechanism_ids[mechanism.name] = mechanism.id
+        self._mechanism_store.append(self._mapper.mechanism_to_data(mechanism))
+        logger.debug("Mechanism %s", self.readable_mechanism(mechanism.id))
+        return mechanism
+
+    def ensure_mechanism(self, name: str, declared_accuracy: float | None = None) -> Mechanism:
+        """The mechanism of that name, registered with a new id the first time it is named."""
+        known = self.mechanism_named(name)
+        return known if known is not None else self.mechanism(Mechanism(new_identifier(MECHANISM), name, declared_accuracy))
+
+    def mechanism_named(self, name: str) -> Mechanism | None:
+        mechanism_id = self._mechanism_ids.get(name)
+        return None if mechanism_id is None else self._mechanisms[mechanism_id]
+
+    def mechanism_by_id(self, mechanism_id: str) -> Mechanism | None:
+        return self._mechanisms.get(mechanism_id)
+
+    def mechanisms(self, tags: Tags = ()) -> tuple[Mechanism, ...]:
+        return tuple(mechanism for mechanism in self._mechanisms.values() if carries(mechanism.tags, tags))
+
+    def readable_mechanism(self, mechanism_id: str) -> str:
+        """A mechanism as logs show it: its name and its id."""
+        mechanism = self._mechanisms.get(mechanism_id)
+        return f"{mechanism.name} ({mechanism.id})" if mechanism is not None else mechanism_id
+
+    # rules
+
+    def declare(self, rule: RuleRecord) -> RuleRecord:
+        """Keeps the rule and gives it back with the id it can be found by. A rule already carrying an id is written
+        anew under that id, which is how its weight in a context changes. This is how an application registers the
+        rules of its game and how inference injects the ones it produces."""
+        kept = rule
+        if not kept.id:
+            kept = replace(kept, id=new_identifier(RULE))
+        if kept.source.at is None:
+            kept = replace(kept, source=replace(kept.source, at=datetime.now()))
+        self._rule_store.append(self._rule_mapper.to_data(kept))
+        self._rules[kept.id] = kept
+        logger.debug(
+            "Declared %s rule %s for %s (%s)",
+            kept.kind,
+            kept.name,
+            ", ".join(f"{self.readable_context(context)} at {weight:g}" for context, weight in kept.contexts) or "no context",
+            kept.id,
+        )
+        return kept
+
+    def revise(self, rule_id: str, rule: RuleRecord) -> RuleRecord:
+        """Replaces the rule under that id with the revision, unless the rule is frozen: an application declared it and
+        didn't declare it open. A frozen rule is left as it is, and the refusal is logged as a warning for the
+        developer."""
+        held = self._rules.get(rule_id)
+        if held is None:
+            raise KeyError(f"No rule {rule_id} to revise")
+        if self.frozen(held):
+            logger.warning(
+                "Rule %s (%s) is frozen: an application declared it and didn't declare it open; the revision is refused",
+                held.name,
+                held.id,
+            )
+            return held
+        return self.declare(replace(rule, id=rule_id))
+
+    def frozen(self, rule: RuleRecord) -> bool:
+        """Whether OMF must leave the rule as it is: declared by an application, and not declared open."""
+        declaration = self.mechanism_named(DECLARATION)
+        return declaration is not None and rule.source.mechanism == declaration.id and not rule.open
+
+    def rules(self, context: str, kinds: tuple[str, ...] = (), tags: Tags = ()) -> tuple[RuleRecord, ...]:
+        """Every rule weighing in that context (an id), of those kinds or of any kind where none is named, carrying all
+        the tags, the heaviest first; rules of the same weight keep the order they were declared in."""
+        found = [
+            rule
+            for rule in self._rules.values()
+            if rule.relevant(context) and (not kinds or rule.kind in kinds) and carries(rule.tags, tags)
+        ]
+        return tuple(sorted(found, key=lambda rule: -rule.weight(context)))
+
+    def rule(self, rule_id: str) -> RuleRecord | None:
+        return self._rules.get(rule_id)
+
+    def rule_contexts(self) -> tuple[str, ...]:
+        """Every context the rules weigh in, as ids, once each, in the order they were first declared."""
+        found: dict[str, None] = {}
+        for rule in self._rules.values():
+            for context, _ in rule.contexts:
+                found[context] = None
+        return tuple(found)
+
+    def undeclare(self, rule_id: str) -> None:
+        """Drops the rule: it is retrieved no more."""
+        if self._rules.pop(rule_id, None) is None:
+            return
+        self._rule_store.forget(rule_id)
+
+    def _load(self) -> None:
+        """Takes in what the stores already hold."""
+        for data in self._context_store.load():
+            context = self._mapper.context_from_data(data)
+            self._contexts[context.id] = context
+            self._context_ids[context.name] = context.id
+        for data in self._mechanism_store.load():
+            mechanism = self._mapper.mechanism_from_data(data)
+            self._mechanisms[mechanism.id] = mechanism
+            self._mechanism_ids[mechanism.name] = mechanism.id
+        for data in self._experience_store.load():
+            experience = self._mapper.experience_from_data(data)
+            self._experiences[experience.id] = experience
+        for data in self._belief_store.load():
+            belief = self._mapper.belief_from_data(data)
+            self._beliefs[belief.id] = belief
+            self._belief_ids[belief.key] = belief.id
+        for data in self._opinion_store.load():
+            opinion = self._mapper.opinion_from_data(data)
+            self._opinions[opinion.id] = opinion
+            self._opinion_ids[(opinion.variable, opinion.context)] = opinion.id
+        for data in self._task_store.load():
+            task = self._mapper.task_from_data(data)
+            self._tasks[task.id] = task
+        for data in self._rule_store.load():
+            rule = self._rule_mapper.from_data(data)
+            self._rules[rule.id] = rule
+        if self._experiences or self._beliefs or self._rules or self._contexts:
+            logger.info(
+                "Knowledge of %s: %d direct experiences, %d beliefs, %d opinions, %d tasks, %d contexts, %d mechanisms, "
+                "%d rules",
+                self._domain,
+                len(self._experiences),
+                len(self._beliefs),
+                len(self._opinions),
+                len(self._tasks),
+                len(self._contexts),
+                len(self._mechanisms),
+                len(self._rules),
+            )

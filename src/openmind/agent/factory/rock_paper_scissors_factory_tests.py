@@ -2,6 +2,7 @@ from collections.abc import Callable
 import pytest
 
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.structure.model.map import Map
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
 from openmind.world.service.state_reader import StateReader
@@ -32,8 +33,7 @@ def test_the_hands_thrown_at_once_decide_the_payoffs_and_end_the_game(game: Game
 
     ((state, probability),) = rbs.joint_outcomes(rbs.start(), joint).outcomes
 
-    variables = dict(state.variables)
     assert probability == 1.0
-    assert (variables["hand(A)"], variables["hand(B)"]) == (first, second)
+    assert state.model("hand") == Map.of({"A": first, "B": second})
     assert StateReader().payoffs(state, rbs.players()) == payoffs
     assert StateReader().players_to_act(state, rbs.players()) == ()

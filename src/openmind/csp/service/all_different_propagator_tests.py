@@ -3,7 +3,7 @@ import pytest
 from openmind.csp.model.all_different_group import AllDifferentGroup
 from openmind.csp.model.wipeout import Wipeout
 from openmind.csp.service.all_different_propagator import AllDifferentPropagator
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 
 def propagate(domains: dict[str, set[Value]]) -> dict[str, frozenset[Value]]:

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from openmind.csp.model.all_different_group import AllDifferentGroup
 from openmind.csp.model.scoped_constraint import ScopedConstraint
 from openmind.csp.model.support_table import SupportTable
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 
 @dataclass(frozen=True, slots=True)

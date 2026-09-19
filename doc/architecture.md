@@ -52,8 +52,17 @@ OpenMindChess project, with python-chess.
   accuracy, precision and source.
 - **Opinion**: a subjective judgement by its holder, such as "good", "bad", "cheap" or "expensive". It uses any
   qualifier, and it is its holder's direct experience. What an agent thinks another agent's opinion is, is a belief.
-- **Source**: how a belief was reached. It is either direct experience or a method with its parameters.
+- **Source**: how a belief was reached: a mechanism with its parameters, such as an inference, a decoder or direct
+  experience.
+- **Direct experience**: raw data as received, kept word for word, such as a text or a clip. An observation is a direct
+  experience. Data extracted from it are beliefs whose sources reference it.
 - **Agent model**: what OMF knows of one agent (heuristics, beliefs, goals), from a generic player down to one instance.
+
+## Best effort
+
+The agent always does the best it can in the given circumstances. It uses the model that fits best. If none exists, it
+lives with it, since there is nothing it can do about it. It may note that it needs a way to solve that kind of problem,
+and add that as a task.
 
 ## OMF runs continuously, always doing the next best task
 
@@ -603,8 +612,9 @@ definition. They support beliefs without being derived from other beliefs. An an
 - its models;
 - the fundamental rules.
 
-When they disagree, it is a finding, not noise. The conflict is recorded, weighed, and becomes a task: investigate it,
-test the model, or look for more data.
+When they disagree, it is a finding, not noise. The conflict becomes a warning and a task, since a model may have solved
+a problem incorrectly and the proper inference may be something else: investigate it, test the model, or look for more
+data.
 
 **No self-supported claims.** A claim can't support itself. A circle of claims supporting each other, with no path back
 to an anchor, gets no confidence from that circle. Support counts only as far as it traces back to anchors.
@@ -626,6 +636,18 @@ For example:
 Every belief's source names its method and parameters, so its confidence can be re-evaluated when the method's
 accuracy is re-measured.
 
+## Frozen for production
+
+OMF has a no-learning entrypoint, for when a trained model must be frozen and shipped in production. By default, it
+freezes:
+- trained models;
+- rules: no new ones;
+- tactics: no new ones;
+- facts: no new ones;
+- beliefs: none are persisted.
+
+Beliefs a task needs are kept in that task's instance context, and go away with it.
+
 ## Packages
 
 This map is provisional: each package's boundaries are confirmed at its own interfaces stop. The packages are listed
@@ -633,10 +655,11 @@ in dependency order.
 
 | Package | Owns |
 |---|---|
-| `world` | states, actions, joint actions, players, what an agent observes |
-| `knowledge` | the knowledge base, the doxastic system: rules, facts, beliefs with their sources, tasks, models |
+| `structure` | the data models a state is made of, with OMF's methods: scalar, list, map, and grid in any number of dimensions |
+| `world` | states made of named data models, actions, joint actions, players |
+| `rule` | rules as data: Python source or a project's function, and the shapes a game's rules take |
+| `knowledge` | the knowledge base, the doxastic system: direct experience (raw data, word for word), rules, facts, beliefs with their sources, opinions, tasks, contexts, models |
 | `epistemology` | justification of beliefs by foundherentism: anchors, coherence, no self-support, confidence from method and data |
-| `structure` | data structures with their methods and actions, the grid first |
 | `game` | the programmer's API to define a game, the registry of games, the game at runtime |
 | `csp` | valid values of an action's parameters |
 | `predictor` | the predictor port and its rule-based model |
@@ -654,7 +677,7 @@ in dependency order.
 | `agent` | the agent loop, one loop per level of the hierarchy with delegation between them, the continuous next-best-task loop, roles such as player and coach |
 | `debug` | logging with per-session verbosity, warnings (conflicting rules, observations a frozen rule can't explain), a debugger (interrupts, stack, conditional breakpoints); the dashboard is its viewer |
 | `dashboard` | a page to visualize and debug: tasks, time management choices, tactics and the search tree, beliefs and sources, models, games |
-| `entrypoint` | ways to run OMF: `openmind-play`, `openmind-solve` |
+| `entrypoint` | ways to run OMF: `openmind-play`, `openmind-solve`, `openmind-dashboard`, and a no-learning entrypoint that runs trained models frozen, for production |
 
 `parallel` (worker processes) and `testing` (the pytest plugin that saves logs) are infrastructure that any package may
 use.

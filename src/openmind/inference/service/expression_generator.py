@@ -28,10 +28,12 @@ from openmind.inference.model.pattern import Pattern
 from openmind.inference.model.pattern_condition import PatternCondition
 from openmind.inference.model.vocabulary import Vocabulary
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.rbs.model.python_rule import PythonRule
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.rule.model.python_rule import PythonRule
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
+from openmind.structure.model.scalar import Scalar
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 
 class ExpressionGenerator:
@@ -45,9 +47,10 @@ class ExpressionGenerator:
       (`{view}.cell[2, 2] == me`), the player to act also absolutely (`{view}.turn == 'X'`); for every indexed base of
       names and value, how many indices hold it, a pattern of one condition; for every numeric indexed base, the sum,
       lowest and highest of its values, aggregates of one reading; and how many actions each player could take.
-    - A pattern grows by one condition, for whole-number indices: any base read at the pattern's index shifted by any
-      offset seen between two indices (the same index included), equal or not equal to any name its base takes, to
-      OUTSIDE, or to the variable another condition reads.
+    - A pattern grows by one condition: any base with the anchor's indices read at the pattern's index, or, over a
+      grid, any grid of as many dimensions read at the pattern's index shifted by any offset seen between two cells
+      (the same cell included); equal or not equal to any name its base takes, to OUTSIDE, or to the variable another
+      condition reads.
     - An aggregate's body grows by an operation (`+ - * / abs >= <= == and or`) with a reading of any base sharing its
       indices, at `i`, or at `j` once it reads pairs; a body at `i` also turns into a comparison of itself at `i` and at
       `j`, over every pair of different indices. Each body is summed, counted, and taken at its lowest and highest.
@@ -56,34 +59,42 @@ class ExpressionGenerator:
     - Look-aheads, for `me` and for `other`: the best, the worst and the count of the expression after an action, and
       the best and worst change of the expression, and how many actions raise or lower it."""
 
-    def __init__(self, variable_name_mapper: VariableNameMapper) -> None:
-        self._variable_name_mapper = variable_name_mapper
-
     def vocabulary(self, rbs: RuleBasedSystem, states: Iterable[State]) -> Vocabulary:
-        values_by_variable: dict[str, dict[Value, None]] = {}
-        for state in states:
-            for name, value in state.variables:
-                values_by_variable.setdefault(name, {})[value] = None
+        """Every scalar, grid cell and map entry of the states with the values seen; lists aren't read."""
+        values_by_variable: dict[tuple[str, tuple[Value, ...]], dict[Value, None]] = {}
         values_by_base: dict[str, dict[Value, None]] = {}
         indices_by_base: dict[str, set[tuple[object, ...]]] = {}
-        for name, values in values_by_variable.items():
-            base, texts = self._variable_name_mapper.from_name(name)
-            if texts:
-                values_by_base.setdefault(base, {}).update(values)
-                indices_by_base.setdefault(base, set()).add(tuple(self._index(text) for text in texts))
+        grids: set[str] = set()
+        for state in states:
+            for name, model in state.models:
+                if isinstance(model, Scalar):
+                    values_by_variable.setdefault((name, ()), {})[model.value] = None
+                    continue
+                if isinstance(model, Grid):
+                    grids.add(name)
+                    entries: Iterable[tuple[tuple[Value, ...], Value]] = model.items()
+                elif isinstance(model, Map):
+                    entries = (((key,), value) for key, value in model.items)
+                else:
+                    continue
+                for index, value in entries:
+                    values_by_variable.setdefault((name, index), {})[value] = None
+                    values_by_base.setdefault(name, {})[value] = None
+                    indices_by_base.setdefault(name, set()).add(index)
         offsets_by_arity: dict[int, dict[tuple[int, ...], None]] = {}
-        for indices in indices_by_base.values():
-            if self._whole(indices):
-                offsets = offsets_by_arity.setdefault(self._arity(indices), {})
-                for first, second in itertools.permutations(sorted(indices), 2):  # type: ignore[type-var]
-                    offsets[tuple(a - b for a, b in zip(first, second, strict=True))] = None  # type: ignore[operator]
+        for base in sorted(grids):
+            indices = indices_by_base[base]
+            offsets = offsets_by_arity.setdefault(self._arity(indices), {})
+            for first, second in itertools.permutations(sorted(indices), 2):  # type: ignore[type-var]
+                offsets[tuple(a - b for a, b in zip(first, second, strict=True))] = None  # type: ignore[operator]
         return Vocabulary(
             rbs.players().names,
             rbs.players().to_act,
-            {name: tuple(values) for name, values in values_by_variable.items()},
+            {variable: tuple(values) for variable, values in values_by_variable.items()},
             {base: tuple(values) for base, values in values_by_base.items()},
             {base: frozenset(indices) for base, indices in indices_by_base.items()},
             {arity: tuple(sorted(offsets)) for arity, offsets in offsets_by_arity.items()},
+            frozenset(grids),
         )
 
     def leaves(self, vocabulary: Vocabulary) -> tuple[Expression, ...]:
@@ -96,7 +107,7 @@ class ExpressionGenerator:
                     continue
                 for value in values:
                     renderings = self._rendered(value, vocabulary)
-                    if name == vocabulary.to_act:
+                    if name == (vocabulary.to_act, ()):
                         renderings = (repr(value), *renderings)
                     for rendered in renderings:
                         self._add(expressions, Expression(f"{reading} == {rendered}", 1, 0))
@@ -114,7 +125,7 @@ class ExpressionGenerator:
                 for rendered in self._rendered(value, vocabulary):
                     pattern = Pattern(base, (PatternCondition(base, zero, "==", rendered),))
                     self._add(expressions, Expression(self._pattern_template(pattern, vocabulary), 1, 0, pattern))
-                    if self._whole(indices):
+                    if base in vocabulary.grids:
                         held = f"{VIEW}.{base}[{AGGREGATE_INDEX}] == {rendered}"
                         readings = tuple((self._changed(base, player, AGGREGATE_INDEX), 1) for player in (ME, OTHER))
                         for reading, plies in readings:
@@ -143,13 +154,13 @@ class ExpressionGenerator:
         if pattern is None:
             return ()
         anchor_indices = vocabulary.indices_by_base[pattern.anchor]
-        arity, whole = self._arity(anchor_indices), self._whole(anchor_indices)
+        arity, whole = self._arity(anchor_indices), pattern.anchor in vocabulary.grids
         zero = (0,) * arity
         offsets = (zero, *vocabulary.offsets_by_arity.get(arity, ())) if whole else (zero,)
         children: dict[str, Expression] = {}
         for base, indices in vocabulary.indices_by_base.items():
             same = indices == anchor_indices
-            if self._arity(indices) != arity or not (same or (whole and self._whole(indices))):
+            if self._arity(indices) != arity or not (same or (whole and base in vocabulary.grids)):
                 continue
             base_values = vocabulary.values_by_base[base]
             values = (
@@ -186,7 +197,7 @@ class ExpressionGenerator:
             return ()
         indices = vocabulary.indices_by_base[aggregate.base]
         group = [base for base, others in vocabulary.indices_by_base.items() if others == indices]
-        whole = self._whole(indices)
+        whole = aggregate.base in vocabulary.grids
         body, clauses, body_plies = aggregate.body, aggregate.body_clauses, aggregate.body_plies
         bodies: list[tuple[str, int, bool, int, tuple[str, ...], tuple[str, ...]]] = []
         for pair in (aggregate.pair, True):
@@ -357,16 +368,15 @@ class ExpressionGenerator:
             return f"{VIEW}.{condition.base}[{PATTERN_INDEX}]"
         return f"{VIEW}.offset({condition.base!r}, {PATTERN_INDEX}, {', '.join(map(str, condition.steps))})"
 
-    def _readings(self, name: str, vocabulary: Vocabulary) -> tuple[str, ...]:
+    def _readings(self, variable: tuple[str, tuple[Value, ...]], vocabulary: Vocabulary) -> tuple[str, ...]:
         """How an expression reads a variable: absolutely, and with each index that is a player's name as `me` or
-        `other`."""
-        base, texts = self._variable_name_mapper.from_name(name)
-        if not texts:
+        `other`. A cell of a grid of one dimension is read with its coordinates as a tuple: `{view}.cell[3,]`."""
+        base, index = variable
+        if not index:
             return (f"{VIEW}.{base}",)
-        options = [
-            (repr(self._index(text)), *((ME, OTHER) if text in vocabulary.players else ())) for text in texts
-        ]
-        return tuple(f"{VIEW}.{base}[{', '.join(choice)}]" for choice in itertools.product(*options))
+        options = [(repr(part), *((ME, OTHER) if part in vocabulary.players else ())) for part in index]
+        trailing = "," if base in vocabulary.grids and len(index) == 1 else ""
+        return tuple(f"{VIEW}.{base}[{', '.join(choice)}{trailing}]" for choice in itertools.product(*options))
 
     def _rendered(self, value: Value, vocabulary: Vocabulary) -> tuple[str, ...]:
         return (ME, OTHER) if value in vocabulary.players else (repr(value),)
@@ -374,14 +384,8 @@ class ExpressionGenerator:
     def _add(self, expressions: dict[str, Expression], expression: Expression) -> None:
         expressions.setdefault(expression.template, expression)
 
-    def _index(self, text: str) -> object:
-        return int(text) if text.lstrip("-").isdecimal() else text
-
     def _arity(self, indices: frozenset[tuple[object, ...]] | set[tuple[object, ...]]) -> int:
         return len(next(iter(indices)))
-
-    def _whole(self, indices: frozenset[tuple[object, ...]] | set[tuple[object, ...]]) -> bool:
-        return all(isinstance(index, int) for indexed in indices for index in indexed)
 
     def _number(self, value: float) -> str:
         return str(int(value)) if float(value).is_integer() else repr(float(value))

@@ -5,15 +5,14 @@ from openmind.inference.constant.inference_constant import MEMORY_CHECK_INTERVAL
 from openmind.inference.service.mechanics import Mechanics
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.consequence_library_tests import Declare, position, strip_domain
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
 
 def new_mechanics() -> Mechanics:
-    return Mechanics(StateNamespaceMapper(VariableNameMapper()), MemoryMeter())
+    return Mechanics(StateNamespaceMapper(), MemoryMeter())
 
 
 def test_the_same_state_gives_the_same_view(declared: Declare) -> None:
@@ -27,34 +26,40 @@ def test_moves_give_the_turn_to_the_player_and_lead_to_views_of_the_outcomes(dec
 
     moves = mechanics.moves(rbs, position({1: "X"}, "O"), "X")
 
-    assert [[(view.cell, probability) for view, probability in outcomes] for outcomes in moves] == [
-        [({(1, 1): "X", (1, 2): "X", (1, 3): None, (1, 4): None}, 1.0)],
-        [({(1, 1): "X", (1, 2): None, (1, 3): "X", (1, 4): None}, 1.0)],
-        [({(1, 1): "X", (1, 2): None, (1, 3): None, (1, 4): "X"}, 1.0)],
+    assert [[(view.cell.cells, probability) for view, probability in outcomes] for outcomes in moves] == [
+        [(("X", "X", None, None), 1.0)],
+        [(("X", None, "X", None), 1.0)],
+        [(("X", None, None, "X"), 1.0)],
     ]
 
 
-def test_changes_count_the_actions_changing_each_indexed_variable(declared: Declare) -> None:
+def test_changes_count_the_actions_changing_each_cell_entry_and_scalar(declared: Declare) -> None:
     mechanics, rbs, state = new_mechanics(), strip_domain(declared), position({1: "X"}, "O")
 
     changes = mechanics.changes(rbs, state, "X")
 
-    # Marking the second cell also wins: both payoffs change once.
-    assert changes == {("cell", (1, 2)): 1.0, ("cell", (1, 3)): 1.0, ("cell", (1, 4)): 1.0, ("payoff", "O"): 1.0, ("payoff", "X"): 1.0}
+    # Marking the second cell also wins: both payoffs change once. Every action hands the turn back to O, as it was.
+    assert changes == {
+        ("cell", (1, 2)): 1.0,
+        ("cell", (1, 3)): 1.0,
+        ("cell", (1, 4)): 1.0,
+        ("payoff", "O"): 1.0,
+        ("payoff", "X"): 1.0,
+    }
     view = mechanics.view(rbs, state)
     assert (view.changed("X", "cell", (1, 3)), view.changed("X", "cell", (1, 1)), view.changed("O", "cell", (1, 1))) == (1.0, 0.0, 0.0)
 
 
-def test_changes_read_by_name_when_an_outcome_adds_variables(declared: Declare) -> None:
-    effects = PythonRule("cell[1, col] = turn\ncell[2, col] = turn\nturn = 'O' if turn == 'X' else 'X'")
+def test_changes_leave_out_the_models_an_outcome_adds(declared: Declare) -> None:
+    effects = PythonRule("cell = cell.placed((1, col), turn)\nmarked = Grid.filled((1, 4), None).placed((1, col), turn)")
     rbs = declared(
         position({}, "X"),
         legal={"place": (PythonRule("payoff['X'] is None"), PythonRule("cell[1, col] is None"))},
         outcomes={"place": ((1.0, effects),)},
-        players=Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)")),
+        players=Players(("X", "O"), "turn", "payoff"),
         parameters={"place": {"col": PythonRule("(1, 2, 3, 4)")}},
         empties={"cell": None},
-        context="wide strip",
+        context="marked strip",
     )
 
     changes = new_mechanics().changes(rbs, position({}, "X"), "X")
@@ -68,7 +73,7 @@ def test_views_are_cleared_once_the_process_holds_more_than_its_share(declared: 
     mechanics.limit_memory(1)
 
     for index in range(MEMORY_CHECK_INTERVAL):
-        mechanics.view(rbs, State((("clock", index),)))
+        mechanics.view(rbs, State.of(clock=index))
 
     assert mechanics.view(rbs, state) is not first
 

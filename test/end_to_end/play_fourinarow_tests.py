@@ -26,7 +26,8 @@ def test_the_agent_plays_both_sides_until_the_game_is_over(capsys: pytest.Captur
     assert "X chose drop(col=" in output
     assert "O chose drop(col=" in output
     lines = log_lines(tmp_path)
-    assert lines[0] == "INFO  openmind.entrypoint.play Playing tictactoe/fourinarow"
+    assert lines[0].startswith("INFO  openmind.debug.service.debugger Debug session play tictactoe/fourinarow: ")
+    assert lines[1] == "INFO  openmind.entrypoint.play Playing tictactoe/fourinarow"
     assert lines[-1] == "INFO  openmind.entrypoint.play No legal action left: game over"
 
 
@@ -48,7 +49,7 @@ def test_a_human_drops_a_mark_by_column_number(
     output = capsys.readouterr().out
     assert "1. drop(col=1)\n" in output
     assert "7. drop(col=7)\n" in output
-    assert "   6 . . . X . . .\npayoff(O) = None\npayoff(X) = None\nturn = 'O'\n" in output
+    assert "   6 . . . X . . .\npayoff = Map(items=(('O', None), ('X', None)))\nturn = 'O'\n" in output
     assert log_lines(tmp_path)[-2:] == [
         "INFO  openmind.entrypoint.play Chose drop(col=4)",
         "INFO  openmind.entrypoint.play Input ended before the game was over",

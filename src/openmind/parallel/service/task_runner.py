@@ -1,3 +1,4 @@
+from dataclasses import replace
 import logging
 import math
 import multiprocessing
@@ -13,6 +14,10 @@ from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 
+from openmind.debug.constant.debug_constant import CONTINUE
+from openmind.debug.factory.debugger_factory import process_debugger
+from openmind.debug.model.debug_session import DebugSession
+from openmind.debug.model.pause import Pause
 from openmind.parallel.constant.parallel_constant import (
     MEMORY_EXIT_CODE,
     PARENT_CHECK_SECONDS,
@@ -180,8 +185,11 @@ class _Run:
 
     def _start(self) -> _Worker:
         here, there = self._context.Pipe()
+        session = process_debugger().session
         process = self._context.Process(
-            target=_work, args=(there, logging.getLogger().level, os.getpid(), self._memory_cap), name="openmind worker"
+            target=_work,
+            args=(there, logging.getLogger().level, os.getpid(), self._memory_cap, session),
+            name="openmind worker",
         )
         process.start()
         there.close()
@@ -242,6 +250,12 @@ class _Run:
                 raise error
             elif kind == "over":
                 worker.over = message[2]
+            elif kind == "pause":
+                answer = process_debugger().answer(message[1])
+                try:
+                    worker.connection.send(("resume", answer))
+                except OSError:
+                    worker.gone = True
 
     def _end(self, worker: _Worker) -> None:
         """Forgets a worker that ended, runs its call again or gives up on it, and starts a fresh worker for the calls
@@ -331,10 +345,13 @@ def _handle(record: logging.LogRecord) -> None:
             handler.handle(record)
 
 
-def _work(connection: Connection, level: int, parent: int, memory_cap: MemoryCap | None) -> None:
+def _work(
+    connection: Connection, level: int, parent: int, memory_cap: MemoryCap | None, session: DebugSession | None = None
+) -> None:
     """A worker: sends its logs through its pipe, watches its parent and, under a cap, its memory, then runs calls until
     told to end. Everything it writes to the pipe goes through one lock, and a worker ending over its memory cap keeps
-    that lock, so nothing is left half written."""
+    that lock, so nothing is left half written. Under a debug session, a breakpoint the worker hits is sent through the
+    pipe too, and the worker waits for the process that started it to say how to resume."""
     lock = threading.Lock()
 
     def send(message: object) -> None:
@@ -346,6 +363,14 @@ def _work(connection: Connection, level: int, parent: int, memory_cap: MemoryCap
         root.removeHandler(handler)
     root.addHandler(QueueHandler(_Sender(send)))  # type: ignore[arg-type]
     root.setLevel(level)
+    if session is not None:
+
+        def pause(taken: Pause) -> str:
+            send(("pause", taken))
+            reply = connection.recv()
+            return str(reply[1]) if isinstance(reply, tuple) and reply[0] == "resume" else CONTINUE
+
+        process_debugger().start(replace(session, log_directory=None, log_file=None), pauser=pause)
     threading.Thread(target=_watch_parent, args=(parent,), name="parent watch", daemon=True).start()
     guard = process_memory_guard()
     if memory_cap is not None:

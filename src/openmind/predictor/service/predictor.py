@@ -1,9 +1,10 @@
 import logging
 from collections.abc import Mapping, Sequence
 
+from openmind.structure.model.scalar import Scalar
 from openmind.predictor.model.outcome_distribution import OutcomeDistribution
-from openmind.rbs.model.python_rule import PythonRule
-from openmind.rbs.model.rule import Rule
+from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.model.rule import Rule
 from openmind.rbs.service.rule_caller import RuleCaller
 from openmind.world.constant.players_constant import PLAYER
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
@@ -100,7 +101,7 @@ class Predictor:
 
     def _log_changes(self, state: State, outcome: State) -> None:
         if logger.isEnabledFor(logging.DEBUG):
-            previous = dict(state.variables)
-            for name, after in outcome.variables:
+            previous = dict(state.models)
+            for name, after in outcome.models:
                 if name not in previous or (after is not previous[name] and after != previous[name]):
-                    logger.debug("Set %s = %r", name, after)
+                    logger.debug("Set %s = %r", name, after.value if isinstance(after, Scalar) else after)

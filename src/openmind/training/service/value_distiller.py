@@ -7,7 +7,7 @@ from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import HELD_OUT_SELF_PLAY_GAME, SELF_PLAY_GAME
 from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.game_memory import GameMemory
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_declarer import RuleDeclarer

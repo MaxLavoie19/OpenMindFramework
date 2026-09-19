@@ -4,7 +4,7 @@ from pathlib import Path
 from openmind.agent.service.game_memory import GameMemory
 from openmind.dashboard.model.dashboard_settings import DashboardSettings
 from openmind.dashboard.service.game_browser_tests import play
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.entrypoint.dashboard import page
 
 
@@ -12,7 +12,7 @@ type Game = Callable[[str], RuleBasedSystem]
 
 
 def settings(tmp_path: Path) -> DashboardSettings:
-    return DashboardSettings("tictactoe", tmp_path / "training", tmp_path / "log", None, knowledge_directory=tmp_path / "knowledge")
+    return DashboardSettings("tictactoe", tmp_path / "log", None, knowledge_directory=tmp_path / "knowledge")
 
 
 def test_the_dashboard_serves_the_list_of_decisive_games_each_game_and_404_for_anything_else(game: Game, tmp_path: Path) -> None:
@@ -21,7 +21,7 @@ def test_the_dashboard_serves_the_list_of_decisive_games_each_game_and_404_for_a
     play(game("tictactoe"), memory, 2, True)
 
     status, listing = page(settings(tmp_path), 30, "/games")
-    (first_id,) = [record.id for record in memory._knowledge_base.recall(keyword="game")][:1]  # type: ignore[attr-defined]
+    (first_id,) = [kept.id for kept in memory.experiences()][:1]
 
     assert status == 200 and b"<h2>Decisive games (2)</h2>" in listing
     assert f"<a href='/game/{first_id}'>arms game 1</a>".encode() in listing

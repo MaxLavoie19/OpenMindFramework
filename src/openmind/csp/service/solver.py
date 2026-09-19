@@ -14,13 +14,13 @@ from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.rbs.constant.rule_constant import ALL_DIFFERENT
 from openmind.rbs.mapper.call_operand_mapper import CallOperandMapper
 from openmind.rbs.model.called_rule import CalledRule
-from openmind.rbs.model.python_rule import PythonRule
-from openmind.rbs.model.rule import Rule
+from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.model.rule import Rule
 from openmind.rbs.service.rule_caller import RuleCaller
 from openmind.world.constant.players_constant import PLAYER
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +94,11 @@ class Solver:
         player: str | None = None,
     ) -> tuple[tuple[Action, ...], SolveStatistics]:
         """The solutions solve gives, with what the search did. A cached result keeps the statistics of the search that
-        found it. Given a player, a state variable named `player` raises ValueError."""
+        found it. Given a player, a state model named `player` raises ValueError."""
         if player is not None:
-            if any(name == PLAYER for name, _ in state.variables):
-                raise ValueError(f"A state variable is named {PLAYER!r}, the name rules read the player solved for by")
-            state = State((*state.variables, (PLAYER, player)))
+            if state.has(PLAYER):
+                raise ValueError(f"A state model is named {PLAYER!r}, the name rules read the player solved for by")
+            state = state.with_model(PLAYER, player)
         rules = (action, tuple(values.items()), tuple(constraints))
         key = (state, limit, rules)
         cached = self._cache.get(key)

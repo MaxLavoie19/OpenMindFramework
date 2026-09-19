@@ -1,7 +1,7 @@
 import pytest
 
 from openmind.rbs.mapper.call_operand_mapper import CallOperandMapper
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 
 
 def test_a_single_call_gives_its_arguments_as_rules() -> None:

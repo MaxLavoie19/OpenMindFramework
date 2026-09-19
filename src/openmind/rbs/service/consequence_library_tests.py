@@ -9,11 +9,12 @@ from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryB
 from openmind.rbs.constant.consequence_constant import OUTSIDE
 from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
 from openmind.rbs.service.rule_compiler import RuleCompiler
 from openmind.rbs.service.rule_runner import RuleRunner
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -27,11 +28,11 @@ def strip_domain(declared: Declare) -> RuleBasedSystem:
     """A made-up game: X and O take turns marking a cell of a 1 by 4 strip; two marks side by side win, a full strip is a
     draw."""
     effects = PythonRule(
-        "cell[1, col] = turn\n"
+        "cell = cell.placed((1, col), turn)\n"
         "if any(cell[1, c] == turn and cell[1, c + 1] == turn for c in range(1, 4)):\n"
-        "    payoff[turn], payoff['O' if turn == 'X' else 'X'] = 1.0, 0.0\n"
-        "elif all(mark is not None for mark in cell.values()):\n"
-        "    payoff['X'] = payoff['O'] = 0.5\n"
+        "    payoff = Map.of({turn: 1.0, 'O' if turn == 'X' else 'X': 0.0})\n"
+        "elif None not in cell.cells:\n"
+        "    payoff = Map.of({'X': 0.5, 'O': 0.5})\n"
         "turn = 'O' if turn == 'X' else 'X'"
     )
     constraints = (PythonRule("payoff['X'] is None"), PythonRule("payoff['O'] is None"), PythonRule("cell[1, col] is None"))
@@ -39,16 +40,17 @@ def strip_domain(declared: Declare) -> RuleBasedSystem:
         position({}, "X"),
         legal={"place": constraints},
         outcomes={"place": ((1.0, effects),)},
-        players=Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)")),
+        players=Players(("X", "O"), "turn", "payoff"),
         parameters={"place": {"col": PythonRule("(1, 2, 3, 4)")}},
         empties={"cell": None},
         context="strip",
     )
 
 
-def position(marks: dict[int, str], turn: str) -> State:
-    variables = {**{f"cell(1,{col})": marks.get(col) for col in range(1, 5)}, "payoff(O)": None, "payoff(X)": None, "turn": turn}
-    return State(tuple(sorted(variables.items())))
+def position(marks: dict[int, str], turn: str, payoff: dict[str, float | None] | None = None) -> State:
+    """A position of the strip: the marks by column, the player to act, and the payoffs, unset while the game goes on."""
+    cells = tuple(marks.get(col) for col in range(1, 5))
+    return State.of(cell=Grid((1, 4), cells), turn=turn, payoff=Map.of(payoff or {"X": None, "O": None}))
 
 
 def place(col: int) -> Action:
@@ -57,13 +59,13 @@ def place(col: int) -> Action:
 
 def coin_domain(declared: Declare) -> RuleBasedSystem:
     """A made-up game of chance: A flips a coin, heads A wins, tails B wins."""
-    heads = 0.5, PythonRule("payoff['A'] = 1.0\npayoff['B'] = 0.0")
-    tails = 0.5, PythonRule("payoff['A'] = 0.0\npayoff['B'] = 1.0")
+    heads = 0.5, PythonRule("payoff = Map.of({'A': 1.0, 'B': 0.0})")
+    tails = 0.5, PythonRule("payoff = Map.of({'A': 0.0, 'B': 1.0})")
     return declared(
-        State((("payoff(A)", None), ("payoff(B)", None), ("turn", "A"))),
+        State.of(payoff=Map.of({"A": None, "B": None}), turn="A"),
         legal={"flip": (PythonRule("payoff['A'] is None"),)},
         outcomes={"flip": (heads, tails)},
-        players=Players(("A", "B"), "turn", ("payoff(A)", "payoff(B)")),
+        players=Players(("A", "B"), "turn", "payoff"),
         context="coin",
     )
 
@@ -115,8 +117,7 @@ class Counting:
 
 def test_a_win_is_a_finished_position_where_the_player_scored_highest(declared: Declare) -> None:
     rbs = strip_domain(declared)
-    marks = dict(position({1: "X", 2: "X"}, "O").variables)
-    finished = State(tuple(sorted({**marks, "payoff(X)": 1.0, "payoff(O)": 0.0}.items())))
+    finished = position({1: "X", 2: "X"}, "O", {"X": 1.0, "O": 0.0})
     library = ConsequenceLibraryBuilder().build()
     x, o = rbs.players().names.index("X"), rbs.players().names.index("O")
 
@@ -125,8 +126,8 @@ def test_a_win_is_a_finished_position_where_the_player_scored_highest(declared: 
 
 def test_a_position_with_an_unset_payoff_is_no_win_without_asking_for_its_moves(declared: Declare) -> None:
     counting = Counting(strip_domain(declared))
-    mechanics = Mechanics(StateNamespaceMapper(VariableNameMapper()), MemoryMeter())
-    library = ConsequenceLibrary(StateReader(), VariableNameMapper(), mechanics)
+    mechanics = Mechanics(StateNamespaceMapper(), MemoryMeter())
+    library = ConsequenceLibrary(StateReader(), mechanics)
 
     assert library.is_win(counting, position({1: "X"}, "O"), counting.players().names.index("X")) is False  # type: ignore[arg-type]
     assert counting.calls == 0
@@ -170,6 +171,6 @@ def test_rules_read_the_consequences_through_the_names(declared: Declare) -> Non
         ("col", "action"),
     )
 
-    assert RuleRunner(StateNamespaceMapper(VariableNameMapper())).value(
+    assert RuleRunner(StateNamespaceMapper()).value(
         rule, state, {"col": 2, "action": place(2)}, library.names(rbs, state)
     ) is True

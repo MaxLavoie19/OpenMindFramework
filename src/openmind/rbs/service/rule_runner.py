@@ -6,8 +6,16 @@ from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.rbs.constant.rule_constant import ALL_DIFFERENT
 from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rbs.model.compiled_rule import CompiledRule
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.list import List
+from openmind.structure.model.map import Map
+from openmind.structure.model.scalar import Scalar
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
+
+
+#: The data models every rule can build: `Grid.filled((3, 3), None)`, `Map.of({"X": None})`.
+STRUCTURES = {"Grid": Grid, "List": List, "Map": Map, "Scalar": Scalar}
 
 
 def _all_different(*values: object) -> bool:
@@ -18,7 +26,7 @@ class RuleRunner:
     """Runs compiled rules against states. A value rule is called as a function of the parameters it reads, with the
     definitions' names and the state's variables as its globals, built once per state and kept. An effects rule runs as
     a module in a fresh copy of those names plus the action's parameters, and what it leaves in the state's variables is
-    the next state. Every rule also sees `all_different(*values)`. The namespaces built per state are kept until the
+    the next state. Every rule also sees `all_different(*values)` and the data models, `Grid`, `List`, `Map` and `Scalar`. The namespaces built per state are kept until the
     process's memory guard clears them."""
 
     def __init__(self, state_namespace_mapper: StateNamespaceMapper) -> None:
@@ -94,7 +102,7 @@ class RuleRunner:
     def _definitions_namespace(self, definitions: CompiledRule | None) -> dict[str, object]:
         namespace = self._definitions.get(definitions)
         if namespace is None:
-            namespace = {ALL_DIFFERENT: _all_different}
+            namespace = {ALL_DIFFERENT: _all_different, **STRUCTURES}
             if definitions is not None:
                 exec(definitions.code, namespace)
             self._definitions[definitions] = namespace

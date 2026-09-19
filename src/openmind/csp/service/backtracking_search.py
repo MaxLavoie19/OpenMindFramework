@@ -9,7 +9,7 @@ from openmind.csp.service.all_different_propagator import AllDifferentPropagator
 from openmind.csp.service.arc_consistency import ArcConsistency
 from openmind.csp.service.constraint_checker import ConstraintChecker
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 logger = logging.getLogger(__name__)
 

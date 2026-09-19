@@ -2,7 +2,7 @@
 
 import argparse
 
-from openmind.doxastic.constant.doxastic_constant import KNOWLEDGE_DIRECTORY
+from openmind.knowledge.constant.knowledge_constant import KNOWLEDGE_DIRECTORY
 from openmind.timing.constant.timing_constant import DEFAULT_EXPECTED_STEPS, DEFAULT_TIME_RESERVE
 from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 from openmind.timing.model.time_control import TimeControl

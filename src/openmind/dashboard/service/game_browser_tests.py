@@ -5,11 +5,11 @@ from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.game_memory import GameMemory
 from openmind.dashboard.service.game_browser import GameBrowser
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.training.mapper.played_game_summary_mapper import PlayedGameSummaryMapper
 from openmind.training.model.played_game import PlayedGame

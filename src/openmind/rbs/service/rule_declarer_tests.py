@@ -2,8 +2,8 @@ import logging
 
 import pytest
 
-from openmind.doxastic.constant.doxastic_constant import COUNTED, TOLD
-from openmind.doxastic.constant.rule_kind_constant import (
+from openmind.knowledge.constant.knowledge_constant import DECLARATION, INFERENCE
+from openmind.knowledge.constant.rule_kind_constant import (
     CONSTRAINT,
     DEFINITIONS,
     EFFECTS,
@@ -19,16 +19,17 @@ from openmind.doxastic.constant.rule_kind_constant import (
     TIMEOUT,
     VALUES,
 )
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.constant.rule_based_constant import EFFECTS_DEFINITIONS, RULES_DEFINITIONS
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.world.model.players import Players
+from openmind.structure.model.list import List
 from openmind.world.model.state import State
 
 pytestmark = pytest.mark.log_level("INFO")
 
-SWITCH = State((("light", "off"), ("settings", ("off", "on")), ("payoff", None), ("turn", "me")))
+SWITCH = State.of(light="off", settings=List(("off", "on")), payoff=None, turn="me")
 
 
 def declare_switch(knowledge: KnowledgeBase, weight: float = 1.0) -> RuleDeclarer:
@@ -54,18 +55,19 @@ def declare_switch(knowledge: KnowledgeBase, weight: float = 1.0) -> RuleDeclare
 def test_every_rule_is_declared_under_the_context_as_the_project_told_it(knowledge: KnowledgeBase) -> None:
     declare_switch(knowledge).done()
 
-    rules = knowledge.rules("switch")
+    rules = knowledge.rules(knowledge.context_named("switch").id)
 
     assert rules
     assert {rule.kind for rule in rules} <= set(GAME_KINDS)
-    assert all(rule.provenance.source == TOLD and rule.provenance.told == "switch" for rule in rules)
-    assert all(rule.contexts == (("switch", 1.0),) for rule in rules)
+    declaration = knowledge.mechanism_named(DECLARATION).id  # type: ignore[union-attr]
+    assert all(rule.source.mechanism == declaration and rule.source.parameter("context") == "switch" for rule in rules)
+    assert all(rule.contexts == ((knowledge.context_named("switch").id, 1.0),) for rule in rules)  # type: ignore[union-attr]
 
 
 def test_a_rule_of_every_kind_is_declared_as_the_kind_it_is(knowledge: KnowledgeBase) -> None:
     declare_switch(knowledge).done()
 
-    assert [rule.kind for rule in knowledge.rules("switch")] == [
+    assert [rule.kind for rule in knowledge.rules(knowledge.context_named("switch").id)] == [
         INITIAL,
         PLAYERS,
         EMPTY,
@@ -86,7 +88,7 @@ def test_a_rule_of_every_kind_is_declared_as_the_kind_it_is(knowledge: Knowledge
 def test_the_two_definitions_scripts_are_told_apart_by_name(knowledge: KnowledgeBase) -> None:
     declare_switch(knowledge).done()
 
-    scripts = {rule.name: rule.rule for rule in knowledge.rules("switch", (DEFINITIONS,))}
+    scripts = {rule.name: rule.rule for rule in knowledge.rules(knowledge.context_named("switch").id, (DEFINITIONS,))}
 
     assert scripts[RULES_DEFINITIONS] == PythonRule("BRIGHT = 'on'")
     assert scripts[EFFECTS_DEFINITIONS] == PythonRule("DIM = 'off'")
@@ -97,16 +99,16 @@ def test_a_constraint_says_which_action_it_makes_legal_and_a_values_rule_its_par
 ) -> None:
     declare_switch(knowledge).done()
 
-    ((values,),) = (knowledge.rules("switch", (VALUES,)),)
+    ((values,),) = (knowledge.rules(knowledge.context_named("switch").id, (VALUES,)),)
 
-    assert [rule.action for rule in knowledge.rules("switch", (CONSTRAINT,))] == ["switch", "switch"]
+    assert [rule.action for rule in knowledge.rules(knowledge.context_named("switch").id, (CONSTRAINT,))] == ["switch", "switch"]
     assert (values.action, values.parameter, values.name) == ("switch", "setting", "what setting can be in switch")
 
 
 def test_an_action_with_several_outcomes_declares_each_with_its_chance(knowledge: KnowledgeBase) -> None:
     declare_switch(knowledge).done()
 
-    outcomes = knowledge.rules("switch", (EFFECTS,))
+    outcomes = knowledge.rules(knowledge.context_named("switch").id, (EFFECTS,))
 
     assert [rule.name for rule in outcomes] == ["what switch leads to, 1", "what switch leads to, 2"]
     assert sorted(rule.probability for rule in outcomes) == [0.3, 0.7]
@@ -114,17 +116,17 @@ def test_an_action_with_several_outcomes_declares_each_with_its_chance(knowledge
 
 def test_declaring_the_same_game_again_leaves_the_knowledge_base_as_it_was(knowledge: KnowledgeBase) -> None:
     declare_switch(knowledge).done()
-    first = knowledge.rules("switch")
+    first = knowledge.rules(knowledge.context_named("switch").id)
 
     declare_switch(knowledge).done()
 
-    assert [rule.id for rule in knowledge.rules("switch")] == [rule.id for rule in first]
+    assert [rule.id for rule in knowledge.rules(knowledge.context_named("switch").id)] == [rule.id for rule in first]
 
 
 def test_a_context_declared_at_another_weight_carries_it(knowledge: KnowledgeBase) -> None:
     declare_switch(knowledge, weight=0.6).done()
 
-    assert all(rule.weight("switch") == 0.6 for rule in knowledge.rules("switch"))
+    assert all(rule.weight(knowledge.context_named("switch").id) == 0.6 for rule in knowledge.rules(knowledge.context_named("switch").id))
 
 
 def test_a_heuristic_is_counted_rather_than_told(knowledge: KnowledgeBase) -> None:
@@ -133,9 +135,12 @@ def test_a_heuristic_is_counted_rather_than_told(knowledge: KnowledgeBase) -> No
     declarer.position("the light is on", PythonRule("light == 'on'"), 0.8)
     declarer.move("switching costs nothing", PythonRule("1.0"), -0.2)
 
-    ((position,), (move,)) = (knowledge.rules("switch", (POSITION,)), knowledge.rules("switch", (MOVE,)))
-    assert (position.provenance.source, position.weight("switch")) == (COUNTED, 0.8)
-    assert (move.kind, move.weight("switch")) == (MOVE, -0.2)
+    ((position,), (move,)) = (knowledge.rules(knowledge.context_named("switch").id, (POSITION,)), knowledge.rules(knowledge.context_named("switch").id, (MOVE,)))
+    assert (position.source.mechanism, position.weight(knowledge.context_named("switch").id)) == (
+        knowledge.mechanism_named(INFERENCE).id,  # type: ignore[union-attr]
+        0.8,
+    )
+    assert (move.kind, move.weight(knowledge.context_named("switch").id)) == (MOVE, -0.2)
 
 
 def test_what_was_declared_is_logged(caplog: pytest.LogCaptureFixture, knowledge: KnowledgeBase) -> None:
@@ -153,7 +158,17 @@ def test_declaring_the_game_again_leaves_its_variants_whole(knowledge: Knowledge
 
     declare_switch(knowledge).done()
 
-    assert [rule.name for rule in knowledge.rules("switch at night")] == [rule.name for rule in knowledge.rules("switch")]
+    assert [rule.name for rule in knowledge.rules(knowledge.context_named("switch at night").id)] == [rule.name for rule in knowledge.rules(knowledge.context_named("switch").id)]
+
+
+def test_a_variant_copies_its_game_s_rules_and_its_context_records_the_link(knowledge: KnowledgeBase) -> None:
+    declare_switch(knowledge).done()
+
+    RuleDeclarer(knowledge, "switch at night").inherits("switch")
+
+    night = knowledge.context_named("switch at night")
+    assert night is not None and night.inherits == (knowledge.context_named("switch").id,)  # type: ignore[union-attr]
+    assert len(knowledge.rules(knowledge.context_named("switch at night").id)) == len(knowledge.rules(knowledge.context_named("switch").id))
 
 
 def test_a_variant_can_leave_out_a_rule_and_declare_its_own_in_its_place(knowledge: KnowledgeBase) -> None:
@@ -163,8 +178,8 @@ def test_a_variant_can_leave_out_a_rule_and_declare_its_own_in_its_place(knowled
     variant.inherits("switch", leaving=((VALUES, "what setting can be in switch"),))
     variant.values("switch", "setting", PythonRule("('off', 'on', 'dim')"))
 
-    ((own,),) = (knowledge.rules("switch anywhere", (VALUES,)),)
-    ((base,),) = (knowledge.rules("switch", (VALUES,)),)
+    ((own,),) = (knowledge.rules(knowledge.context_named("switch anywhere").id, (VALUES,)),)
+    ((base,),) = (knowledge.rules(knowledge.context_named("switch").id, (VALUES,)),)
     assert own.rule == PythonRule("('off', 'on', 'dim')")
     assert base.rule == PythonRule("[s for s in settings if s != light]")
     assert own.id != base.id

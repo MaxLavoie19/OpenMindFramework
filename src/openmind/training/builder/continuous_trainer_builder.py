@@ -1,7 +1,7 @@
 from typing import Self
 
 from openmind.agent.service.game_memory import GameMemory
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.parallel.model.memory_cap import MemoryCap
 from openmind.parallel.service.task_runner import TaskRunner

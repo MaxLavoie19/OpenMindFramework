@@ -32,12 +32,8 @@ def test_random_games_follow_the_rules_after_every_move(game: Game, name: str, g
         state = rbs.start()
         while actions := rbs.actions(state):
             ((state, _),) = rbs.outcomes(state, rng.choice(actions)).outcomes
-            values = dict(state.variables)
-            grid = {
-                (row, col): values[f"cell({row},{col})"]
-                for row in range(1, variant.height + 1)
-                for col in range(1, variant.width + 1)
-            }
+            grid = dict(state.model("cell").items())
+            payoff = state.model("payoff")
             marks = list(grid.values())
             winners = {grid[line[0]] for line in lines if grid[line[0]] is not None and all(grid[cell] == grid[line[0]] for cell in line)}
             if winners:
@@ -47,11 +43,11 @@ def test_random_games_follow_the_rules_after_every_move(game: Game, name: str, g
                 expected = (0.5, 0.5)
             else:
                 expected = (None, None)
-            assert (values["payoff(X)"], values["payoff(O)"]) == expected
+            assert (payoff["X"], payoff["O"]) == expected
             assert marks.count("X") - marks.count("O") in (0, 1)
             if variant.gravity:
                 assert all(
                     mark is None or row == variant.height or grid[(row + 1, col)] is not None
                     for (row, col), mark in grid.items()
                 )
-        assert dict(state.variables)["payoff(X)"] is not None
+        assert state.model("payoff")["X"] is not None

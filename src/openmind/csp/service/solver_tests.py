@@ -5,7 +5,7 @@ import pytest
 
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.solve_statistics import SolveStatistics
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
@@ -48,8 +48,8 @@ def test_constraints_prune_combinations() -> None:
 def test_constraints_read_the_state() -> None:
     switch_off = ("switch_off", {}, (PythonRule("light == 'on'"),))
 
-    assert solve(switch_off, State((("light", "on"),))) == (Action("switch_off", ()),)
-    assert solve(switch_off, State((("light", "off"),))) == ()
+    assert solve(switch_off, State.of(light="on")) == (Action("switch_off", ()),)
+    assert solve(switch_off, State.of(light="off")) == ()
 
 
 def test_constraints_see_the_problem_definitions() -> None:
@@ -97,7 +97,7 @@ def test_all_different_uses_the_values_it_reads_from_the_state() -> None:
     digit = PythonRule("(1, 2, 3)")
     definition = ("fill", {"x": digit, "y": digit}, (PythonRule("all_different(x, y, given)"),))
 
-    assert solve(definition, State((("given", 2),))) == (
+    assert solve(definition, State.of(given=2)) == (
         Action("fill", (("x", 1), ("y", 3))),
         Action("fill", (("x", 3), ("y", 1))),
     )
@@ -108,7 +108,7 @@ def test_a_state_domain_gives_a_parameter_the_values_its_rule_reads_from_the_sta
     definitions = PythonRule("DOORS = {'hall': ['b', 'a', 'c']}")
 
     # The values keep the rule's order, b given twice counts once, and constraints still filter them.
-    assert solve_seeing(go, State((("room", "hall"),)), definitions) == (
+    assert solve_seeing(go, State.of(room="hall"), definitions) == (
         Action("go", (("to", "b"),)),
         Action("go", (("to", "a"),)),
     )
@@ -118,7 +118,7 @@ def test_a_state_domain_is_read_only_once_the_constraints_without_parameters_hol
     go = ("go", {"to": PythonRule("DOORS[room]")}, (PythonRule("open == True"),))
 
     # DOORS has no hall: reading the parameter's values would raise KeyError.
-    assert solve_seeing(go, State((("open", False), ("room", "hall"))), PythonRule("DOORS = {}")) == ()
+    assert solve_seeing(go, State.of(open=False, room="hall"), PythonRule("DOORS = {}")) == ()
 
 
 def test_the_limit_caps_the_number_of_solutions() -> None:

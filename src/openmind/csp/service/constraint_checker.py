@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from openmind.rbs.model.called_rule import CalledRule
 from openmind.rbs.service.rule_caller import RuleCaller
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 
 class ConstraintChecker:

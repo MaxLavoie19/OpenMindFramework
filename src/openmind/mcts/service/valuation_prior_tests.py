@@ -12,7 +12,7 @@ class CenterValued:
     """Values a position 0.9 for X when X holds the center, 0.1 otherwise, and 1 − that for O."""
 
     def values(self, state: State) -> tuple[float, ...] | None:
-        x = 0.9 if dict(state.variables)["cell(2,2)"] == "X" else 0.1
+        x = 0.9 if state.model("cell")[2, 2] == "X" else 0.1
         return x, 1.0 - x
 
 

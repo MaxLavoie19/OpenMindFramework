@@ -8,8 +8,8 @@ from openmind.agent.mapper.game_summary_json_mapper import GameSummaryJsonMapper
 from openmind.agent.model.game_summary import GameSummary
 from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.game_memory import GameMemory
-from openmind.doxastic.constant.doxastic_constant import PLAYED
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.constant.knowledge_constant import DIRECT_EXPERIENCE, SELF_PLAY
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.timing.model.clock import Clock
 from openmind.timing.model.time_control import TimeControl
 
@@ -39,29 +39,38 @@ def game(number: int, payoffs: tuple[float, float], models: tuple[ModelDescripti
     )
 
 
-def test_a_game_leaves_each_model_once_the_game_and_each_player_s_outcome(tmp_path: Path) -> None:
+def test_a_game_is_kept_as_a_direct_experience_with_each_model_once_and_each_player_s_outcome_drawn_from_it(tmp_path: Path) -> None:
     base = create_knowledge_base("chess", tmp_path)
     memory = GameMemory(base)
 
     memory.remember(game(1, (1.0, 0.0)))
     memory.remember(game(2, (0.5, 0.5), (WEIGHTED_ARM, WIN_ARM)))
 
-    models = base.recall(keyword=MODEL_KEYWORD)
-    assert [(record.text, record.names) for record in models] == [
-        (WIN_ARM.text, (WIN_ARM.id, WIN_ARM.name)),
-        (WEIGHTED_ARM.text, (WEIGHTED_ARM.id, WEIGHTED_ARM.name)),
+    models = base.beliefs(tags=(("keyword", MODEL_KEYWORD),))
+    assert [(belief.value, dict(belief.tags)["id"], dict(belief.tags)["name"]) for belief in models] == [
+        (WIN_ARM.text, WIN_ARM.id, WIN_ARM.name),
+        (WEIGHTED_ARM.text, WEIGHTED_ARM.id, WEIGHTED_ARM.name),
     ]
-    assert len(base.recall(keyword=GAME_KEYWORD)) == 2
-    assert [record.text for record in base.recall(keyword=WIN)] == ["win won as white in round 1 arms game 1"]
-    assert [record.text for record in base.recall(keyword=LOSS)] == ["weighted lost as black in round 1 arms game 1"]
-    assert [record.text for record in base.recall(keyword=DRAW)] == [
-        "weighted drew as white in round 1 arms game 2",
-        "win drew as black in round 1 arms game 2",
+    games = base.experiences(tags=(("keyword", GAME_KEYWORD),))
+    assert [(kept.source.mechanism, kept.source.parameter("game")) for kept in games] == [
+        (base.mechanism_named(SELF_PLAY).id, "round 1 arms game 1"),  # type: ignore[union-attr]
+        (base.mechanism_named(SELF_PLAY).id, "round 1 arms game 2"),  # type: ignore[union-attr]
     ]
-    assert {(record.provenance.source, record.provenance.game, record.provenance.round) for record in base.recall()} == {
-        (PLAYED, "round 1 arms game 1", 1),
-        (PLAYED, "round 1 arms game 2", 1),
-    }
+    assert [belief.variable for belief in base.beliefs(tags=(("keyword", WIN),))] == ["outcome of white in round 1 arms game 1"]
+    assert [belief.variable for belief in base.beliefs(tags=(("keyword", LOSS),))] == ["outcome of black in round 1 arms game 1"]
+    assert [belief.variable for belief in base.beliefs(tags=(("keyword", DRAW),))] == [
+        "outcome of white in round 1 arms game 2",
+        "outcome of black in round 1 arms game 2",
+    ]
+    (drawn,) = base.beliefs(tags=(("keyword", WIN),))
+    (evidence,) = drawn.evidence
+    assert (drawn.certainty, evidence.source.mechanism, evidence.source.rests_on) == (
+        1.0,
+        base.mechanism_named(DIRECT_EXPERIENCE).id,  # type: ignore[union-attr]
+        (games[0].id,),
+    )
+    chess = base.context_named("chess").id  # type: ignore[union-attr]
+    assert base.belief("ending of round 1 arms game 1", chess).value == "threefold repetition"  # type: ignore[union-attr]
 
 
 def test_a_model_is_logged_the_first_time_it_plays(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -99,8 +108,11 @@ def test_after_a_crash_the_knowledge_base_finds_every_finished_game_and_its_mode
 
     base = create_knowledge_base("chess", tmp_path)
     assert reopened.models() == (WIN_ARM, WEIGHTED_ARM)
-    assert len(base.recall(keyword=MODEL_KEYWORD)) == 2
-    games = [GameSummaryJsonMapper().from_json(record.text, reopened.models()) for record in base.recall(keyword=GAME_KEYWORD)]
+    assert len(base.beliefs(tags=(("keyword", MODEL_KEYWORD),))) == 2
+    games = [
+        GameSummaryJsonMapper().from_json(str(kept.value), reopened.models())
+        for kept in base.experiences(tags=(("keyword", GAME_KEYWORD),))
+    ]
     assert games == [game(1, (1.0, 0.0)), game(2, (0.5, 0.5)), game(3, (0.0, 1.0))]
 
 

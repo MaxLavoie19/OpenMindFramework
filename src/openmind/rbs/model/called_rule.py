@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from openmind.rbs.model.compiled_rule import CompiledRule
-from openmind.rbs.model.rule import Rule
+from openmind.rule.model.rule import Rule
 
 
 @dataclass(frozen=True, slots=True)

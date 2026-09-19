@@ -3,10 +3,9 @@ import logging
 import pickle
 import time
 import tracemalloc
-from datetime import datetime
 from pathlib import Path
 
-from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
+from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.parallel.constant.parallel_constant import DEFAULT_RERUN_LINES
 
 logger = logging.getLogger(__name__)
@@ -29,19 +28,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--log-directory", default="data/log/rerun-call", help="where logs are saved (default: data/log/rerun-call)"
     )
+    add_debug_option(parser)
     arguments = parser.parse_args(argv)
     path = arguments.call if arguments.call.suffix == ".pickle" else arguments.call.with_suffix(".pickle")
     if not path.is_file():
         parser.error(f"no pickled call at {path}")
 
-    directory = Path(arguments.log_directory)
-    directory.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    root = logging.getLogger()
-    level = root.level
-    root.addHandler(handler)
-    root.setLevel(logging.INFO)
+    debugger = start_debugging(arguments, "rerun call", Path(arguments.log_directory))
     try:
         with path.open("rb") as file:
             function, call_arguments = pickle.load(file)
@@ -78,9 +71,7 @@ def main(argv: list[str] | None = None) -> None:
             logger.info(line)
         del result
     finally:
-        root.setLevel(level)
-        root.removeHandler(handler)
-        handler.close()
+        debugger.stop()
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from types import CodeType
 
 from openmind.rbs.constant.rule_constant import DEFINITIONS, EFFECTS, RULE_FUNCTION, VALUE
 from openmind.rbs.model.compiled_rule import CompiledRule
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 
 
 class RuleCompiler:

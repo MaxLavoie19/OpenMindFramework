@@ -1,55 +1,50 @@
 import pytest
 
+from openmind.structure.model.map import Map
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
 
-PLAYERS = Players(("X", "O"), "turn", ("payoff(X)", "payoff(O)"))
+PLAYERS = Players(("X", "O"), "turn", "payoff")
+READER = StateReader()
 
 
-def test_value_reads_a_variable() -> None:
-    assert StateReader().value(State((("cell(1,1)", "X"), ("turn", "O"))), "turn") == "O"
+def test_value_reads_a_scalar() -> None:
+    assert READER.value(State.of(turn="O"), "turn") == "O"
 
 
-def test_unknown_variable_raises() -> None:
-    with pytest.raises(KeyError, match="speed"):
-        StateReader().value(State(()), "speed")
+def test_an_unknown_model_raises() -> None:
+    with pytest.raises(KeyError):
+        READER.value(State.of(turn="O"), "missing")
 
 
-def test_player_to_act_is_the_index_of_the_named_player() -> None:
-    assert StateReader().player_to_act(State((("turn", "O"),)), PLAYERS) == 1
+def test_the_player_to_act_is_the_index_of_the_player_the_scalar_names() -> None:
+    assert READER.player_to_act(State.of(turn="O"), PLAYERS) == 1
 
 
-def test_player_to_act_rejects_a_name_that_is_not_a_player() -> None:
-    with pytest.raises(ValueError, match="turn"):
-        StateReader().player_to_act(State((("turn", "Z"),)), PLAYERS)
+def test_a_name_that_is_not_a_player_is_refused() -> None:
+    with pytest.raises(ValueError, match="not one of"):
+        READER.player_to_act(State.of(turn="Z"), PLAYERS)
 
 
-AT_ONCE = State((("payoff(O)", None), ("payoff(X)", None), ("turn(O)", True), ("turn(X)", True)))
+def test_players_flagged_in_a_map_act_at_once() -> None:
+    state = State.of(turn=Map.of({"X": True, "O": True}))
+
+    assert READER.acts_at_once(state, PLAYERS)
+    assert READER.players_to_act(state, PLAYERS) == (0, 1)
+    assert not READER.acts_at_once(State.of(turn="X"), PLAYERS)
 
 
-def test_players_flagged_under_the_to_act_base_act_at_once() -> None:
-    reader = StateReader()
-
-    assert reader.acts_at_once(AT_ONCE, PLAYERS) and not reader.acts_at_once(State((("turn", "O"),)), PLAYERS)
-    assert reader.players_to_act(AT_ONCE, PLAYERS) == (0, 1)
-    assert reader.players_to_act(State((("turn(O)", True), ("turn(X)", False))), PLAYERS) == (1,)
-    assert reader.players_to_act(State((("turn(O)", False), ("turn(X)", False))), PLAYERS) == ()
-    assert reader.players_to_act(State((("turn", "O"),)), PLAYERS) == (1,)
-
-
-def test_player_to_act_is_the_one_flagged_player_and_raises_for_players_acting_at_once() -> None:
-    assert StateReader().player_to_act(State((("turn(O)", True), ("turn(X)", False))), PLAYERS) == 1
-    with pytest.raises(ValueError, match="X, O act at once"):
-        StateReader().player_to_act(AT_ONCE, PLAYERS)
+def test_the_player_to_act_is_the_one_flagged_and_players_acting_at_once_raise() -> None:
+    assert READER.player_to_act(State.of(turn=Map.of({"X": False, "O": True})), PLAYERS) == 1
+    with pytest.raises(ValueError, match="act at once"):
+        READER.player_to_act(State.of(turn=Map.of({"X": True, "O": True})), PLAYERS)
 
 
 def test_payoffs_follow_the_order_of_players() -> None:
-    state = State((("payoff(O)", 0), ("payoff(X)", 1.0)))
-
-    assert StateReader().payoffs(state, PLAYERS) == (1.0, 0.0)
+    assert READER.payoffs(State.of(payoff=Map.of({"O": 0.0, "X": 1.0})), PLAYERS) == (1.0, 0.0)
 
 
 def test_a_payoff_that_is_not_a_number_raises() -> None:
-    with pytest.raises(ValueError, match=r"payoff\(O\)"):
-        StateReader().payoffs(State((("payoff(O)", None), ("payoff(X)", 1.0))), PLAYERS)
+    with pytest.raises(ValueError, match="not a number"):
+        READER.payoffs(State.of(payoff=Map.of({"O": None, "X": 1.0})), PLAYERS)

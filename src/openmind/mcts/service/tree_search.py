@@ -3,6 +3,7 @@ import math
 import random
 from collections.abc import Callable, Iterator, Mapping
 
+from openmind.debug.factory.debugger_factory import process_debugger
 from openmind.mcts.constant.mcts_constant import PUCT, SELECTIONS
 from openmind.mcts.model.action_sample import ActionSample
 from openmind.mcts.model.action_statistics import ActionStatistics
@@ -55,6 +56,21 @@ class TreeSearch:
         return self._time_source
 
     def search(
+        self,
+        rbs: RuleBasedSystem,
+        state: State,
+        settings: SearchSettings,
+        guidance: Guidance | None = None,
+        valuation: LeafValuation | None = None,
+        possible: Possible | None = None,
+        player: str | None = None,
+        predicted: Mapping[str, tuple[tuple[Action, float], ...]] | None = None,
+    ) -> SearchResult:
+        """Searches the state, under a `search` reasoning frame; see `_search`."""
+        with process_debugger().frame("search", context=rbs.context, state=state):
+            return self._search(rbs, state, settings, guidance, valuation, possible, player, predicted)
+
+    def _search(
         self,
         rbs: RuleBasedSystem,
         state: State,
@@ -316,6 +332,19 @@ class TreeSearch:
         settings: SearchSettings,
         seen: State | None = None,
     ) -> DecisionNode:
+        """A node for the state, under a `search node` reasoning frame; see `_new_decision_node`."""
+        with process_debugger().frame("search node", context=rbs.context, state=state):
+            return self._new_decision_node(rbs, state, guidance, rng, settings, seen)
+
+    def _new_decision_node(
+        self,
+        rbs: RuleBasedSystem,
+        state: State,
+        guidance: Guidance | None,
+        rng: random.Random,
+        settings: SearchSettings,
+        seen: State | None = None,
+    ) -> DecisionNode:
         """A node for the state, holding what the searching player sees of it, rated on that, and under PUCT with its
         actions' priors, every action alike without a prior."""
         actions = rbs.actions(state)
@@ -487,7 +516,6 @@ class TreeSearch:
             statistics,
             chosen,
             tuple(self._samples_at_once(root)),
-            (),
             strategy,
             iterations,
             seconds,

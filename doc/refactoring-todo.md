@@ -11,28 +11,30 @@ approved, then its code is approved.
 - [x] Settle `doc/open-questions.md` with Maxime (two points deferred: how a coding agent plans without tree search,
       how running modules exchange work)
 - [x] Write the new design in `doc/architecture.md` — approved
+- [x] Deletions: evaluation (not a thing of its own), z3 prover and formula models and mappers, rule explainer and
+      ollama model, duplicate expression-sentence mapper, the entrypoints except play, solve and dashboard, the
+      TheoryOfMind protocol (not a thing of its own); every module imports and every test collects (tests not run: few work as they should yet). The built-in games and their entrypoints stay,
+      as examples and tutorials.
 
 ## To do
 
-- [ ] Deletions: evaluation, z3 prover and formula mappers, rule explainer and ollama model, duplicate
-      expression-sentence mapper, the if-chain game registration, the entrypoints except play and solve,
-      the TheoryOfMind protocol; `pytest` green
-- [ ] world + knowledge: doxastic source (method + parameters), certainty, accuracy, precision; opinions kept apart
+- [x] rule + world + knowledge: doxastic source (method + parameters), certainty, accuracy, precision; opinions kept apart
       from beliefs; tasks with drifting
       values and expected times; contexts as compartments in a hierarchy (parent sets child's goals and budget,
-      knowledge crosses contexts only on purpose); Rule moved down to break the rbs cycle — interfaces approved
-- [ ] world + knowledge — code approved
-- [ ] epistemology (foundherentism: anchors in observations and fundamental rules, coherence between observations,
+      knowledge crosses contexts only on purpose); Rule moved down to break the rbs cycle — interfaces approved (`doc/interfaces/rule-world-knowledge.md`)
+- [x] rule + world + knowledge — code approved
+- [x] epistemology (foundherentism: anchors in observations and fundamental rules, coherence between observations,
       models and rules, conflicts become tasks, no self-supported claims, deduction and induction, confidence from
-      method and data) — interfaces approved
-- [ ] epistemology — code approved
-- [ ] structure: data structures with their methods and actions, importable by game definitions; the grid first —
-      interfaces approved
-- [ ] structure — code approved; tic-tac-toe and sudoku declared with the grid
-- [ ] debug and logs (per-session verbosity, minimal or targeted; warnings: conflicting rules, observations a frozen
+      method and data) — interfaces approved (`doc/interfaces/epistemology.md`)
+- [x] epistemology — code approved (with GUIDs and mechanisms in knowledge)
+- [x] structure: data structures with their methods and actions, importable by game definitions; the grid first —
+      interfaces approved (`doc/interfaces/structure.md`)
+- [x] structure — code approved: the state is named data models everywhere; tic-tac-toe and sudoku declared with the
+      grid. Noted: the tic-tac-toe inference test went from 4 to 9.7 minutes (profile when asked)
+- [x] debug and logs (per-session verbosity, minimal or targeted; warnings: conflicting rules, observations a frozen
       rule can't explain; debugger: interrupts, stack, conditional breakpoints; the dashboard is its viewer) —
-      interfaces approved
-- [ ] debug and logs — code approved
+      interfaces approved (`doc/interfaces/debug.md`)
+- [x] debug and logs — code approved
 - [ ] game (definition API, registry, runtime; frozen rules by default, rules or rulesets declared open; action durations and cooldowns) + csp + predictor — interfaces approved
 - [ ] game + csp + predictor — code approved; `openmind-play tictactoe` and `openmind-solve sudoku` run
 - [ ] Adapt OpenMindChess to the game API
@@ -72,7 +74,8 @@ approved, then its code is approved.
 - [ ] training (self-play, game study; heuristics and predictor learned as DNN, decision tree, lookup table, …; the
       time management policy trained from outcomes) — interfaces approved
 - [ ] training — code approved
-- [ ] Tutorials, examples and instructions for coding agents using OMF
+- [ ] No-learning entrypoint for production (frozen models; no new rules, tactics or facts; no persisted beliefs)
+- [ ] Tutorials, examples (the built-in games) and instructions for coding agents using OMF
 
 ## Games to implement
 

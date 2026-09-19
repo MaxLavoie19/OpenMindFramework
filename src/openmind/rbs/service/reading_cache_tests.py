@@ -8,7 +8,6 @@ from openmind.rbs.service.consequence_library_tests import Declare, position, st
 from openmind.rbs.service.reading_cache import ReadingCache
 from openmind.rbs.service.rule_compiler import RuleCompiler
 from openmind.rbs.service.rule_runner import RuleRunner
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -18,7 +17,7 @@ ROW = PositionRow(position({1: "X", 2: "O"}, "X"), "X", 0.0)
 
 
 def new_cache() -> ReadingCache:
-    compiler, runner = RuleCompiler(), RuleRunner(StateNamespaceMapper(VariableNameMapper()))
+    compiler, runner = RuleCompiler(), RuleRunner(StateNamespaceMapper())
     return ReadingCache(compiler, runner, ConsequenceLibraryBuilder().build(), MemoryMeter())
 
 

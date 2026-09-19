@@ -13,7 +13,7 @@ from openmind.rbs.service.reading_cache import ReadingCache
 #: What an aggregate is folded from: its base, its kind, whether it reads pairs of indices, its readings and the
 #: operations joining them.
 type AggregateParts = tuple[str, str, bool, tuple[str, ...], tuple[str, ...]]
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_compiler import RuleCompiler
 from openmind.rbs.service.rule_runner import RuleRunner
 

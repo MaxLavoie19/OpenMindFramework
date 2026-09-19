@@ -15,8 +15,6 @@ from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.move_prior import MovePrior
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.model.search_settings import SearchSettings
-from openmind.mcts.model.theory_of_mind import TheoryOfMind
-from openmind.mcts.service.semi_determinized_search import SemiDeterminizedSearch
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.rbs.factory.rule_factory import create_rule_caller
 from openmind.timing.model.time_budget_estimator import TimeBudgetEstimator
@@ -39,8 +37,6 @@ class AgentBuilder:
         self._rollout_limit: int | None = None
         self._unfinished_payoff: float | None = None
         self._deduction: DeductionBudget | None = None
-        self._semi_determinized = False
-        self._theory: TheoryOfMind | None = None
         self._estimator: TimeBudgetEstimator | None = None
         self._selection = UCB1
         self._puct_exploration = DEFAULT_PUCT_EXPLORATION
@@ -89,13 +85,6 @@ class AgentBuilder:
         self._deduction = budget
         return self
 
-    def with_theory_of_mind(self, theory: TheoryOfMind) -> Self:
-        """Searches semi-determinized, over the hypotheses of the given theory of mind: what the agent itself believes
-        the position may be. Without one, the agent searches the position it is given."""
-        self._semi_determinized = True
-        self._theory = theory
-        return self
-
     def with_time_budget_estimator(self, estimator: TimeBudgetEstimator | None) -> Self:
         """How the agent budgets a step's time when it's given a clock; with one, iterations become a cap and may be left
         out, the agent then searching on time alone. None: the agent can't play on a clock."""
@@ -131,8 +120,6 @@ class AgentBuilder:
                 "deduction": None
                 if deduction is None
                 else {"plies": deduction.plies, "seconds": deduction.seconds, "highest": deduction.highest},
-                "theory_of_mind": _described(self._theory) if self._semi_determinized else None,
-                "semi_determinized": self._semi_determinized,
                 "time_budget_estimator": _described(self._estimator),
                 "selection": self._selection,
                 "puct_exploration": self._puct_exploration,
@@ -182,28 +169,12 @@ class AgentBuilder:
             puct_exploration=self._puct_exploration,
             prior=self._prior,
         )
-        if not self._semi_determinized:
-            return Agent(
-                tree_search,
-                settings,
-                guidance,
-                valuation,
-                fallback,
-                estimator=self._estimator,
-                one_ply=OnePlyChooser(state_reader),
-            )
-        theory = self._theory
-        if theory is None:
-            raise ValueError("A semi-determinized agent needs a theory of mind: nothing else says what it can't see")
-        semi_determinized = SemiDeterminizedSearch(tree_search, state_reader, action_text_mapper)
         return Agent(
             tree_search,
             settings,
             guidance,
             valuation,
             fallback,
-            semi_determinized,
-            theory,
             estimator=self._estimator,
             one_ply=OnePlyChooser(state_reader),
         )

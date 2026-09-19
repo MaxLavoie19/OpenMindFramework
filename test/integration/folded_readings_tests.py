@@ -16,7 +16,6 @@ from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.consequence_library_tests import Declare, position, strip_domain
 from openmind.rbs.service.term_evaluator import AggregateParts, TermEvaluator
 from openmind.rbs.service.term_evaluator_tests import new_evaluator
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -29,7 +28,7 @@ def parts(expression: Expression) -> AggregateParts:
 
 def aggregates(rbs: RuleBasedSystem, rows: tuple[PositionRow, ...], generations: int = 2) -> list[Expression]:
     """Every aggregate a few generations of growth give, the leaves first."""
-    generator = ExpressionGenerator(VariableNameMapper())
+    generator = ExpressionGenerator()
     vocabulary = generator.vocabulary(rbs, (row.state for row in rows))
     found = [leaf for leaf in generator.leaves(vocabulary) if leaf.aggregate is not None]
     grown = list(found)
@@ -43,7 +42,7 @@ def aggregates(rbs: RuleBasedSystem, rows: tuple[PositionRow, ...], generations:
 def check(rbs: RuleBasedSystem, rows: tuple[PositionRow, ...], evaluator: TermEvaluator) -> tuple[int, int]:
     """How many aggregates were folded, and how many the fold couldn't take, having compared every folded one with its
     source's column."""
-    generator = ExpressionGenerator(VariableNameMapper())
+    generator = ExpressionGenerator()
     found = aggregates(rbs, rows)
     folded = evaluator.aggregate_columns(rbs, rows, [parts(expression) for expression in found])
     ran = evaluator.columns(rbs, rows, [generator.source(expression) for expression in found])

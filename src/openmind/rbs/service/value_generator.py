@@ -14,7 +14,7 @@ from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.sparse_fit import SparseFit
 from openmind.rbs.model.value_fit import ValueFit
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.model.value_generation_result import ValueGenerationResult
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.rbs.model.value_settings import ValueSettings

@@ -3,20 +3,19 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from openmind.agent.constant.agent_constant import GAME_KEYWORD, LAST_ACTION
+from openmind.agent.constant.agent_constant import LAST_ACTION
 from openmind.agent.factory.game_factory import create_game
 from openmind.agent.mapper.game_summary_json_mapper import GameSummaryJsonMapper
 from openmind.agent.service.game_memory import GameMemory
 from openmind.dashboard.model.game_listing import GameListing
 from openmind.dashboard.model.game_view import GameView
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
-from openmind.doxastic.model.record import Record
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.model.direct_experience import DirectExperience
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.training.service.game_replayer import GameReplayer
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,7 @@ class GameBrowser:
                 self._kept = replace(self._kept, previous_id=previous_id, next_id=next_id)
             return self._kept
         record = records[at]
-        summary = GameSummaryJsonMapper().from_json(record.text, GameMemory(knowledge_base).models())
+        summary = GameSummaryJsonMapper().from_json(str(record.value), GameMemory(knowledge_base).models())
         rbs = self._game(domain_name, knowledge_base)
         positions = GameReplayer().positions(rbs, summary)
         actions = (None, *summary.actions)
@@ -67,7 +66,7 @@ class GameBrowser:
         if all(picture is not None for picture in drawn):
             pictures = tuple(str(picture) for picture in drawn)
         else:
-            text = GridTextMapper(VariableNameMapper())
+            text = GridTextMapper()
             pictures = tuple(text.to_text(state) for state in positions)
         mapper = ActionTextMapper()
         listing = self._listing(record)
@@ -91,21 +90,21 @@ class GameBrowser:
     def _knowledge_base(self, directory: Path, domain_name: str) -> KnowledgeBase | None:
         return create_knowledge_base(domain_name, directory) if (directory / domain_name).is_dir() else None
 
-    def _records(self, knowledge_base: KnowledgeBase) -> list[Record]:
-        """The decisive games' records, oldest first."""
+    def _records(self, knowledge_base: KnowledgeBase) -> list[DirectExperience]:
+        """The decisive games, as the direct experiences they are kept as, oldest first."""
         return [
-            record
-            for record in knowledge_base.recall(keyword=GAME_KEYWORD)
-            if len({item["payoff"] for item in GameSummaryJsonMapper.players(record.text)}) > 1
+            experience
+            for experience in GameMemory(knowledge_base).experiences()
+            if len({item["payoff"] for item in GameSummaryJsonMapper.players(str(experience.value))}) > 1
         ]
 
-    def _listing(self, record: Record) -> GameListing:
-        data = GameSummaryJsonMapper.fields(record.text)
+    def _listing(self, record: DirectExperience) -> GameListing:
+        data = GameSummaryJsonMapper.fields(str(record.value))
         players = data["players"]
         return GameListing(
             record.id,
-            record.provenance.game or "",
-            "" if record.provenance.when is None else record.provenance.when.replace(microsecond=0).isoformat(sep=" "),
+            str(record.source.parameter("game") or ""),
+            "" if record.at is None else record.at.replace(microsecond=0).isoformat(sep=" "),
             tuple((item["player"], item["model"]) for item in players),
             tuple(float(item["payoff"]) for item in players),
             data["ending"],

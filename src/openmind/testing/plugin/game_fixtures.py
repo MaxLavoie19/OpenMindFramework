@@ -4,16 +4,16 @@ from pathlib import Path
 import pytest
 
 from openmind.agent.factory.game_factory import create_game
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.model.python_rule import PythonRule
-from openmind.rbs.model.rule import Rule
+from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.model.rule import Rule
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def declared(knowledge: KnowledgeBase) -> Callable[..., RuleBasedSystem]:
         state: State,
         legal: Mapping[str, Sequence[Rule]] | None = None,
         outcomes: Mapping[str, Outcomes] | None = None,
-        players: Players = Players(("me",), "turn", ("payoff",)),
+        players: Players = Players(("me",), "turn", "payoff"),
         parameters: Mapping[str, Mapping[str, Rule]] | None = None,
         definitions: PythonRule | None = None,
         empties: Mapping[str, Value] | None = None,

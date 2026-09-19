@@ -1,3 +1,8 @@
+from openmind.debug.model.pause import Pause
+from openmind.debug.model.debug_session import DebugSession
+from openmind.debug.model.breakpoint import Breakpoint
+from openmind.debug.factory.debugger_factory import process_debugger
+from openmind.debug.constant.debug_constant import CONTINUE
 import logging
 import os
 from pathlib import Path
@@ -164,3 +169,28 @@ def test_split_gives_one_slice_to_one_worker_and_up_to_four_per_worker_otherwise
     assert TaskRunner(2).split(items) == [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
     assert TaskRunner(8).split(items[:3]) == [[0], [1], [2]]
     assert TaskRunner(2).split([]) == []
+
+
+def evaluate(number: int) -> int:
+    """A call a worker runs, opening an evaluation frame."""
+    with process_debugger().frame("evaluation", details={"number": number}):
+        return number * 2
+
+
+def test_a_worker_hitting_a_breakpoint_waits_for_the_process_that_started_it() -> None:
+    pauses: list[Pause] = []
+
+    def answer(pause: Pause) -> str:
+        pauses.append(pause)
+        return CONTINUE
+
+    debugger = process_debugger()
+    debugger.start(DebugSession("workers", breakpoints=(Breakpoint("evaluations", "evaluation"),)), pauser=answer)
+    try:
+        results = TaskRunner(2).map(evaluate, [1, 2, 3])
+    finally:
+        debugger.stop()
+
+    assert results == [2, 4, 6]
+    assert sorted(dict(pause.stack[-1].details)["number"] for pause in pauses) == [1, 2, 3]
+    assert all(pause.reason == "breakpoint evaluations" for pause in pauses)

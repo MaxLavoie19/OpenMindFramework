@@ -3,7 +3,8 @@ import pytest
 from openmind.csp.service.constraint_checker import ConstraintChecker
 from openmind.rbs.factory.rule_factory import create_rule_caller
 from openmind.rbs.model.called_rule import CalledRule
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
+from openmind.structure.model.grid import Grid
 from openmind.world.model.state import State
 
 
@@ -17,7 +18,7 @@ def constraint(source: str, *parameters: str) -> CalledRule:
 
 def test_holds_checks_the_constraint_with_the_given_values() -> None:
     cell_is_empty = constraint("cell[row, col] is None", "row", "col")
-    state = State((("cell(1,1)", "X"), ("cell(1,2)", None)))
+    state = State.of(cell=Grid((1, 2), ("X", None)))
 
     assert new_checker().holds(cell_is_empty, state, "place", {"row": 1, "col": 2}) is True
     assert new_checker().holds(cell_is_empty, state, "place", {"row": 1, "col": 1}) is False

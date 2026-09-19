@@ -13,7 +13,7 @@ from openmind.agent.factory.rock_paper_scissors_factory import declare_rock_pape
 from openmind.agent.factory.sudoku_factory import declare_sudoku
 from openmind.agent.factory.tictactoe_factory import declare_tictactoe
 from openmind.agent.model.game_rules import GameRules
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 

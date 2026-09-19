@@ -25,7 +25,7 @@ from openmind.parallel.model.call_over_memory import CallOverMemory
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.model.position_row import PositionRow
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.sparse_fitter import SparseFitter
 from openmind.rbs.service.term_evaluator import AggregateParts, TermEvaluator
 

@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING
 
 from openmind.inference.constant.inference_constant import BEST, COUNT, HERE, ME, OTHER, OUTSIDE, WORST
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.structure.model.grid import Grid
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 if TYPE_CHECKING:
     from openmind.inference.service.mechanics import Mechanics
@@ -15,18 +16,20 @@ type Moves = tuple[tuple[tuple["PositionView", float], ...], ...]
 
 
 class PositionView:
-    """A position as a generated expression reads it. Its variables are attributes, gathered the way rules see them:
-    `view.turn`, `view.cell[2, 3]`. The domain's own rules give the rest:
+    """A position as a generated expression reads it. Its models are attributes, read the way rules read them: a scalar
+    as its value, `view.turn`; a grid, list or map as itself, `view.cell[2, 3]`, `view.payoff['X']`. The domain's own
+    rules give the rest:
 
-    - `offset(base, at, *steps)`: the variable of `base` at index `at` shifted by the steps, or OUTSIDE;
+    - `offset(base, at, *steps)`: the cell of the grid `base` at the coordinates `at` shifted by the steps, or OUTSIDE;
     - `moves(player)`: for each action `player` could take if it were their turn, its outcomes as (view, probability);
     - `mobility(player)`: how many actions that is;
-    - `changed(player, base, at)`: how many of those actions change the variable of `base` at index `at`, each outcome
-      weighted by its probability, worked out once for the position and player;
-    - what if: `with_value(base, at, value)`, the view with one variable set; `cleared(at)`, with every grid's cell at
-      `at` set to the grid's empty value, as the domain declares it; `copied(source,
-      target)`, with every grid's value at `source` also at `target`; `alone(at)`, with every grid emptied but at `at`.
-      Everything else, the player to act included, stays as it is;
+    - `changed(player, base, at)`: how many of those actions change the cell of the grid `base` at `at` (the entry at
+      the key `at` of a map, or, `at` being None, a scalar or a list as a whole), each outcome weighted by its
+      probability, worked out once for the position and player;
+    - what if: `with_value(base, at, value)`, the view with one cell set; `cleared(at)`, with every grid's cell at
+      `at` set to the grid's empty value, as the domain declares it; `copied(source, target)`, with every grid's value
+      at `source` also at `target`; `alone(at)`, with every grid emptied but at `at`. Everything else, the player to
+      act included, stays as it is;
     - `best(player, reading)` and `worst(player, reading)`: the highest and lowest reading expected after one of those
       actions, or the reading here when the player has none;
     - `count(player, reading)`: how many of those actions the reading is expected to hold after.
@@ -58,14 +61,11 @@ class PositionView:
         try:
             return variables[name]
         except KeyError:
-            raise AttributeError(f"The position has no variable {name!r}") from None
+            raise AttributeError(f"The position has no model {name!r}") from None
 
     def _namespace(self) -> dict[str, object]:
-        """The position's variables as rules read them, worked out once.
-
-        A view a move led to is mostly the position it came from: a handful of variables differ. Rather than lay the
-        whole state out again, it copies that position's namespace and writes what the move changed — the position it
-        came from lays itself out once, however many moves lead away from it."""
+        """The position's models as rules read them, worked out once; a view a move led to builds them from the position
+        it came from."""
         variables = self._variables
         if variables is None:
             came_from = self._after
@@ -77,19 +77,14 @@ class PositionView:
         return variables
 
     def offset(self, base: str, at: object, *steps: int) -> object:
-        if len(steps) == 2 and type(at) is tuple and len(at) == 2 and type(at[0]) is int and type(at[1]) is int:
-            variables = getattr(self, base)
-            if not isinstance(variables, dict):
-                return OUTSIDE
-            return variables.get((at[0] + steps[0], at[1] + steps[1]), OUTSIDE)
-        indices = at if isinstance(at, tuple) else (at,)
-        if len(indices) != len(steps) or not all(isinstance(index, int) for index in indices):
+        """The cell of the grid `base` at the coordinates `at` shifted by the steps; OUTSIDE off the grid, or when `base`
+        isn't a grid of as many dimensions as there are steps."""
+        grid = getattr(self, base)
+        coordinates = at if isinstance(at, tuple) else (at,)
+        if not isinstance(grid, Grid) or len(coordinates) != len(steps) or not all(type(part) is int for part in coordinates):
             return OUTSIDE
-        shifted = tuple(index + step for index, step in zip(indices, steps, strict=True))
-        variables = getattr(self, base)
-        if not isinstance(variables, dict):
-            return OUTSIDE
-        return variables.get(shifted if len(shifted) > 1 else shifted[0], OUTSIDE)
+        shifted = tuple(part + step for part, step in zip(coordinates, steps, strict=True))
+        return grid.at(shifted) if grid.inside(shifted) else OUTSIDE
 
     def moves(self, player: str) -> Moves:
         return self._mechanics.moves(self._rbs, self._state, player)

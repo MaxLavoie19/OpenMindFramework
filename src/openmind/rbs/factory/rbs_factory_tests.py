@@ -1,8 +1,8 @@
 from collections.abc import Callable
 
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system, create_value_generator
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.rbs.service.value_generator import ValueGenerator

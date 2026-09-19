@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.mcts.constant.mcts_constant import PUCT, UCB1
 from openmind.mcts.model.chance_node import ChanceNode
 from openmind.mcts.model.decision_node import DecisionNode
@@ -16,9 +16,10 @@ from openmind.mcts.model.search_result import SearchResult
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.structure.model.map import Map
 from openmind.timing.model.time_source import TimeSource
 from openmind.timing.service.manual_time_source import ManualTimeSource
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
@@ -81,7 +82,7 @@ def search(
 
 
 def pay(payoff: float) -> PythonRule:
-    return PythonRule(f"payoff = {payoff!r}")
+    return PythonRule(f"payoff = payoff.with_item('me', {payoff!r})")
 
 
 def declared(
@@ -89,7 +90,7 @@ def declared(
     state: State,
     legal: dict[str, Sequence[PythonRule]],
     outcomes: dict[str, Outcomes],
-    players: Players = Players(("me",), "turn", ("payoff",)),
+    players: Players = Players(("me",), "turn", "payoff"),
     parameters: dict[str, tuple[str, PythonRule]] | None = None,
 ) -> Game:
     """A small game declared into a knowledge base of its own, as a project would declare one."""
@@ -109,10 +110,10 @@ def declared(
 
 def one_move_game(tmp_path: Path, **outcomes: Outcomes) -> Game:
     """Every action is legal until the payoff is set, and every action sets it."""
-    no_payoff = PythonRule("payoff is None")
+    no_payoff = PythonRule("payoff['me'] is None")
     return declared(
         tmp_path,
-        State((("payoff", None), ("turn", "me"))),
+        State.of(payoff=Map.of({"me": None}), turn="me"),
         {action: (no_payoff,) for action in outcomes},
         dict(outcomes),
     )
@@ -120,10 +121,10 @@ def one_move_game(tmp_path: Path, **outcomes: Outcomes) -> Game:
 
 def two_step_game(tmp_path: Path) -> Game:
     """go moves to stage 1, where win pays 1.0 and lose pays 0.0."""
-    unset, first, second = PythonRule("payoff is None"), PythonRule("stage == 0"), PythonRule("stage == 1")
+    unset, first, second = PythonRule("payoff['me'] is None"), PythonRule("stage == 0"), PythonRule("stage == 1")
     return declared(
         tmp_path,
-        State((("payoff", None), ("stage", 0), ("turn", "me"))),
+        State.of(payoff=Map.of({"me": None}), stage=0, turn="me"),
         {"go": (unset, first), "lose": (unset, second), "win": (unset, second)},
         {
             "go": ((1.0, PythonRule("stage = 1")),),
@@ -135,10 +136,10 @@ def two_step_game(tmp_path: Path) -> Game:
 
 def countdown_game(tmp_path: Path) -> Game:
     """step moves from stage 0 to stage 3, one stage at a time; at stage 3, finish pays 1.0."""
-    unset = PythonRule("payoff is None")
+    unset = PythonRule("payoff['me'] is None")
     return declared(
         tmp_path,
-        State((("payoff", None), ("stage", 0), ("turn", "me"))),
+        State.of(payoff=Map.of({"me": None}), stage=0, turn="me"),
         {"step": (unset, PythonRule("stage < 3")), "finish": (unset, PythonRule("stage == 3"))},
         {"step": ((1.0, PythonRule("stage = stage + 1")),), "finish": ((1.0, pay(1.0)),)},
     )
@@ -171,7 +172,7 @@ def test_the_same_seed_gives_the_same_result(tmp_path: Path) -> None:
 def test_no_legal_action_with_an_unset_payoff_raises(tmp_path: Path) -> None:
     game = declared(
         tmp_path,
-        State((("done", False), ("payoff", None), ("turn", "me"))),
+        State.of(done=False, payoff=Map.of({"me": None}), turn="me"),
         {"finish": (PythonRule("done == False"),)},
         {"finish": ((1.0, PythonRule("done = True")),)},
     )
@@ -183,8 +184,8 @@ def test_no_legal_action_with_an_unset_payoff_raises(tmp_path: Path) -> None:
 def test_no_legal_action_at_the_root_raises(tmp_path: Path) -> None:
     over = declared(
         tmp_path,
-        State((("payoff", 1.0), ("turn", "me"))),
-        {"win": (PythonRule("payoff is None"),)},
+        State.of(payoff=Map.of({"me": 1.0}), turn="me"),
+        {"win": (PythonRule("payoff['me'] is None"),)},
         {"win": ((1.0, pay(1.0)),)},
     )
 
@@ -259,7 +260,7 @@ class Recording:
         self.stages: list[object] = []
 
     def values(self, state: State) -> tuple[float, ...] | None:
-        self.stages.append(dict(state.variables).get("stage"))
+        self.stages.append(state.value("stage") if state.has("stage") else None)
         return self._payoffs
 
 
@@ -326,16 +327,16 @@ def guessing_game(tmp_path: Path, secret: str) -> Game:
     """me guesses a coin's side: the right side pays 1.0, the wrong one 0.0."""
     return declared(
         tmp_path,
-        State((("coin", secret), ("payoff", None), ("turn", "me"))),
-        {"guess": (PythonRule("payoff is None"),)},
-        {"guess": ((1.0, PythonRule("payoff = 1.0 if side == coin else 0.0")),)},
+        State.of(coin=secret, payoff=Map.of({"me": None}), turn="me"),
+        {"guess": (PythonRule("payoff['me'] is None"),)},
+        {"guess": ((1.0, PythonRule("payoff = payoff.with_item('me', 1.0 if side == coin else 0.0)")),)},
         parameters={"guess": ("side", PythonRule("('heads', 'tails')"))},
     )
 
 
 def coin(tmp_path: Path, side: str, chance: float) -> tuple[State, float]:
     """One state the position could be: the coin lying that way, with that chance."""
-    return State((("coin", side), ("payoff", None), ("turn", "me"))), chance
+    return State.of(coin=side, payoff=Map.of({"me": None}), turn="me"), chance
 
 
 def test_the_search_weighs_the_states_the_position_could_be(tmp_path: Path) -> None:
@@ -522,7 +523,7 @@ def test_under_puct_moves_the_prior_dislikes_stay_unvisited_until_the_visits_out
 def test_under_puct_an_unvisited_move_is_valued_at_the_node_s_mean_payoff_so_far(tmp_path: Path) -> None:
     a, b = Action("a", ()), Action("b", ())
     tried = ChanceNode(a, (), {}, 4, [3.2])
-    node = DecisionNode(State((("turn", "me"),)), (a, b), [], {a: tried}, 4, 0, (), (0.4, 0.6))
+    node = DecisionNode(State.of(turn="me"), (a, b), [], {a: tried}, 4, 0, (), (0.4, 0.6))
     tree_search = TreeSearch(StateReader(), ActionTextMapper())
 
     # a's mean is 0.8, and so is the node's: b, not yet visited, ties with a at 0.8 and wins on its higher prior
@@ -531,14 +532,14 @@ def test_under_puct_an_unvisited_move_is_valued_at_the_node_s_mean_payoff_so_far
 
 def wide_countdown(tmp_path: Path, stages: int = 6, dead_ends: int = 9) -> Game:
     """go steps toward a win in `stages`; every other move stops the game at 0.5, so only depth pays."""
-    unset = PythonRule("payoff is None")
+    unset = PythonRule("payoff['me'] is None")
     stops = [f"stop{number}" for number in range(dead_ends)]
     return declared(
         tmp_path,
-        State((("payoff", None), ("stage", 0), ("turn", "me"))),
+        State.of(payoff=Map.of({"me": None}), stage=0, turn="me"),
         {"go": (unset,), **{stop: (unset,) for stop in stops}},
         {
-            "go": ((1.0, PythonRule(f"stage = stage + 1\nif stage >= {stages}:\n    payoff = 1.0")),),
+            "go": ((1.0, PythonRule(f"stage = stage + 1\nif stage >= {stages}:\n    payoff = payoff.with_item('me', 1.0)")),),
             **{stop: ((1.0, pay(0.5)),) for stop in stops},
         },
     )

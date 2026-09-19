@@ -21,37 +21,36 @@ from openmind.agent.constant.prisoners_dilemma_constant import (
 )
 from openmind.agent.model.prisoners_dilemma_variant import PrisonersDilemmaVariant
 from openmind.rbs.service.rule_declarer import RuleDeclarer
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.rule.model.python_rule import PythonRule
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
 from openmind.world.builder.state_builder import StateBuilder
 from openmind.world.constant.players_constant import PLAYER
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
 
 def create_prisoners_dilemma_initial_state(variant: PrisonersDilemmaVariant = STANDARD) -> State:
-    """Round 1, A to choose first, or both to choose at once in a simultaneous variant (turn(A) and turn(B) true),
-    neither player's choice made nor played, both scores 0, no payoff set."""
-    variable_name_mapper = VariableNameMapper()
-    builder = StateBuilder()
-    for player in PLAYERS:
-        builder.with_variable(variable_name_mapper.to_name(CHOSEN, (player,)), UNSET)
-        builder.with_variable(variable_name_mapper.to_name(PLAYED, (1, player)), UNSET)
-        builder.with_variable(variable_name_mapper.to_name(SCORE, (player,)), 0)
-        builder.with_variable(variable_name_mapper.to_name(PAYOFF, (player,)), UNSET)
-        if variant.simultaneous:
-            builder.with_variable(variable_name_mapper.to_name(TURN, (player,)), True)
-    builder.with_variable(ROUND, 1)
-    if not variant.simultaneous:
-        builder.with_variable(TURN, PLAYERS[0])
-    return builder.build()
+    """Round 1; A to choose first, or both to choose at once in a simultaneous variant, the turn map flagging A and B
+    true; the chosen map holding neither player's choice; the played grid, one row per round and one column per player
+    in the players' order, holding round 1 not yet played; the score map holding 0 for both; the payoff map holding no
+    payoff."""
+    return (
+        StateBuilder()
+        .with_model(CHOSEN, Map.of(dict.fromkeys(PLAYERS, UNSET)))
+        .with_model(PLAYED, Grid.filled((1, len(PLAYERS)), UNSET))
+        .with_model(SCORE, Map.of(dict.fromkeys(PLAYERS, 0)))
+        .with_model(PAYOFF, Map.of(dict.fromkeys(PLAYERS, UNSET)))
+        .with_model(ROUND, 1)
+        .with_model(TURN, Map.of(dict.fromkeys(PLAYERS, True)) if variant.simultaneous else PLAYERS[0])
+        .build()
+    )
 
 
 def create_prisoners_dilemma_definitions(variant: PrisonersDilemmaVariant = STANDARD) -> PythonRule:
     """The names every rule of the variant sees: the PLAYERS, the CHOICES, POINTS[choice of A, choice of B], each
-    player's points for a round, ROUNDS, the number of rounds or None without a known last round, other(player), and
-    chosen_name(player), the name of a player's chosen variable."""
+    player's points for a round, ROUNDS, the number of rounds or None without a known last round, and other(player)."""
     _check(variant)
     return PythonRule(
         textwrap.dedent(
@@ -64,10 +63,6 @@ def create_prisoners_dilemma_definitions(variant: PrisonersDilemmaVariant = STAN
 
             def other(player):
                 return PLAYERS[1] if player == PLAYERS[0] else PLAYERS[0]
-
-
-            def chosen_name(player):
-                return {CHOSEN!r} + '(' + player + ')'
             """
         )
     )
@@ -99,20 +94,19 @@ def declare_prisoners_dilemma_effects(declarer: RuleDeclarer, variant: Prisoners
         return
     effects = textwrap.dedent(
         f"""\
-        {CHOSEN}[{TURN}] = {CHOICE}
+        {CHOSEN} = {CHOSEN}.with_item({TURN}, {CHOICE})
         if all({CHOSEN}[player] is not {UNSET!r} for player in PLAYERS):
             points = POINTS[{CHOSEN}[PLAYERS[0]], {CHOSEN}[PLAYERS[1]]]
-            for player, gained in zip(PLAYERS, points):
-                {PLAYED}[{ROUND}, player] = {CHOSEN}[player]
-                {SCORE}[player] = {SCORE}[player] + gained
-                {CHOSEN}[player] = {UNSET!r}
+            for column, (player, gained) in enumerate(zip(PLAYERS, points), start=1):
+                {PLAYED} = {PLAYED}.placed(({ROUND}, column), {CHOSEN}[player])
+                {SCORE} = {SCORE}.with_item(player, {SCORE}[player] + gained)
+                {CHOSEN} = {CHOSEN}.with_item(player, {UNSET!r})
             if {ROUND} == ROUNDS or {ENDING}:
                 for player in PLAYERS:
-                    {PAYOFF}[player] = {SCORE}[player]
+                    {PAYOFF} = {PAYOFF}.with_item(player, {SCORE}[player])
             else:
                 {ROUND} = {ROUND} + 1
-                for player in PLAYERS:
-                    {PLAYED}[{ROUND}, player] = {UNSET!r}
+                {PLAYED} = Grid(({ROUND}, len(PLAYERS)), {PLAYED}.cells + ({UNSET!r},) * len(PLAYERS))
         {TURN} = other({TURN})
         """
     )
@@ -122,9 +116,9 @@ def declare_prisoners_dilemma_effects(declarer: RuleDeclarer, variant: Prisoners
 
 
 def create_prisoners_dilemma_players() -> Players:
-    """A and B; turn names the player to act; payoff(A) and payoff(B) hold their payoffs."""
-    variable_name_mapper = VariableNameMapper()
-    return Players(PLAYERS, TURN, tuple(variable_name_mapper.to_name(PAYOFF, (player,)) for player in PLAYERS))
+    """A and B; turn names the player to act, or flags the players acting at once; the payoff map holds each one's
+    payoff."""
+    return Players(PLAYERS, TURN, PAYOFF)
 
 
 def declare_prisoners_dilemma(
@@ -160,22 +154,21 @@ def _declare_simultaneous(declarer: RuleDeclarer, variant: PrisonersDilemmaVaria
     resolution = textwrap.dedent(
         f"""\
         points = POINTS[{CHOSEN}[PLAYERS[0]], {CHOSEN}[PLAYERS[1]]]
-        for each, gained in zip(PLAYERS, points):
-            {PLAYED}[{ROUND}, each] = {CHOSEN}[each]
-            {SCORE}[each] = {SCORE}[each] + gained
-            {CHOSEN}[each] = {UNSET!r}
+        for column, (each, gained) in enumerate(zip(PLAYERS, points), start=1):
+            {PLAYED} = {PLAYED}.placed(({ROUND}, column), {CHOSEN}[each])
+            {SCORE} = {SCORE}.with_item(each, {SCORE}[each] + gained)
+            {CHOSEN} = {CHOSEN}.with_item(each, {UNSET!r})
         if {ROUND} == ROUNDS or {ENDING}:
             for each in PLAYERS:
-                {PAYOFF}[each] = {SCORE}[each]
-                {TURN}[each] = False
+                {PAYOFF} = {PAYOFF}.with_item(each, {SCORE}[each])
+                {TURN} = {TURN}.with_item(each, False)
         else:
             {ROUND} = {ROUND} + 1
-            for each in PLAYERS:
-                {PLAYED}[{ROUND}, each] = {UNSET!r}
+            {PLAYED} = Grid(({ROUND}, len(PLAYERS)), {PLAYED}.cells + ({UNSET!r},) * len(PLAYERS))
         """
     )
     goes_on, ends = (PythonRule(f"{ENDING} = {ending!r}\n{resolution}") for ending in (False, True))
-    declarer.leads_to(CHOOSE, PythonRule(f"{CHOSEN}[{PLAYER}] = {CHOICE}"))
+    declarer.leads_to(CHOOSE, PythonRule(f"{CHOSEN} = {CHOSEN}.with_item({PLAYER}, {CHOICE})"))
     for number, (rule, chance) in enumerate(_outcomes(variant, goes_on, ends), start=1):
         declarer.together(rule, chance, None if variant.ending_chance in (0.0, 1.0) else number)
 

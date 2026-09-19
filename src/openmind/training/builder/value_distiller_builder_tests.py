@@ -1,4 +1,4 @@
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.training.builder.value_distiller_builder import ValueDistillerBuilder
 from openmind.training.service.value_distiller import ValueDistiller
 

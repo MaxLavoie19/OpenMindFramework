@@ -3,22 +3,19 @@
 ## Purpose
 
 Follows a value training while it runs, on the machine it runs on: a page that reloads itself with the current round's
-progress, the machine's memory and the training's processes, every finished round, the latest value rules, the latest
-notable log lines, and earlyoom's latest kills. It only reads what trainings already write: their reports, their logs,
-the process file system and the system log.
+progress, the machine's memory and the training's processes, the latest notable log lines, and earlyoom's latest
+kills. It only reads what trainings already write: their logs, the process file system and the system log.
 
 ## Content
 
 | File | What it is |
 |---|---|
-| `model/dashboard_settings.py` | `DashboardSettings(domain, report_directory, log_directory, syslog, proc=Path("/proc"))`: where to read a domain's training from |
+| `model/dashboard_settings.py` | `DashboardSettings(domain, log_directory, syslog, proc=Path("/proc"))`: where to read a domain's training from |
 | `model/log_progress.py` | `LogProgress(path, round, rounds, round_note, games, matches, searched, deduced, recent, draws=0, decisive=0)`: where a training is, from its log, with how many of the round's self-play games were drawn and how many decisive |
-| `model/round_row.py` | `RoundRow(number, rules, held_out_loss, held_out_error, baselines, against_previous, seconds)`: a finished round |
-| `model/report_summary.py` | `ReportSummary(path, created_at, complete, rounds, latest_rules)`: a training report |
 | `model/process_status.py` | `ProcessStatus(pid, role, rss_bytes, seconds, command)`: a training process: the loop script, the training, or a worker |
 | `model/machine_status.py` | `MachineStatus(memory_total, memory_available, swap_total, swap_free, processes, earlyoom)` |
 | `model/round_games.py` | `RoundGames(number, games, decisive, draws, plies, shortest, longest, endings)`: what a round's self-play games came to, with `mean_plies` and `decisive_share`; the round being played holds the games finished so far |
-| `model/dashboard_snapshot.py` | `DashboardSnapshot(domain, taken_at, report, progress, machine, played)`: everything the page shows at one moment, `played` being each round's games |
+| `model/dashboard_snapshot.py` | `DashboardSnapshot(domain, taken_at, progress, machine, played)`: everything the page shows at one moment, `played` being each round's games |
 | `constant/dashboard_constant.py` | Default port (8765) and reload (30 seconds); how many recent lines (15) and earlyoom kills (10) the page shows; the loggers followed; how training processes are recognized |
 | `service/incremental_line_reader.py` | `IncrementalLineReader.new_lines(path)`: the complete lines written since the previous call; a file that got shorter or was replaced is read from its start |
 | `service/log_progress_reader.py` | `LogProgressReader.progress(directory)` and `.played()`: the newest log's round, the round's self-play games and how many were drawn or decisive, games against opponents, searched and deduced moves, and the latest notable lines |
@@ -27,7 +24,6 @@ the process file system and the system log.
 | `model/game_view.py` | `GameView(label, ended, players, payoffs, ending, record, moves, pictures, pictured, id='', previous_id=None, next_id=None)`: a game as a page shows it, one picture per position, with its record id and its neighbours' |
 | `model/game_listing.py` | `GameListing(id, label, ended, players, payoffs, ending, plies)`: a decisive game as the list shows it, without its positions |
 | `service/game_browser.py` | `GameBrowser(game_factory=create_game)`: `decisive(directory, domain)` lists every decisive game the knowledge base remembers, newest first, without replaying any; `game(directory, domain, id)` replays and draws the one under that record id, position by position with the domain's picture rule or laid out as text, with the ids of the decisive games just before and after it, None for no such game; `latest(directory, domain)` draws the newest; the game last drawn is kept |
-| `service/report_reader.py` | `ReportReader.summary(directory)`: the newest report's rounds and latest rules |
 | `service/machine_reader.py` | `MachineReader.status(proc, syslog)`: memory and swap, the training's processes, earlyoom's latest kills |
 | `service/dashboard_service.py` | `DashboardService.snapshot(settings)`: a snapshot from the three readers, which keep their places between snapshots |
 | `mapper/svg_chart_mapper.py` | `SvgChartMapper.stacked(title, columns, parts)` and `.line(title, columns, values, band)`: charts as inline SVG, no library and nothing fetched, since the page is served on a tailnet and left open for days |
@@ -48,9 +44,6 @@ the process file system and the system log.
   shortest and the longest, and how each ended where the domain says — kept per round rather than only for the round in
   progress, so the page draws them round by round and the current round grows as its games finish. A log line is read
   whether or not it carries the time it was produced at, so logs written before lines were timed still read.
-- **Rounds.** The newest `*.json` report under `<report directory>/<domain>/`, as `TrainingReportJsonMapper` writes it,
-  read whole at every snapshot: reports are small. A round handed over before its games shows none against each
-  opponent.
 - **Models.** The domain's knowledge base under `data/knowledge/<domain>/` (the settings' `knowledge_directory`), read
   whole at every snapshot: every model remembered, with the sides it played, its wins, draws and losses as `GameMemory`
   remembered them at the end of each game, its score and its latest game, the latest to play first. No table without a
@@ -93,4 +86,4 @@ Logger `openmind.entrypoint.dashboard`, in `data/log/dashboard/<YYYY-MM-DD_HH-MM
 ## Notes
 
 - Tests: `mapper/svg_chart_mapper_tests.py`, `service/incremental_line_reader_tests.py`, `service/log_progress_reader_tests.py`,
-  `service/report_reader_tests.py`, `service/machine_reader_tests.py`, `mapper/dashboard_html_mapper_tests.py`.
+  `service/machine_reader_tests.py`, `mapper/dashboard_html_mapper_tests.py`.

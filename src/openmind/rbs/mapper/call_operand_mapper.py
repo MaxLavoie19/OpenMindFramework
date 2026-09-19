@@ -1,7 +1,7 @@
 import ast
 import textwrap
 
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 
 
 class CallOperandMapper:

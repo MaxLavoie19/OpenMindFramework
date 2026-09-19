@@ -3,10 +3,11 @@ from openmind.inference.model.vocabulary import Vocabulary
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.model.position_row import PositionRow
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.consequence_library_tests import Declare, position, strip_domain
 from openmind.rbs.service.term_evaluator_tests import new_evaluator
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.inference.service.position_view_tests import capture_domain, capture_position
+from openmind.structure.model.map import Map
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
@@ -15,9 +16,9 @@ def line_domain(declared: Declare) -> RuleBasedSystem:
     """A made-up game without a board: A and B each have a token at a real position on a line; the player to act moves
     their own token 0.75 left or right; tokens closer than 0.5 end the game, a win for the player who moved."""
     effects = PythonRule(
-        "x[turn] = x[turn] + step\n"
+        "x = x.with_item(turn, x[turn] + step)\n"
         "if abs(x['A'] - x['B']) < 0.5:\n"
-        "    payoff[turn], payoff['B' if turn == 'A' else 'A'] = 1.0, 0.0\n"
+        "    payoff = Map.of({turn: 1.0, 'B' if turn == 'A' else 'A': 0.0})\n"
         "turn = 'B' if turn == 'A' else 'A'"
     )
     constraints = (PythonRule("payoff['A'] is None"), PythonRule("payoff['B'] is None"))
@@ -25,19 +26,19 @@ def line_domain(declared: Declare) -> RuleBasedSystem:
         line_position(0.0, 2.0, "A"),
         legal={"move": constraints},
         outcomes={"move": ((1.0, effects),)},
-        players=Players(("A", "B"), "turn", ("payoff(A)", "payoff(B)")),
+        players=Players(("A", "B"), "turn", "payoff"),
         parameters={"move": {"step": PythonRule("(-0.75, 0.75)")}},
         context="line",
     )
 
 
 def line_position(a: float, b: float, turn: str) -> State:
-    return State(tuple(sorted({"payoff(A)": None, "payoff(B)": None, "turn": turn, "x(A)": a, "x(B)": b}.items())))
+    return State.of(payoff=Map.of({"A": None, "B": None}), turn=turn, x=Map.of({"A": a, "B": b}))
 
 
 def strip_vocabulary(declared: Declare) -> Vocabulary:
     states = (position({1: "X"}, "O"), position({1: "X", 2: "O"}, "X"), position({}, "X"))
-    return ExpressionGenerator(VariableNameMapper()).vocabulary(strip_domain(declared), states)
+    return ExpressionGenerator().vocabulary(strip_domain(declared), states)
 
 
 def test_the_vocabulary_holds_the_values_indices_and_offsets_seen(declared: Declare) -> None:
@@ -46,10 +47,26 @@ def test_the_vocabulary_holds_the_values_indices_and_offsets_seen(declared: Decl
     assert vocabulary.values_by_base["cell"] == ("X", None, "O")
     assert vocabulary.indices_by_base["cell"] == frozenset({(1, 1), (1, 2), (1, 3), (1, 4)})
     assert vocabulary.offsets_by_arity[2] == ((0, -3), (0, -2), (0, -1), (0, 1), (0, 2), (0, 3))
+    assert vocabulary.grids == frozenset({"cell"})
+    assert vocabulary.values_by_variable[("turn", ())] == ("O", "X")
+    assert vocabulary.values_by_variable[("payoff", ("X",))] == (None,)
+
+
+def test_a_cell_of_a_grid_of_one_dimension_is_read_by_its_coordinates(declared: Declare) -> None:
+    generator, rbs = ExpressionGenerator(), capture_domain(declared)
+    vocabulary = generator.vocabulary(rbs, (capture_position({1: "A", 7: "B"}, "A"),))
+
+    templates = {leaf.template for leaf in generator.leaves(vocabulary)}
+
+    assert vocabulary.offsets_by_arity[1][:2] == ((-6,), (-5,))
+    assert {"{view}.cell[1,] == me", "{view}.cell[7,] == other", "sum(1 for at in {view}.cell if {view}.cell[at] == me)"} <= templates
+    rows = [PositionRow(capture_position({1: "A", 7: "B"}, "A"), "A", 0.0)]
+    sources = [generator.source(Expression(template, 1, 0)) for template in ("{view}.cell[1,] == me", "{view}.offset('cell', (1,), 6) == other")]
+    assert [list(column) for column in new_evaluator().columns(rbs, rows, sources)] == [[1.0], [1.0]]  # type: ignore[arg-type]
 
 
 def test_leaves_read_every_variable_count_every_value_and_the_players_mobility(declared: Declare) -> None:
-    templates = {leaf.template for leaf in ExpressionGenerator(VariableNameMapper()).leaves(strip_vocabulary(declared))}
+    templates = {leaf.template for leaf in ExpressionGenerator().leaves(strip_vocabulary(declared))}
 
     assert {
         "{view}.cell[1, 1] == me",
@@ -69,7 +86,7 @@ def test_leaves_read_every_variable_count_every_value_and_the_players_mobility(d
 
 
 def test_a_pattern_grows_by_a_condition_anywhere_around_its_index(declared: Declare) -> None:
-    generator, vocabulary = ExpressionGenerator(VariableNameMapper()), strip_vocabulary(declared)
+    generator, vocabulary = ExpressionGenerator(), strip_vocabulary(declared)
     (mine,) = [leaf for leaf in generator.leaves(vocabulary) if leaf.template == "sum(1 for at in {view}.cell if {view}.cell[at] == me)"]
 
     children = {child.template: child for child in generator.pattern_children(mine, vocabulary)}
@@ -91,7 +108,7 @@ def test_a_pattern_grows_by_a_condition_anywhere_around_its_index(declared: Decl
 
 
 def test_numbers_are_read_as_numbers_and_aggregated_never_compared_with_a_value_seen(declared: Declare) -> None:
-    generator, rbs = ExpressionGenerator(VariableNameMapper()), line_domain(declared)
+    generator, rbs = ExpressionGenerator(), line_domain(declared)
     vocabulary = generator.vocabulary(rbs, (line_position(0.0, 2.0, "A"), line_position(1.25, -0.5, "B")))
 
     templates = {leaf.template for leaf in generator.leaves(vocabulary)}
@@ -109,7 +126,7 @@ def test_numbers_are_read_as_numbers_and_aggregated_never_compared_with_a_value_
 
 
 def test_an_aggregate_grows_into_relations_between_pairs_of_indices(declared: Declare) -> None:
-    generator, rbs = ExpressionGenerator(VariableNameMapper()), line_domain(declared)
+    generator, rbs = ExpressionGenerator(), line_domain(declared)
     states = (line_position(0.0, 2.0, "A"), line_position(1.0, 0.25, "B"))
     vocabulary = generator.vocabulary(rbs, states)
     (lowest,) = [
@@ -137,7 +154,7 @@ def count_of(body: str) -> str:
 
 
 def test_a_grid_of_names_counts_its_cells_by_the_actions_changing_them(declared: Declare) -> None:
-    generator, vocabulary = ExpressionGenerator(VariableNameMapper()), strip_vocabulary(declared)
+    generator, vocabulary = ExpressionGenerator(), strip_vocabulary(declared)
     leaves = {leaf.template: leaf for leaf in generator.leaves(vocabulary)}
     fillable = count_of("(({view}.cell[i] == None) and ({view}.changed(me, 'cell', i)))")
     rows = (PositionRow(position({1: "X", 2: "X", 3: "O"}, "O"), "X", 0.0), PositionRow(position({1: "X"}, "O"), "X", 0.0))
@@ -149,7 +166,7 @@ def test_a_grid_of_names_counts_its_cells_by_the_actions_changing_them(declared:
 
 
 def test_an_aggregate_over_a_grid_grows_by_changes_and_what_ifs_at_each_cell_and_pairs_of_cells(declared: Declare) -> None:
-    generator, vocabulary = ExpressionGenerator(VariableNameMapper()), strip_vocabulary(declared)
+    generator, vocabulary = ExpressionGenerator(), strip_vocabulary(declared)
     empty = "(({view}.cell[i] == None) and ({view}.changed(me, 'cell', i)))"
     (fillable,) = [leaf for leaf in generator.leaves(vocabulary) if leaf.template == count_of(empty)]
 
@@ -180,7 +197,7 @@ def test_an_aggregate_over_a_grid_grows_by_changes_and_what_ifs_at_each_cell_and
 
 
 def test_thresholds_combinations_and_look_aheads(declared: Declare) -> None:
-    generator = ExpressionGenerator(VariableNameMapper())
+    generator = ExpressionGenerator()
     marks, mobility = Expression("{view}.marks", 1, 0), Expression("{view}.best(me, lambda v1: v1.marks)", 2, 1)
 
     assert [(child.template, relation, cut) for child, relation, cut in generator.thresholds(marks, [2.0, 0.0, 2.0, 1.5])] == [
@@ -200,7 +217,7 @@ def test_thresholds_combinations_and_look_aheads(declared: Declare) -> None:
 
 
 def test_sources_read_here_and_evaluate_on_positions(declared: Declare) -> None:
-    generator = ExpressionGenerator(VariableNameMapper())
+    generator = ExpressionGenerator()
     pattern = Expression("sum(1 for at in {view}.cell if {view}.cell[at] == me and {view}.offset('cell', at, 0, 1) == me)", 2, 0)
     threat = Expression("{view}.count(me, lambda v1: v1.payoff[me] == 1.0)", 2, 1)
     rows = (

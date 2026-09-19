@@ -2,7 +2,7 @@ from collections import deque
 
 from openmind.csp.model.all_different_group import AllDifferentGroup
 from openmind.csp.model.wipeout import Wipeout
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 type Node = tuple[str, object]
 

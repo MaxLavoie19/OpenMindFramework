@@ -11,14 +11,15 @@ from openmind.agent.factory.prisoners_dilemma_factory import (
     declare_prisoners_dilemma,
 )
 from openmind.agent.model.prisoners_dilemma_variant import PrisonersDilemmaVariant
-from openmind.doxastic.constant.rule_kind_constant import CONSTRAINT, EFFECTS, VALUES
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, EFFECTS, VALUES
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_compiler import RuleCompiler
 from openmind.rbs.service.rule_runner import RuleRunner
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
@@ -26,20 +27,20 @@ type Game = Callable[[str], RuleBasedSystem]
 
 
 def test_initial_state_is_round_1_with_nothing_chosen_or_played_and_a_to_choose() -> None:
-    variables = dict(create_prisoners_dilemma_initial_state().variables)
+    assert create_prisoners_dilemma_initial_state() == State.of(
+        chosen=Map.of({"A": None, "B": None}),
+        played=Grid.filled((1, 2), None),
+        score=Map.of({"A": 0, "B": 0}),
+        payoff=Map.of({"A": None, "B": None}),
+        round=1,
+        turn="A",
+    )
 
-    assert variables == {
-        "chosen(A)": None,
-        "chosen(B)": None,
-        "played(1,A)": None,
-        "played(1,B)": None,
-        "score(A)": 0,
-        "score(B)": 0,
-        "payoff(A)": None,
-        "payoff(B)": None,
-        "round": 1,
-        "turn": "A",
-    }
+
+def test_a_simultaneous_variant_starts_with_both_players_flagged_to_act() -> None:
+    state = create_prisoners_dilemma_initial_state(VARIANTS["simultaneous"])
+
+    assert state.model("turn") == Map.of({"A": True, "B": True})
 
 
 def test_a_player_chooses_to_cooperate_or_defect_once_a_round_while_no_payoff_is_set(
@@ -47,8 +48,8 @@ def test_a_player_chooses_to_cooperate_or_defect_once_a_round_while_no_payoff_is
 ) -> None:
     context = declare_prisoners_dilemma(knowledge)
 
-    (choice,) = knowledge.rules(context, (VALUES,))
-    constraints = knowledge.rules(context, (CONSTRAINT,))
+    (choice,) = knowledge.rules(knowledge.context_named(context).id, (VALUES,))
+    constraints = knowledge.rules(knowledge.context_named(context).id, (CONSTRAINT,))
 
     assert (choice.action, choice.parameter) == ("choose", "choice")
     assert choice.rule == PythonRule("('cooperate', 'defect')")
@@ -67,7 +68,7 @@ def test_definitions_give_axelrod_s_points_and_the_rounds(name: str, rounds: int
         create_prisoners_dilemma_definitions(VARIANTS[name]),
     )
 
-    assert RuleRunner(StateNamespaceMapper(VariableNameMapper())).value(reading, State(())) == ((3, 3), (0, 5), (1, 1), rounds, "B")
+    assert RuleRunner(StateNamespaceMapper()).value(reading, State(())) == ((3, 3), (0, 5), (1, 1), rounds, "B")
 
 
 @pytest.mark.parametrize(
@@ -79,14 +80,14 @@ def test_a_round_s_outcomes_carry_the_ending_chance(
 ) -> None:
     context = declare_prisoners_dilemma(knowledge, variant)
 
-    outcomes = knowledge.rules(context, (EFFECTS,))
+    outcomes = knowledge.rules(knowledge.context_named(context).id, (EFFECTS,))
 
     assert {rule.action for rule in outcomes} == {"choose"}
     assert tuple(rule.probability for rule in outcomes) == pytest.approx(probabilities)
 
 
-def test_players_are_a_and_b_with_turn_and_payoff_variables() -> None:
-    assert create_prisoners_dilemma_players() == Players(("A", "B"), "turn", ("payoff(A)", "payoff(B)"))
+def test_players_are_a_and_b_with_the_turn_and_the_payoff_map() -> None:
+    assert create_prisoners_dilemma_players() == Players(("A", "B"), "turn", "payoff")
 
 
 def test_a_variant_is_declared_under_its_own_name_and_the_standard_game_keeps_its_name(
@@ -103,8 +104,9 @@ def test_the_declared_game_is_played_round_by_round(game: Game) -> None:
     for _ in range(4):
         state = rbs.outcomes(state, rbs.actions(state)[0]).outcomes[0][0]
 
-    assert dict(state.variables)["round"] == 3
-    assert dict(state.variables)["score(A)"] == 6
+    assert state.value("round") == 3
+    assert state.model("score")["A"] == 6
+    assert state.model("played") == Grid((3, 2), ("cooperate", "cooperate", "cooperate", "cooperate", None, None))
 
 
 @pytest.mark.parametrize(

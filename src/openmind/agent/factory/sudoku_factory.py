@@ -19,22 +19,26 @@ from openmind.agent.constant.sudoku_constant import (
 )
 from openmind.rbs.constant.rule_constant import ALL_DIFFERENT
 from openmind.rbs.service.rule_declarer import RuleDeclarer
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.rule.model.python_rule import PythonRule
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
 from openmind.world.builder.state_builder import StateBuilder
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
-from openmind.world.model.value import Value
+from openmind.structure.model.value import Value
 
 
 def create_sudoku_initial_state(grid: str = PUZZLE) -> State:
-    """The grid's clues in their cells, every other cell empty, the solver to act, no payoff yet."""
-    names = VariableNameMapper()
-    builder = StateBuilder()
-    for row, col, clue in _cells(grid):
-        builder.with_variable(names.to_name(CELL, (row, col)), clue)
-    return builder.with_variable(TURN, PLAYER).with_variable(PAYOFF, UNSET).build()
+    """The cell grid, 9 by 9, holding the puzzle's clues in their cells, every other cell empty; the solver to act; the
+    payoff map holding no payoff yet."""
+    return (
+        StateBuilder()
+        .with_model(CELL, Grid((SIZE, SIZE), tuple(clue for _, _, clue in _cells(grid))))
+        .with_model(TURN, PLAYER)
+        .with_model(PAYOFF, Map.of({PLAYER: UNSET}))
+        .build()
+    )
 
 
 def declare_sudoku_moves(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
@@ -47,7 +51,7 @@ def declare_sudoku_moves(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
             declarer.values(FILL, _parameter(row, col), digits)
     declarer.constraints(
         FILL,
-        PythonRule(f"{PAYOFF} is {UNSET!r}"),
+        PythonRule(f"{PAYOFF}[{PLAYER!r}] is {UNSET!r}"),
         *(
             PythonRule(f"{ALL_DIFFERENT}({', '.join(_operand(row, col, clues[row, col]) for row, col in unit)})")
             for unit in _units()
@@ -56,19 +60,23 @@ def declare_sudoku_moves(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
 
 
 def declare_sudoku_effects(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
-    """Write every filled value into its cell of the grid; a full grid pays 1.0, the share of cells filled."""
+    """Place every filled value in its cell of the grid; a full grid pays the solver 1.0, the share of cells filled."""
     effects = "\n".join(
         (
-            *(f"{CELL}[{row}, {col}] = {_parameter(row, col)}" for row, col, clue in _cells(grid) if clue is EMPTY),
-            f"{PAYOFF} = {SOLVED!r}",
+            *(
+                f"{CELL} = {CELL}.placed(({row}, {col}), {_parameter(row, col)})"
+                for row, col, clue in _cells(grid)
+                if clue is EMPTY
+            ),
+            f"{PAYOFF} = {PAYOFF}.with_item({PLAYER!r}, {SOLVED!r})",
         )
     )
     declarer.leads_to(FILL, PythonRule(effects))
 
 
 def create_sudoku_players() -> Players:
-    """A single player, the solver: turn names it and payoff holds its payoff."""
-    return Players((PLAYER,), TURN, (PAYOFF,))
+    """A single player, the solver: turn names it and the payoff map holds its payoff."""
+    return Players((PLAYER,), TURN, PAYOFF)
 
 
 def declare_sudoku(
@@ -98,17 +106,10 @@ def _cells(grid: str) -> list[tuple[int, int, Value]]:
     ]
 
 
-def _units() -> list[list[tuple[int, int]]]:
-    """The cells of every row, column and box."""
-    positions = range(1, SIZE + 1)
-    rows = [[(row, col) for col in positions] for row in positions]
-    columns = [[(row, col) for row in positions] for col in positions]
-    boxes = [
-        [(top + row, left + col) for row in range(1, BOX + 1) for col in range(1, BOX + 1)]
-        for top in range(0, SIZE, BOX)
-        for left in range(0, SIZE, BOX)
-    ]
-    return rows + columns + boxes
+def _units() -> list[tuple[tuple[int, ...], ...]]:
+    """The cells of every row, column and box of the grid."""
+    board = Grid.filled((SIZE, SIZE), EMPTY)
+    return [*board.rows(), *board.columns(), *board.boxes((BOX, BOX))]
 
 
 def _parameter(row: int, col: int) -> str:

@@ -6,9 +6,9 @@ import pytest
 
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.service.game_memory import GameMemory
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.rbs.model.value_settings import ValueSettings
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.training.factory.training_factory import create_value_distiller
 from openmind.training.model.value_distillation_settings import ValueDistillationSettings

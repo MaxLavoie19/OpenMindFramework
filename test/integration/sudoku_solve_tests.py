@@ -16,9 +16,8 @@ def test_the_single_solution_fills_the_known_grid_and_pays_one(game: Game) -> No
 
     assert len(actions) == 1
     ((outcome, probability),) = rbs.outcomes(rbs.start(), actions[0]).outcomes
-    values = dict(outcome.variables)
-    assert "".join(str(values[f"cell({row},{col})"]) for row in range(1, 10) for col in range(1, 10)) == SOLUTION
-    assert (probability, values["payoff"]) == (1.0, 1.0)
+    assert "".join(str(mark) for mark in outcome.model("cell").cells) == SOLUTION
+    assert (probability, outcome.model("payoff")["solver"]) == (1.0, 1.0)
 
 
 def test_searching_without_a_limit_finds_no_other_solution(game: Game) -> None:

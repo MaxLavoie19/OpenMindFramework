@@ -6,10 +6,11 @@ from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import EXPLORATION
 from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.game_memory import GameMemory
-from openmind.doxastic.constant.doxastic_constant import PROVED
-from openmind.doxastic.model.provenance import Provenance
-from openmind.doxastic.model.record import Record
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.constant.knowledge_constant import INFERENCE
+from openmind.knowledge.model.belief import Belief
+from openmind.knowledge.model.evidence import Evidence
+from openmind.knowledge.model.source import Source
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR, VALUE_PRIOR
 from openmind.mcts.factory.move_prior_factory import create_move_prior
 from openmind.parallel.model.dropped_call import DroppedCall
@@ -100,8 +101,8 @@ class ContinuousTrainer:
             game = lesson.game
             record = next(iter(self._self_play.records(rbs, (game,))), None)
             summary = self._summaries.to_summary(rbs, game, CONTINUOUS_GAME, None, first + index + 1, models, record)
-            self._game_memory.remember(summary)
-            self._remember_proofs(rbs, lesson, summary.label)
+            game = self._game_memory.remember(summary)
+            self._remember_proofs(rbs, lesson, summary.label, game.id)
 
         self._task_runner.stream(
             self._game_study.play_and_study,
@@ -112,17 +113,26 @@ class ContinuousTrainer:
             keep_results=False,
         )
 
-    def _remember_proofs(self, rbs: RuleBasedSystem, lesson: GameLesson, label: str) -> None:
+    def _remember_proofs(self, rbs: RuleBasedSystem, lesson: GameLesson, label: str, game_id: str) -> None:
+        context = self._knowledge_base.ensure_context(rbs.context).id
+        deduction_mechanism = self._knowledge_base.ensure_mechanism(INFERENCE).id
         plies = {state: ply for ply, state in enumerate(lesson.game.states)}
         proofs = [deduction for deduction in lesson.walk if deduction.payoffs is not None]
         for deduction in proofs:
             ply = plies.get(deduction.state)
-            self._knowledge_base.remember(
-                Record(
-                    json.dumps({"game": label, "ply": ply, "player": deduction.player, "payoffs": list(deduction.payoffs)}),  # type: ignore[arg-type]
-                    Provenance(PROVED, game=label, ply=ply),
-                    (rbs.context,),
-                    keywords=(PROOF_KEYWORD,),
+            payoffs = json.dumps(list(deduction.payoffs))  # type: ignore[arg-type]
+            proof = Source(
+                deduction_mechanism,
+                (("method", "deduction"), ("game", label), ("ply", ply), ("player", deduction.player)),
+                rests_on=(game_id,),
+            )
+            self._knowledge_base.believe(
+                Belief(
+                    f"payoffs proved at ply {ply} of {label}",
+                    context,
+                    payoffs,
+                    evidence=(Evidence(payoffs, 1.0, proof),),
+                    tags=(("keyword", PROOF_KEYWORD), ("game", label), ("ply", ply)),
                 )
             )
         if lesson.walk:

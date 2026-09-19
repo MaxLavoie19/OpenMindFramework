@@ -7,12 +7,12 @@ import numpy as np
 import pytest
 
 from openmind.inference.model.expression import Expression
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system, create_value_generator
 from openmind.rbs.service.rule_declarer import RuleDeclarer
 from openmind.rbs.service.value_generator import CONSTANT_RULE
 from openmind.rbs.model.position_row import PositionRow
-from openmind.rbs.model.python_rule import PythonRule
+from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.consequence_library_tests import Declare, position, strip_domain
 
@@ -109,11 +109,11 @@ def test_a_blank_term_s_rule_adds_nothing_where_it_reads_nothing(
     terms = [rule for rule in result.rules if rule.name != CONSTANT_RULE]
     ((constant,),) = ([rule for rule in result.rules if rule.name == CONSTANT_RULE],)
     assert [rule.rule for rule in terms] == [PythonRule("(1 if wins(me) else None)")]
-    assert result.strengths[0][1] == pytest.approx(terms[0].weight(rbs.context))
+    assert result.strengths[0][1] == pytest.approx(terms[0].weight(knowledge.context_named(rbs.context).id))
     valued = create_rule_based_system(knowledge, rbs.context)
     added = lambda row: {rule.name: value for rule, value in valued.explain(row.state, row.player)}
     blank = next(row for row in rows if added(row)[terms[0].name] == 0.0)
-    assert valued.value(blank.state, blank.player) == pytest.approx(constant.weight(rbs.context))
+    assert valued.value(blank.state, blank.player) == pytest.approx(constant.weight(knowledge.context_named(rbs.context).id))
 
 
 def test_without_held_out_rows_the_lowest_training_loss_is_chosen(
@@ -135,7 +135,7 @@ def test_payoffs_that_never_vary_leave_nothing_to_fit(declared: Declare, knowled
     result = create_value_generator().generate(rbs, rows, (), SETTINGS, RuleDeclarer(knowledge, rbs.context))
 
     assert (result.rules, result.fits, result.chosen) == ((), (), None)
-    assert knowledge.rules(rbs.context, ("position",)) == ()
+    assert knowledge.rules(knowledge.context_named(rbs.context).id, ("position",)) == ()
 
 
 def test_generation_needs_training_rows_and_a_price(declared: Declare, knowledge: KnowledgeBase) -> None:

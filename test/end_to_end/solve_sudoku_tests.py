@@ -21,12 +21,13 @@ def test_solve_prints_the_single_solution_and_saves_a_log(capsys: pytest.Capture
     main(["sudoku", "--log-directory", str(tmp_path)])
 
     output = capsys.readouterr().out
-    assert output.startswith("Solution 1 (probability 1.0):\ncell(1,1) = 5\ncell(1,2) = 3\ncell(1,3) = 4\n")
-    assert "cell(9,9) = 9\npayoff = 1.0\nturn = 'solver'\n" in output
+    assert output.startswith("Solution 1 (probability 1.0):\ncell 1 2 3 4 5 6 7 8 9\n   1 5 3 4 6 7 8 9 1 2\n")
+    assert "   9 3 4 5 2 8 6 1 7 9\npayoff = Map(items=(('solver', 1.0),))\nturn = 'solver'\n" in output
     assert output.splitlines()[-1].startswith("sudoku: 1 solution(s), ")
     (log_file,) = (tmp_path / "sudoku").glob("*.log")
     lines = said(log_file)
-    assert lines[0] == "INFO  openmind.entrypoint.solve Solving sudoku"
+    assert lines[0].startswith("INFO  openmind.debug.service.debugger Debug session solve sudoku: DEBUG for everything")
+    assert lines[1] == "INFO  openmind.entrypoint.solve Solving sudoku"
     assert any(line.startswith("DEBUG openmind.csp.service.solver fill: 1 solutions, ") for line in lines)
     assert lines[-1].startswith("INFO  openmind.entrypoint.solve sudoku: 1 solution(s), ")
 
@@ -45,7 +46,8 @@ def test_a_collection_prints_a_summary_per_puzzle_then_its_totals(
     assert output[2].startswith("sudoku/mini: 2 puzzle(s), 2 solution(s), ")
     (log_file,) = (tmp_path / "log" / "sudoku" / "mini").glob("*.log")
     lines = said(log_file)
-    assert lines[:2] == [
+    assert lines[0].startswith("INFO  openmind.debug.service.debugger Debug session solve sudoku/mini: ")
+    assert lines[1:3] == [
         "INFO  openmind.entrypoint.solve Solving sudoku/mini",
         "INFO  openmind.entrypoint.solve Solving sudoku/mini/1",
     ]
@@ -62,17 +64,14 @@ def test_several_domains_each_print_their_solutions_and_save_their_own_log(
 
     output = capsys.readouterr().out
     classic, puzzle = output.split("Solution 1 (probability 1.0):\n")[1:]
-    assert classic.startswith("cell(1,1) = 5\n")
+    assert classic.startswith("cell 1 2 3 4 5 6 7 8 9\n   1 5 ")
     assert classic.splitlines()[-1].startswith("sudoku: 1 solution(s), ")
-    assert puzzle.startswith("cell(1,1) = 4\n")
+    assert puzzle.startswith("cell 1 2 3 4 5 6 7 8 9\n   1 4 ")
     assert puzzle.splitlines()[-1].startswith("sudoku/mini/2: 1 solution(s), ")
     (classic_log,) = (tmp_path / "log" / "sudoku").glob("*.log")
     (puzzle_log,) = (tmp_path / "log" / "sudoku" / "mini" / "2").glob("*.log")
-    assert said(classic_log)[0] == "INFO  openmind.entrypoint.solve Solving sudoku"
-    assert (
-        said(puzzle_log)[0]
-        == "INFO  openmind.entrypoint.solve Solving sudoku/mini/2"
-    )
+    assert said(classic_log)[1] == "INFO  openmind.entrypoint.solve Solving sudoku"
+    assert said(puzzle_log)[1] == "INFO  openmind.entrypoint.solve Solving sudoku/mini/2"
 
 
 def test_an_unknown_collection_is_rejected_with_the_collections_found(

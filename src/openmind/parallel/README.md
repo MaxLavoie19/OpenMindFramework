@@ -32,8 +32,8 @@ workers.
   object that pickles.
 - Services that keep caches leave them behind when pickled, so any service can travel with its dependencies and
   rebuild what it needs in the worker: compiled rules and namespaces (`RuleCompiler`, `RuleRunner`,
-  `StateNamespaceMapper`), solver results (`Solver`), consequence lookups (`ConsequenceLibrary`), views (`Mechanics`)
-  and exact values (`ExactSearch`).
+  `StateNamespaceMapper`), solver results (`Solver`), consequence lookups (`ConsequenceLibrary`) and views
+  (`Mechanics`).
 - Each worker sends its log records, from the root logger's level up, through its pipe, and the root logger's handlers
   here write them. A run still writes one log; lines of different workers interleave.
 - `split` gives one slice to one worker, otherwise up to `SLICES_PER_WORKER` slices per worker, so that work set up once
@@ -54,8 +54,7 @@ workers.
   cuts again only once the memory has climbed more than `MEMORY_REGROWTH_SHARE` of the limit past where it stood at the
   last cut: a process that has churned through millions of small objects keeps most of what it frees, so emptying the
   caches barely moves its memory, and cutting at every reading would take them to nothing. A process's limit is
-  `DEFAULT_PROCESS_MEMORY` until it is given one; `openmind-train-values` and `openmind-distill-values` give theirs
-  `--memory`.
+  `DEFAULT_PROCESS_MEMORY` until it is given one.
 - **After each call,** a worker empties every cache, collects its garbage and hands freed memory back to the system
   (`malloc_trim`). A call's own services die with it; what outlives a call is a cache the process holds for its whole
   life, and it carried every position of every game a chess worker had played into the next: about 170 MB a call until
@@ -94,10 +93,8 @@ Who runs work in workers, and how their results stay the same whatever the numbe
 | Service | Work | Seeds | Droppable |
 |---|---|---|---|
 | `training/service/self_play.py` | self-play games; games between arms through `stream` | each game draws an agent seed and an outcome seed up front; a game's arms depend on the games finished before it starts, so on the number of workers | yes: the game is left out |
-| `evaluation/service/match_runner.py` | baseline games | each game draws a policy seed and an outcome seed up front | yes: the game isn't counted |
 | `training/service/continuous_trainer.py` | games played and decisive games walked back from their ends through `stream`, one game per call | each game draws an agent seed and an outcome seed when a worker takes it; its arms depend on the games finished before, so on the number of workers | yes: the game isn't remembered |
 | `rbs/service/term_evaluator.py` | terms evaluated on row slices | none needed | no: the expression search stops with "the memory budget ran out" |
-| `evaluation/service/evaluator.py` | positions searched at each budget, reference searches | every search uses the evaluation's seed | no |
 
 ## Usage
 
@@ -110,9 +107,6 @@ from openmind.parallel.service.task_runner import TaskRunner
 TaskRunner(4).map(pow, [2, 3, 4], [2, 2, 2])   # [4, 9, 16], computed in worker processes
 TaskRunner(4, MemoryCap(2 * 1024**3, Path("data/log/memory"))).map(play, games, droppable=True)
 ```
-
-From the terminal, `openmind-evaluate` takes `--workers N`; `openmind-distill-values` and
-`openmind-train-values` also take `--worker-memory GB` (see `entrypoint/README.md`).
 
 ## Logs
 
@@ -130,8 +124,6 @@ From the terminal, `openmind-evaluate` takes `--workers N`; `openmind-distill-va
 
 ## Notes
 
-- Every worker holds its own caches: memory grows with the number of workers. The 4 in a row evaluation peaked at
-  2.4 GB in one process.
+- Every worker holds its own caches: memory grows with the number of workers.
 - Tests: `service/task_runner_tests.py` (a call holding 400 MB under a 200 MB cap, dropped or raised),
-  `service/memory_guard_tests.py`, `service/memory_meter_tests.py`; end-to-end, same results with 1 and 2 workers:
-  `test/end_to_end/distill_tictactoe_tests.py`, `test/end_to_end/evaluate_tictactoe_tests.py`.
+  `service/memory_guard_tests.py`, `service/memory_meter_tests.py`.

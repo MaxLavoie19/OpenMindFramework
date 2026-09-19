@@ -1,18 +1,17 @@
 import argparse
 import logging
 import random
-from datetime import datetime
 from functools import partial
 from pathlib import Path
 
+from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import DEFAULT_ITERATIONS, EXPLORATION
 from openmind.agent.factory.game_factory import create_game
-from openmind.doxastic.factory.knowledge_base_factory import create_knowledge_base
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.service.agent import Agent
 from openmind.agent.service.timekeeper import Timekeeper
 from openmind.entrypoint.clock_options import add_clock_options, add_knowledge_option
-from openmind.entrypoint.constant.entrypoint_constant import LOG_FORMAT
 from openmind.entrypoint.rollout_options import checked_unfinished_payoff
 from openmind.entrypoint.search_options import add_selection_options
 from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR
@@ -24,7 +23,6 @@ from openmind.timing.model.time_control import TimeControl
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
-from openmind.world.mapper.variable_name_mapper import VariableNameMapper
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
@@ -72,6 +70,7 @@ def main(argv: list[str] | None = None) -> None:
     add_clock_options(parser)
     add_knowledge_option(parser)
     add_selection_options(parser)
+    add_debug_option(parser)
     arguments = parser.parse_args(argv)
     if arguments.prior != UNIFORM_PRIOR:
         parser.error(f"--prior {arguments.prior} needs rules the agent doesn't have when playing; use uniform")
@@ -98,24 +97,16 @@ def main(argv: list[str] | None = None) -> None:
         )
     agent = builder.build() if arguments.agent else None
 
-    directory = Path(arguments.log_directory) / rbs.context
-    directory.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(directory / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    root = logging.getLogger()
-    level = root.level
-    root.addHandler(handler)
-    root.setLevel(arguments.log_level)
+    debugger = start_debugging(
+        arguments, f"play {rbs.context}", Path(arguments.log_directory) / rbs.context, arguments.log_level, knowledge_base
+    )
     try:
         _play(rbs, frozenset(arguments.agent), agent, arguments.time_control)
     except EOFError:
         print()
         logger.info("Input ended before the game was over")
     finally:
-        root.setLevel(level)
-        root.removeHandler(handler)
-        handler.close()
-
+        debugger.stop()
 
 def _play(
     rbs: RuleBasedSystem,
@@ -125,7 +116,7 @@ def _play(
     timekeeper: Timekeeper | None = None,
 ) -> None:
     action_text = ActionTextMapper()
-    state_text, state_reader = GridTextMapper(VariableNameMapper()), StateReader()
+    state_text, state_reader = GridTextMapper(), StateReader()
     keeper = Timekeeper(create_rule_caller()) if timekeeper is None else timekeeper
     names = rbs.players().names
     clocks: dict[str, Clock] = {} if time_control is None else dict(zip(names, keeper.clocks(rbs, time_control), strict=True))
@@ -134,7 +125,7 @@ def _play(
     logger.info("Playing %s", rbs.context)
     state = rbs.start()
     while actions := rbs.actions(state):
-        player = str(state_reader.value(state, rbs.players().to_act))
+        player = names[state_reader.player_to_act(state, rbs.players())]
         seen = state
         print(state_text.to_text(seen))
         print()

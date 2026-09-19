@@ -7,12 +7,12 @@ from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import EXPLORATION
 from openmind.agent.constant.prisoners_dilemma_constant import STANDARD
 from openmind.agent.factory.agent_factory import create_agent
-from openmind.evaluation.service.exact_search import ExactSearch
 from openmind.agent.factory.prisoners_dilemma_factory import declare_prisoners_dilemma
 from openmind.agent.model.prisoners_dilemma_variant import PrisonersDilemmaVariant
-from openmind.doxastic.service.knowledge_base import KnowledgeBase
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_system
 from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.structure.model.map import Map
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
 from openmind.world.model.state import State
@@ -65,8 +65,7 @@ def test_a_simultaneous_round_plays_both_choices_at_once(knowledge: KnowledgeBas
 
     ((state, _),) = rbs.joint_outcomes(rbs.start(), joint).outcomes
 
-    variables = dict(state.variables)
-    assert (variables["payoff(A)"], variables["payoff(B)"], variables["turn(A)"], variables["turn(B)"]) == (0, 5, False, False)
+    assert (state.model("payoff"), state.model("turn")) == (Map.of({"A": 0, "B": 5}), Map.of({"A": False, "B": False}))
 
 
 def test_in_one_simultaneous_round_both_players_mostly_defect(knowledge: KnowledgeBase, game: Game) -> None:
