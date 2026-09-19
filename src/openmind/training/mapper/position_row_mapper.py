@@ -1,7 +1,7 @@
 import math
 from collections.abc import Sequence
 
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.model.position_row import PositionRow
 from openmind.training.constant.training_constant import OUTCOME_TARGET, SEARCH_TARGET, VALUE_TARGETS
 from openmind.training.model.played_game import PlayedGame
@@ -17,7 +17,7 @@ class PositionRowMapper:
     def __init__(self, state_reader: StateReader) -> None:
         self._state_reader = state_reader
 
-    def to_rows(self, rbs: RuleBasedSystem, games: Sequence[PlayedGame], target: str) -> tuple[PositionRow, ...]:
+    def to_rows(self, rbs: RuleBasedGame, games: Sequence[PlayedGame], target: str) -> tuple[PositionRow, ...]:
         if target not in VALUE_TARGETS:
             raise ValueError(f"Unknown value target {target!r}: expected one of {', '.join(VALUE_TARGETS)}")
         names = rbs.players().names
@@ -30,5 +30,5 @@ class PositionRowMapper:
                 for state, value in zip(game.states, game.search_values, strict=True):
                     if math.isnan(value):
                         continue
-                    rows.append(PositionRow(state, names[self._state_reader.player_to_act(state, rbs.players())], value))
+                    rows.append(PositionRow(state, rbs.acting_player(state), value))
         return tuple(rows)

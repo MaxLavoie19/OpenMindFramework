@@ -6,7 +6,7 @@ from pathlib import Path
 from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.agent.constant.sudoku_constant import NAME as SUDOKU
 from openmind.agent.constant.sudoku_constant import SEPARATOR
-from openmind.agent.factory.game_factory import create_game
+from openmind.rbs.factory.rbs_factory import create_game
 from openmind.agent.factory.sudoku_factory import declare_sudoku
 from openmind.agent.mapper.sudoku_collection_mapper import SudokuCollectionMapper
 from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
@@ -15,8 +15,8 @@ from openmind.csp.constant.solver_constant import DEFAULT_SOLUTION_LIMIT
 from openmind.entrypoint.clock_options import add_knowledge_option
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.factory.rbs_factory import create_rule_based_game
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ def _resolve(
     directory: Path,
     argument: str,
     knowledge_base: KnowledgeBase,
-) -> tuple[str, list[RuleBasedSystem], bool]:
+) -> tuple[str, list[RuleBasedGame], bool]:
     """A GAME argument's name, the games it names, and whether they are a sudoku collection's puzzles."""
     parts = argument.split(SEPARATOR)
     if parts[0] != SUDOKU or len(parts) == 1:
@@ -137,10 +137,10 @@ def _resolve(
     return rbs.context, [rbs], False
 
 
-def _puzzle_game(puzzle: SudokuPuzzle, knowledge_base: KnowledgeBase) -> RuleBasedSystem:
+def _puzzle_game(puzzle: SudokuPuzzle, knowledge_base: KnowledgeBase) -> RuleBasedGame:
     """The RBS for one puzzle of a collection, its rules declared under its own context."""
     context = declare_sudoku(knowledge_base, SEPARATOR.join((SUDOKU, puzzle.collection, str(puzzle.number))), puzzle.grid)
-    return create_rule_based_system(knowledge_base, context)
+    return create_rule_based_game(knowledge_base, context)
 
 
 def _report(summary: str) -> None:

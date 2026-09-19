@@ -13,9 +13,8 @@ class RuleRecord:
     application declares, or a heuristic, which inference and fitting produce. `rule` is the rule itself, Python source
     or one of the application's own functions.
 
-    `contexts` are the contexts the rule is relevant to, each with its weight there: the same rule can be heavy in one
-    game and light in another, and a context it has no weight in is one it says nothing about. `action` is the action a
-    constraint or an effects rule belongs to, and `parameter` the parameter a values rule gives. `probability` is the
+    A rule belongs to a context only through the rulesets that list it, and what it weighs is on each ruleset's link to
+    it (see `ruleset.py`). `action` is the action a constraint or an effects rule belongs to, and `parameter` the parameter a values rule gives. `probability` is the
     chance an effects rule's outcome happens, one outcome of an action among several; every other kind always holds.
 
     `source` is where the rule came from: declared by an application, inferred, fitted. A rule an application declares
@@ -26,7 +25,6 @@ class RuleRecord:
     kind: str
     rule: Rule
     source: Source
-    contexts: tuple[tuple[str, float], ...] = ()
     action: str | None = None
     parameter: str | None = None
     probability: float = 1.0
@@ -34,13 +32,3 @@ class RuleRecord:
     tags: Tags = ()
     id: str = ""
 
-    def weight(self, context: str) -> float:
-        """How much the rule weighs in that context; 0 where it says nothing about it."""
-        for name, weight in self.contexts:
-            if name == context:
-                return weight
-        return 0.0
-
-    def relevant(self, context: str) -> bool:
-        """Whether the rule bears on that context at all."""
-        return any(name == context for name, _ in self.contexts)

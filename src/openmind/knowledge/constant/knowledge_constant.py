@@ -9,6 +9,7 @@ TASKS_FILE = "tasks.jsonl"
 CONTEXTS_FILE = "contexts.jsonl"
 MECHANISMS_FILE = "mechanisms.jsonl"
 RULES_FILE = "rules.jsonl"
+RULESETS_FILE = "rulesets.jsonl"
 
 #: What each kind of entry's id starts with, before its UUID, so an id read alone says what it names.
 EXPERIENCE = "experience"
@@ -16,6 +17,7 @@ BELIEF = "belief"
 OPINION = "opinion"
 TASK = "task"
 RULE = "rule"
+RULESET = "ruleset"
 CONTEXT = "context"
 MECHANISM = "mechanism"
 CONFLICT = "conflict"
@@ -26,6 +28,12 @@ DECLARATION = "declaration"
 INFERENCE = "inference"
 DECODER = "decoder"
 SELF_PLAY = "self-play"
+COPY = "copy"
+
+#: The tasks OMF's own rulesets are models of. Any other task is named by whoever uses it.
+SIMULATION = "simulation"
+POSITION_VALUE = "position value"
+MOVE_VALUE = "move value"
 
 #: A task's status.
 PENDING = "pending"

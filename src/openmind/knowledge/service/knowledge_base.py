@@ -5,15 +5,18 @@ from datetime import datetime
 from openmind.knowledge.constant.knowledge_constant import (
     BELIEF,
     CONTEXT,
+    COPY,
     DECLARATION,
     EXPERIENCE,
     MECHANISM,
     OPINION,
     RULE,
+    RULESET,
     TASK,
 )
 from openmind.knowledge.mapper.knowledge_json_mapper import KnowledgeJsonMapper
 from openmind.knowledge.mapper.rule_record_json_mapper import RuleRecordJsonMapper
+from openmind.knowledge.mapper.ruleset_json_mapper import RulesetJsonMapper
 from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.model.context import Context
 from openmind.knowledge.model.direct_experience import DirectExperience
@@ -21,6 +24,9 @@ from openmind.knowledge.model.identifier import new_identifier
 from openmind.knowledge.model.mechanism import Mechanism
 from openmind.knowledge.model.opinion import Opinion
 from openmind.knowledge.model.rule_record import RuleRecord
+from openmind.knowledge.model.ruleset import Ruleset
+from openmind.knowledge.model.ruleset_link import RulesetLink
+from openmind.knowledge.model.source import Source
 from openmind.knowledge.model.store import Store
 from openmind.knowledge.model.tags import Tags, carries
 from openmind.knowledge.model.task import Task
@@ -31,7 +37,8 @@ logger = logging.getLogger(__name__)
 class KnowledgeBase:
     """Everything the agent knows about a domain: its direct experiences, kept word for word; its beliefs, each a
     variable with a value, a certainty and optional evidence, including what it believes others believe; its own
-    opinions; its tasks; its contexts; the mechanisms its evidence comes from; and the rules it knows. Everything
+    opinions; its tasks; its contexts; the mechanisms its evidence comes from; the rules it knows, and the rulesets
+    listing them. Everything
     carries tags it can be retrieved by, and a GUID every link uses; contexts and mechanisms also have names, which
     people and applications use and which the knowledge base resolves to their ids.
 
@@ -49,8 +56,10 @@ class KnowledgeBase:
         contexts: Store,
         mechanisms: Store,
         rules: Store,
+        rulesets: Store,
         knowledge_json_mapper: KnowledgeJsonMapper | None = None,
         rule_record_json_mapper: RuleRecordJsonMapper | None = None,
+        ruleset_json_mapper: RulesetJsonMapper | None = None,
     ) -> None:
         self._domain = domain
         self._experience_store = experiences
@@ -60,8 +69,10 @@ class KnowledgeBase:
         self._context_store = contexts
         self._mechanism_store = mechanisms
         self._rule_store = rules
+        self._ruleset_store = rulesets
         self._mapper = KnowledgeJsonMapper() if knowledge_json_mapper is None else knowledge_json_mapper
         self._rule_mapper = RuleRecordJsonMapper(self._mapper) if rule_record_json_mapper is None else rule_record_json_mapper
+        self._ruleset_mapper = RulesetJsonMapper(self._mapper) if ruleset_json_mapper is None else ruleset_json_mapper
         self._experiences: dict[str, DirectExperience] = {}
         self._beliefs: dict[str, Belief] = {}
         self._belief_ids: dict[tuple[str, str, tuple[str, ...]], str] = {}
@@ -73,6 +84,7 @@ class KnowledgeBase:
         self._mechanisms: dict[str, Mechanism] = {}
         self._mechanism_ids: dict[str, str] = {}
         self._rules: dict[str, RuleRecord] = {}
+        self._rulesets: dict[str, Ruleset] = {}
         self._load()
 
     @property
@@ -265,8 +277,8 @@ class KnowledgeBase:
 
     def declare(self, rule: RuleRecord) -> RuleRecord:
         """Keeps the rule and gives it back with the id it can be found by. A rule already carrying an id is written
-        anew under that id, which is how its weight in a context changes. This is how an application registers the
-        rules of its game and how inference injects the ones it produces."""
+        anew under that id. This is how an application registers the rules of its game and how inference injects the
+        ones it produces; a ruleset then lists it (see `link`)."""
         kept = rule
         if not kept.id:
             kept = replace(kept, id=new_identifier(RULE))
@@ -274,13 +286,7 @@ class KnowledgeBase:
             kept = replace(kept, source=replace(kept.source, at=datetime.now()))
         self._rule_store.append(self._rule_mapper.to_data(kept))
         self._rules[kept.id] = kept
-        logger.debug(
-            "Declared %s rule %s for %s (%s)",
-            kept.kind,
-            kept.name,
-            ", ".join(f"{self.readable_context(context)} at {weight:g}" for context, weight in kept.contexts) or "no context",
-            kept.id,
-        )
+        logger.debug("Declared %s rule %s (%s)", kept.kind, kept.name, kept.id)
         return kept
 
     def revise(self, rule_id: str, rule: RuleRecord) -> RuleRecord:
@@ -304,32 +310,173 @@ class KnowledgeBase:
         declaration = self.mechanism_named(DECLARATION)
         return declaration is not None and rule.source.mechanism == declaration.id and not rule.open
 
-    def rules(self, context: str, kinds: tuple[str, ...] = (), tags: Tags = ()) -> tuple[RuleRecord, ...]:
-        """Every rule weighing in that context (an id), of those kinds or of any kind where none is named, carrying all
-        the tags, the heaviest first; rules of the same weight keep the order they were declared in."""
-        found = [
-            rule
-            for rule in self._rules.values()
-            if rule.relevant(context) and (not kinds or rule.kind in kinds) and carries(rule.tags, tags)
-        ]
-        return tuple(sorted(found, key=lambda rule: -rule.weight(context)))
-
     def rule(self, rule_id: str) -> RuleRecord | None:
         return self._rules.get(rule_id)
-
-    def rule_contexts(self) -> tuple[str, ...]:
-        """Every context the rules weigh in, as ids, once each, in the order they were first declared."""
-        found: dict[str, None] = {}
-        for rule in self._rules.values():
-            for context, _ in rule.contexts:
-                found[context] = None
-        return tuple(found)
 
     def undeclare(self, rule_id: str) -> None:
         """Drops the rule: it is retrieved no more."""
         if self._rules.pop(rule_id, None) is None:
             return
         self._rule_store.forget(rule_id)
+
+    # rulesets
+
+    def ruleset(self, ruleset: Ruleset) -> Ruleset:
+        """Keeps the ruleset, or writes it anew under its id, and gives it back with its id. A frozen ruleset lists only
+        frozen rules: one listing an open rule is refused with a warning, and what was kept before stays."""
+        kept = replace(ruleset, id=ruleset.id or new_identifier(RULESET))
+        if kept.source.at is None:
+            kept = replace(kept, source=replace(kept.source, at=datetime.now()))
+        if self.frozen_ruleset(kept):
+            unfrozen = [rule_id for rule_id in kept.rule_ids if (rule := self._rules.get(rule_id)) is not None and not self.frozen(rule)]
+            if unfrozen:
+                logger.warning(
+                    "Ruleset %s is frozen and lists only frozen rules; %s %s open, so the change is refused",
+                    self.readable_ruleset(kept.id) if kept.id in self._rulesets else f"{kept.name} ({kept.id})",
+                    ", ".join(self._readable_rule(rule_id) for rule_id in unfrozen),
+                    "is" if len(unfrozen) == 1 else "are",
+                )
+                held = self._rulesets.get(kept.id)
+                return held if held is not None else replace(kept, links=tuple(link for link in kept.links if link.rule not in unfrozen))
+        self._rulesets[kept.id] = kept
+        self._ruleset_store.append(self._ruleset_mapper.to_data(kept))
+        logger.debug(
+            "Ruleset %s of %s in %s lists %d rules%s",
+            self.readable_ruleset(kept.id),
+            kept.task,
+            self.readable_context(kept.context),
+            len(kept.links),
+            "" if self.frozen_ruleset(kept) else ", open",
+        )
+        return kept
+
+    def ruleset_by_id(self, ruleset_id: str) -> Ruleset | None:
+        return self._rulesets.get(ruleset_id)
+
+    def ruleset_named(self, context_id: str, name: str) -> Ruleset | None:
+        for ruleset in self._rulesets.values():
+            if ruleset.context == context_id and ruleset.name == name:
+                return ruleset
+        return None
+
+    def rulesets(self, context_id: str | None = None, task: str | None = None, tags: Tags = ()) -> tuple[Ruleset, ...]:
+        """Every ruleset of that context (an id), a model of that task, carrying all the tags, in the order first kept."""
+        return tuple(
+            ruleset
+            for ruleset in self._rulesets.values()
+            if (context_id is None or ruleset.context == context_id)
+            and (task is None or ruleset.task == task)
+            and carries(ruleset.tags, tags)
+        )
+
+    def ruleset_rules(
+        self, ruleset_id: str, kinds: tuple[str, ...] = (), tags: Tags = ()
+    ) -> tuple[tuple[RuleRecord, float], ...]:
+        """The rules the ruleset lists, of those kinds or of any kind where none is named, carrying all the tags, each
+        with its weight there, in the order they were linked."""
+        ruleset = self._rulesets.get(ruleset_id)
+        if ruleset is None:
+            raise KeyError(f"No ruleset {ruleset_id}")
+        found = []
+        for link in ruleset.links:
+            rule = self._rules.get(link.rule)
+            if rule is not None and (not kinds or rule.kind in kinds) and carries(rule.tags, tags):
+                found.append((rule, link.weight))
+        return tuple(found)
+
+    def link(self, ruleset_id: str, rule_id: str, weight: float = 1.0) -> Ruleset:
+        """Lists the rule in the ruleset at that weight, or sets its weight there where it is listed already. An open
+        rule isn't linked into a frozen ruleset: that is refused with a warning."""
+        ruleset = self._rulesets.get(ruleset_id)
+        if ruleset is None:
+            raise KeyError(f"No ruleset {ruleset_id}")
+        if rule_id not in self._rules:
+            raise KeyError(f"No rule {rule_id} to link")
+        if ruleset.weight(rule_id) is None:
+            links = (*ruleset.links, RulesetLink(rule_id, weight))
+        else:
+            links = tuple(RulesetLink(rule_id, weight) if link.rule == rule_id else link for link in ruleset.links)
+        return self.ruleset(replace(ruleset, links=links))
+
+    def unlink(self, ruleset_id: str, rule_id: str) -> Ruleset:
+        """Takes the rule off the ruleset; the rule itself stays, in every other ruleset listing it."""
+        ruleset = self._rulesets.get(ruleset_id)
+        if ruleset is None:
+            raise KeyError(f"No ruleset {ruleset_id}")
+        return self.ruleset(replace(ruleset, links=tuple(link for link in ruleset.links if link.rule != rule_id)))
+
+    def frozen_ruleset(self, ruleset: Ruleset) -> bool:
+        """Whether OMF must leave the ruleset as it is: declared by an application, and not declared open."""
+        declaration = self.mechanism_named(DECLARATION)
+        return declaration is not None and ruleset.source.mechanism == declaration.id and not ruleset.open
+
+    def copy_ruleset(self, ruleset_id: str, name: str, context_id: str | None = None) -> Ruleset:
+        """An open copy of the ruleset, listing the same rules at the same weights, in the same context unless another
+        is given. Its source is the copy mechanism, resting on the original."""
+        original = self._rulesets.get(ruleset_id)
+        if original is None:
+            raise KeyError(f"No ruleset {ruleset_id} to copy")
+        copied = self.ruleset(
+            Ruleset(
+                name,
+                original.context if context_id is None else context_id,
+                original.task,
+                Source(self.ensure_mechanism(COPY).id, (("original", original.id),), rests_on=(original.id,)),
+                original.links,
+                open=True,
+                tags=original.tags,
+            )
+        )
+        logger.info("Copied ruleset %s as %s", self.readable_ruleset(original.id), self.readable_ruleset(copied.id))
+        return copied
+
+    def revise_in(self, ruleset_id: str, rule_id: str, revision: RuleRecord) -> RuleRecord:
+        """Revises a rule as one open ruleset lists it. An open rule is revised in place. A frozen rule stays as it is:
+        the revision is kept as a copy, open and resting on the original, and it replaces the original in this ruleset
+        only, at the same weight, so every other ruleset keeps the original. A frozen ruleset is left as it is, with a
+        warning."""
+        ruleset = self._rulesets.get(ruleset_id)
+        if ruleset is None:
+            raise KeyError(f"No ruleset {ruleset_id}")
+        weight = ruleset.weight(rule_id)
+        if weight is None:
+            raise KeyError(f"Ruleset {ruleset_id} doesn't list rule {rule_id}")
+        held = self._rules[rule_id]
+        if self.frozen_ruleset(ruleset):
+            logger.warning(
+                "Ruleset %s is frozen: the revision of %s is refused; revise it in a copy",
+                self.readable_ruleset(ruleset_id),
+                self._readable_rule(rule_id),
+            )
+            return held
+        if not self.frozen(held):
+            return self.declare(replace(revision, id=rule_id))
+        copy = self.declare(
+            replace(
+                revision,
+                id="",
+                open=True,
+                source=replace(revision.source, rests_on=(*revision.source.rests_on, rule_id)),
+            )
+        )
+        links = tuple(RulesetLink(copy.id, link.weight) if link.rule == rule_id else link for link in ruleset.links)
+        self.ruleset(replace(ruleset, links=links))
+        logger.info(
+            "Rule %s is frozen: revised as its copy %s in ruleset %s only",
+            self._readable_rule(rule_id),
+            self._readable_rule(copy.id),
+            self.readable_ruleset(ruleset_id),
+        )
+        return copy
+
+    def readable_ruleset(self, ruleset_id: str) -> str:
+        """A ruleset as logs show it: its name and its id."""
+        ruleset = self._rulesets.get(ruleset_id)
+        return f"{ruleset.name} ({ruleset.id})" if ruleset is not None else ruleset_id
+
+    def _readable_rule(self, rule_id: str) -> str:
+        rule = self._rules.get(rule_id)
+        return f"{rule.name} ({rule.id})" if rule is not None else rule_id
 
     def _load(self) -> None:
         """Takes in what the stores already hold."""
@@ -358,10 +505,13 @@ class KnowledgeBase:
         for data in self._rule_store.load():
             rule = self._rule_mapper.from_data(data)
             self._rules[rule.id] = rule
+        for data in self._ruleset_store.load():
+            ruleset = self._ruleset_mapper.from_data(data)
+            self._rulesets[ruleset.id] = ruleset
         if self._experiences or self._beliefs or self._rules or self._contexts:
             logger.info(
                 "Knowledge of %s: %d direct experiences, %d beliefs, %d opinions, %d tasks, %d contexts, %d mechanisms, "
-                "%d rules",
+                "%d rules, %d rulesets",
                 self._domain,
                 len(self._experiences),
                 len(self._beliefs),
@@ -370,4 +520,5 @@ class KnowledgeBase:
                 len(self._contexts),
                 len(self._mechanisms),
                 len(self._rules),
+                len(self._rulesets),
             )

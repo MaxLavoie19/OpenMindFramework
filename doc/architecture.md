@@ -15,16 +15,21 @@ be minimal. OMF then learns to play the game by:
 - training models;
 - reading literature.
 
+**The integrator runs the game itself.** OMF doesn't. It simulates the game to decide: the RBS, the CSP, the search
+and any other model that helps represent the game's state at a given time and predict its future state given a set of
+actions.
+
 OMF ships without the libraries a problem needs. A problem lives in its own project, which installs OMF, imports any
 library its rules need, and registers its games under the `openmind.domains` entry points. Chess lives in the
 OpenMindChess project, with python-chess.
 
 ## Vocabulary
 
-- **State**: a set of named variables with values, such as `cell(2,3) = "X"` or `turn = "O"`.
+- **State**: named data models, such as a grid named `board` or a scalar named `turn` holding `"O"`.
 - **Action**: what an agent does, with its parameters, such as `place(row=2, col=3)` or `move(directionDegree=90)`. An
   action can take time to perform and can have a cooldown.
-- **Joint action**: the actions every agent performs at once. In a game played in turns, only one agent acts.
+- **Joint action**: the actions every agent performs at once. All agents always act at once; in a game played in
+  turns, only one agent has legal actions.
 - **Outcome**: the new state the agents are in after a joint action.
 - **Outcome distribution**: each possible outcome with its probability, given by the predictor. In a deterministic
   game there is a single outcome.
@@ -33,8 +38,10 @@ OpenMindChess project, with python-chess.
 - **Goal**: something an agent wants, with a weight for its role and situation. An agent may pursue several at once.
 - **Preference**: the weight an agent gives a goal.
 - **Context**: a compartment of knowledge, and a level in the hierarchy: a game, a variant, a relaxation, an agent
-  model, macromanagement or micromanagement. Rules, beliefs, heuristics, models and tasks belong to a context, with
-  their weight there.
+  model, macromanagement or micromanagement. Rulesets, beliefs, heuristics, models and tasks belong to a context.
+- **Ruleset**: a part of a context holding the rules for one purpose, such as the game's simulation, the board
+  position heuristic, the move heuristic, or one known agent's play style. A rule belongs to the rulesets that list it,
+  with a weight in each.
 - **Tactic**: a general direction that guides the optimizer, such as charge, kite sideways or retreat.
 - **Heuristic**: a fast estimate. OMF uses three kinds:
   - the **position value**: what a state is worth to each agent;
@@ -155,6 +162,14 @@ OMF is a real-time AI. Each step draws on one budget:
 | Communicate | rhetoric plans messages, encoders word them |
 | Act | encoders turn the chosen action into an output |
 
+At a high level, an agent in a game chooses between:
+- **acting**: performing one of its legal actions in the game. In chess, that is playing the best move found so far,
+  offering a draw or abandoning, all of them actions the game declares;
+- **planning**: running the simulation to explore viable options.
+
+Planning is always available. Acting depends on the game's rules: when it's black's turn in chess, white has no legal
+action, so it can only plan.
+
 ### The time management policy
 
 At every step, OMF can choose between several models for a task. It might use a fast heuristic when time-constrained,
@@ -214,17 +229,22 @@ It learns across games and over time, so later games start better.
 
 ## Defining a game
 
-The programmer defines a game with rules in the knowledge base, under the game's context:
+The programmer defines a game with rules in the knowledge base, in the simulation ruleset of the game's context:
 
 | Rule | Says |
 |---|---|
 | Players and initial state | who plays, and where the game starts |
 | Values and constraints | which parameter values an action may take, and which combinations are legal |
 | Effects | what an action leads to, with its probability |
-| Simultaneous resolution | what joint actions lead to, when agents act at once |
+| Joint effects | what the agents' actions, taken at once, lead to together |
 | Durations and cooldowns | how long an action takes to perform, and how long before it is available again |
-| End and payoffs | when the game is over and what each agent gets |
+| Who acts | the constraints determine each player's legal actions in a state, reading the game's variables such as `turn` and `phase`; a player without options that turn can only plan |
+| End and payoffs | when the game is over and what each agent gets: an end state declares a payoff per player, which the predictor gives with the outcome |
 | Tactics | the game's tactics, if the programmer gives any |
+
+OMF knows nothing of turns, phases, priority, draws, abandoning, clocks or boards. They belong to the game the integrator
+implements, as its own variables, actions and rules, and OMF doesn't enforce them. A draw offer, for instance, is just
+one of the game's actions; OMF sees only the effect of performing it.
 
 Rules are Python: every constraint, effect and heuristic is the source of a Python expression or script, compiled once
 and run against states. Any Python is allowed, imports and libraries included.
@@ -234,6 +254,12 @@ and run against states. Any Python is allowed, imports and libraries included.
 - **Rules OMF deduced** can be edited freely. A new observation can justify replacing them with a model that better
   explains the data.
 - **Open rules.** A rule or a ruleset can be declared open for modification. OMF then revises it like a deduced rule.
+  Both can also be frozen: an integrator might freeze the chess simulation ruleset so that OMF doesn't modify the
+  game's rules.
+- **Copies of frozen rules.** A heuristic's ruleset can be modified at any time. To change a frozen rule or a frozen
+  ruleset, a heuristic modifies a copy, and the original stays as it is. A heuristic can also have an open ruleset of
+  its own.
+- **A frozen ruleset has only frozen rules.**
 - **Conflicts with a frozen rule.** When an observation conflicts with a frozen rule, OMF doesn't revise the rule. It
   raises a warning for the developer through the debug and logs module.
 
@@ -276,6 +302,12 @@ OMF must play games of every kind:
 - **Zero-sum or not**. Payoffs are per agent, so OMF supports non-adversarial play. In a zero-sum game, a minimizing
   opponent is one model of the opponent among others (see "Agent models").
 
+OMF assumes all players play at the same time, all the time. In a game played in turns, a player has no options outside
+their turn, because the game's own constraints say so; OMF knows nothing of turns.
+
+That is the most generic simulation, and it costs more. Where performance drops too much, a specialized model can take
+over, like any other model: in chess, a vanilla MCTS with the assumption that a single player acts per turn.
+
 ## Valid actions: the constraint satisfaction solver
 
 The CSP finds the valid values of an action's parameters in a state, from the game's value and constraint rules:
@@ -299,6 +331,38 @@ The predictor is a task like any other. It has several models:
 - any other learned model, trained from observed transitions.
 
 The time management policy picks among them.
+
+## The rule-based system is a model, not a role
+
+A heuristic can be anything: a rule-based system (RBS), a DNN, or a set of relaxed constraints, such as the distance as
+the bird flies. An RBS remains an RBS, and what it is used for is unrelated to what it is. It can hold a game's rules,
+a heuristic, a predictor, or anything else a task needs.
+
+OMF's RBS is its main explainable model:
+- it is good at explaining;
+- first-order logic can populate it with initial reasonable rules.
+
+**Rulesets.** A context holds several rulesets, one per purpose:
+- one for the game's simulation;
+- one for the board position heuristic;
+- one for the move heuristic;
+- and so on, such as one per known agent when OMF tries to learn that agent's play style.
+
+A ruleset has an id, a name, its context, the task it models, tags, whether it is open, and the ids of the rules that
+belong to it; more may be added as needed, such as its role. A rule can belong to several rulesets, since OMF may create
+many similar rulesets, for example one per tactic.
+
+A ruleset belongs to a context, and a rule belongs to the rulesets that list it. A rule's weight belongs to the
+relation between a ruleset and the rule, so it weighs differently in each ruleset. Every relation carries a weight, even
+where it isn't used yet. Weights are linear for now: a rule whose value is x contributes a·x. Some RBS would do better
+with non-linear weights, such as a·x^b; that is left for later.
+
+A ruleset is one model of its task, so any other model might replace it: a DNN, a lookup table, a decision tree, … The
+RBS doesn't always win, even on explainability. In chess's early game, a lookup table is more performant, more accurate
+and more explainable than any ruleset.
+
+A ruleset can also become a tool for rationalization: where another model decides, a ruleset attempts to explain that
+model's decision.
 
 ## Tactics and the optimizer
 
@@ -397,8 +461,14 @@ heuristics, as in AlphaZero:
 
 There are no playouts to the end of the game.
 
+**The simulation is how the search expands a node:**
+1. the CSP provides the legal actions;
+2. the heuristics choose between them;
+3. the predictor provides the possible outcomes from the state and the set of actions.
+
 - **Chance:** chance nodes branch on the predictor's outcome distribution.
-- **Simultaneous play:** simultaneous nodes use regret matching.
+- **Simultaneous play:** every node is a joint action of the agents with legal actions, and regret matching chooses
+  where several agents act. Where one agent acts, as in chess, it reduces to that agent's choice.
 - **Hidden information:** the search is semi-determinized. It runs over hypotheses about the hidden parts of the state,
   each weighted by the knowledge base's belief in it.
 - **Other agents:** their replies come from their agent models' heuristics.
@@ -528,7 +598,7 @@ vary by agent, time and context.
 ## Knowledge base and doxastic logic
 
 The knowledge base stores:
-- rules;
+- rules and rulesets;
 - facts;
 - beliefs;
 - opinions;
@@ -657,14 +727,15 @@ in dependency order.
 |---|---|
 | `structure` | the data models a state is made of, with OMF's methods: scalar, list, map, and grid in any number of dimensions |
 | `world` | states made of named data models, actions, joint actions, players |
-| `rule` | rules as data: Python source or a project's function, and the shapes a game's rules take |
-| `knowledge` | the knowledge base, the doxastic system: direct experience (raw data, word for word), rules, facts, beliefs with their sources, opinions, tasks, contexts, models |
+| `rule` | rules as data (Python source or a project's function), the shapes a game's rules take, and running a rule on a state |
+| `knowledge` | the knowledge base, the doxastic system: direct experience (raw data, word for word), rules, rulesets, facts, beliefs with their sources, opinions, tasks, contexts, models |
 | `epistemology` | justification of beliefs by foundherentism: anchors, coherence, no self-support, confidence from method and data |
-| `game` | the programmer's API to define a game, the registry of games, the game at runtime |
+| `game` | the programmer's API to define a game, the registry of games; the integrator runs the game, OMF only simulates it |
 | `csp` | valid values of an action's parameters |
 | `predictor` | the predictor port and its rule-based model |
+| `rbs` | the rule-based system: a model family that runs whatever rules a ruleset holds, for any task; OMF's main explainable model |
 | `model` | models per task, with their measured precision and processing time |
-| `heuristic` | the position, move and tactic value heuristics and their rule-based models |
+| `heuristic` | the position, move and tactic value tasks: what any model filling them answers, whatever it is |
 | `utility` | a move's utility over its outcomes, goals and their weights, binning |
 | `tactic` | tactics, the default tactic, the optimizer |
 | `agent_model` | models of agents, from a generic player to one instance |
@@ -702,6 +773,8 @@ use.
     (`not_.py`).
   - Models are frozen, slotted dataclasses, except the search tree's nodes, which change while searching.
   - Logic lives in services; I/O lives only in entrypoints.
+  - Services are stateless, instantiated once when the application is built, and injected where they are needed.
+    Models, such as an RBS, are data passed to the services that run them.
   - Nothing in OMF is specific to one game. Constants are learned or inferred, not hardcoded.
 - **Logging:**
   - Services log through `logging.getLogger(__name__)`: what was decided and why, with the key values.

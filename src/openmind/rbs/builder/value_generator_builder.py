@@ -6,10 +6,10 @@ from openmind.parallel.model.memory_cap import MemoryCap
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
-from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rbs.service.reading_cache import ReadingCache
-from openmind.rbs.service.rule_compiler import RuleCompiler
-from openmind.rbs.service.rule_runner import RuleRunner
+from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.rule.service.rule_runner import RuleRunner
 from openmind.rbs.service.sparse_fitter import SparseFitter
 from openmind.rbs.service.term_evaluator import TermEvaluator
 from openmind.rbs.service.value_generator import ValueGenerator

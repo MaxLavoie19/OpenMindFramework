@@ -15,8 +15,8 @@ from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR, VALUE_PRIOR
 from openmind.mcts.factory.move_prior_factory import create_move_prior
 from openmind.parallel.model.dropped_call import DroppedCall
 from openmind.parallel.service.task_runner import TaskRunner
-from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.factory.rbs_factory import create_rule_based_game
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
 from openmind.training.constant.continuous_constant import CONTINUOUS_GAME, NO_VALUE_RULES, PROOF_KEYWORD
 from openmind.training.constant.training_constant import SEED_RANGE
@@ -60,7 +60,7 @@ class ContinuousTrainer:
         self._task_runner = task_runner
         self._summaries = PlayedGameSummaryMapper() if played_game_summary_mapper is None else played_game_summary_mapper
 
-    def train(self, rbs: RuleBasedSystem, library: ArmLibrary | None, settings: ContinuousTrainingSettings) -> None:
+    def train(self, rbs: RuleBasedGame, library: ArmLibrary | None, settings: ContinuousTrainingSettings) -> None:
         """Plays `settings.games` games, or until stopped."""
         if len(rbs.players().names) != 2:
             raise ValueError(f"Continuous training plays games between two players, not {len(rbs.players().names)}")
@@ -113,7 +113,7 @@ class ContinuousTrainer:
             keep_results=False,
         )
 
-    def _remember_proofs(self, rbs: RuleBasedSystem, lesson: GameLesson, label: str, game_id: str) -> None:
+    def _remember_proofs(self, rbs: RuleBasedGame, lesson: GameLesson, label: str, game_id: str) -> None:
         context = self._knowledge_base.ensure_context(rbs.context).id
         deduction_mechanism = self._knowledge_base.ensure_mechanism(INFERENCE).id
         plies = {state: ply for ply, state in enumerate(lesson.game.states)}
@@ -139,12 +139,12 @@ class ContinuousTrainer:
             logger.info("Remembered %s: %d of %d positions walked back proven", label, len(proofs), len(lesson.walk))
 
     def _agent_builder(
-        self, rbs: RuleBasedSystem, context: str | None, settings: ContinuousTrainingSettings
+        self, rbs: RuleBasedGame, context: str | None, settings: ContinuousTrainingSettings
     ) -> AgentBuilder:
         """An agent following an arm: valuing the positions its rollouts reach with the position rules of the arm's own
         context after the rollout actions, none without a context, falling back on the deduction, on the time control
         when there is one, selecting as the settings say; the value prior needs a context."""
-        valuer = None if context is None else create_rule_based_system(self._knowledge_base, context)
+        valuer = None if context is None else create_rule_based_game(self._knowledge_base, context)
         builder = (
             AgentBuilder()
             .with_exploration(EXPLORATION)

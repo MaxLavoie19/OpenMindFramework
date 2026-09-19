@@ -1,11 +1,8 @@
 #: The state the game starts in.
 INITIAL = "initial"
 
-#: Who plays, in what order, the variable naming the player to act and the payoff variables.
+#: Who plays, and the model holding each player's payoff.
 PLAYERS = "players"
-
-#: What a grid's cell holds when nothing is on it, its base named as the rule's parameter.
-EMPTY = "empty"
 
 #: The definitions script a context's rules all see: every name it leaves is theirs.
 DEFINITIONS = "definitions"
@@ -25,8 +22,11 @@ ENDING = "ending"
 #: A game's record, from its initial state and the actions played.
 RECORD = "record"
 
-#: What a player's clock running out does to the payoffs.
-TIMEOUT = "timeout"
+#: How long an action takes to perform, in seconds, from the state and its parameters.
+DURATION = "duration"
+
+#: How long before an action is available again, in seconds, from the state and its parameters.
+COOLDOWN = "cooldown"
 
 #: A position as an image, for pages showing games.
 PICTURE = "picture"
@@ -38,7 +38,7 @@ POSITION = "position"
 MOVE = "move"
 
 #: What a game project registers: the rules of the game itself.
-GAME_KINDS = (INITIAL, PLAYERS, EMPTY, DEFINITIONS, CONSTRAINT, VALUES, EFFECTS, ENDING, RECORD, TIMEOUT, PICTURE)
+GAME_KINDS = (INITIAL, PLAYERS, DEFINITIONS, CONSTRAINT, VALUES, EFFECTS, ENDING, DURATION, COOLDOWN, RECORD, PICTURE)
 
 #: What the inference engine and fitting produce: rules that judge rather than rule.
 HEURISTIC_KINDS = (POSITION, MOVE)

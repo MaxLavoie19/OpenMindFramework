@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 
-from openmind.rbs.model.called_rule import CalledRule
-from openmind.rbs.service.rule_caller import RuleCaller
+from openmind.rule.model.called_rule import CalledRule
+from openmind.rule.service.rule_caller import RuleCaller
 from openmind.world.model.state import State
 from openmind.structure.model.value import Value
 

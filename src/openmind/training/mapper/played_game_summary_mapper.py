@@ -1,6 +1,6 @@
 from openmind.agent.model.game_summary import GameSummary
 from openmind.agent.model.model_description import ModelDescription
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.training.model.played_game import PlayedGame
 
 
@@ -10,7 +10,7 @@ class PlayedGameSummaryMapper:
 
     def to_summary(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         game: PlayedGame,
         kind: str,
         round_number: int | None,

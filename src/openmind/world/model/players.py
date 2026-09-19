@@ -3,9 +3,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class Players:
-    """The players, in order; the model saying who acts — a Scalar naming the one player to act, or, where players act
-    at once, a Map flagging each player acting; and the Map holding each player's payoff by name."""
+    """The players, in order, and the Map holding each player's payoff by name, which an end state fills. OMF doesn't
+    know whose turn it is: all players play at the same time, all the time, and the game's constraints leave a player
+    no action outside their turn."""
 
     names: tuple[str, ...]
-    to_act: str
     payoff: str

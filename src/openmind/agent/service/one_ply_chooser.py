@@ -6,7 +6,7 @@ from openmind.mcts.constant.mcts_constant import RANDOM_OPTION
 from openmind.mcts.model.action_statistics import ActionStatistics
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.model.search_result import SearchResult
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.timing.model.deadline import Deadline
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -21,12 +21,12 @@ class OnePlyChooser:
     def __init__(self, state_reader: StateReader) -> None:
         self._state_reader = state_reader
 
-    def legal(self, rbs: RuleBasedSystem, state: State) -> tuple[Action, ...]:
+    def legal(self, rbs: RuleBasedGame, state: State) -> tuple[Action, ...]:
         return rbs.actions(state)
 
     def values(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         actions: Sequence[Action],
         valuer: PositionValuer,
@@ -34,7 +34,7 @@ class OnePlyChooser:
     ) -> list[float] | None:
         """Each action's value for the player to act, in the actions' order; None when the valuer can't value an outcome,
         or the deadline passed before every action was valued."""
-        player = self._state_reader.player_to_act(state, rbs.players())
+        player = rbs.players().names.index(rbs.acting_player(state))
         values: list[float] = []
         for action in actions:
             if deadline is not None and deadline.passed():
@@ -51,12 +51,12 @@ class OnePlyChooser:
             values.append(math.fsum(worth))
         return values
 
-    def random(self, rbs: RuleBasedSystem, state: State, rng: random.Random) -> SearchResult:
+    def random(self, rbs: RuleBasedGame, state: State, rng: random.Random) -> SearchResult:
         """A random legal move, with one visit and no value: its mean payoff is NaN, nothing having been searched. No
         legal move raises ValueError."""
         actions = self.legal(rbs, state)
         if not actions:
             raise ValueError("No legal action to choose from")
         chosen = rng.choice(actions)
-        player = rbs.players().names[self._state_reader.player_to_act(state, rbs.players())]
+        player = rbs.acting_player(state)
         return SearchResult(player, (ActionStatistics(chosen, 1, math.nan),), chosen, (), option=RANDOM_OPTION)

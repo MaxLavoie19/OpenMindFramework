@@ -17,7 +17,7 @@ from openmind.mcts.model.simultaneous_node import SimultaneousNode
 from openmind.timing.model.deadline import Deadline
 from openmind.timing.model.time_source import TimeSource
 from openmind.timing.service.wall_time_source import WallTimeSource
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
@@ -57,7 +57,7 @@ class TreeSearch:
 
     def search(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         settings: SearchSettings,
         guidance: Guidance | None = None,
@@ -72,7 +72,7 @@ class TreeSearch:
 
     def _search(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         settings: SearchSettings,
         guidance: Guidance | None = None,
@@ -101,7 +101,7 @@ class TreeSearch:
             if settings.unfinished_payoff is None:
                 raise ValueError("A rollout limit needs an unfinished payoff")
         rng = random.Random(settings.seed)
-        if self._state_reader.acts_at_once(state, rbs.players()):
+        if len(rbs.acting(state)) > 1:
             if not 0.0 < settings.regret_exploration <= 1.0:
                 raise ValueError(f"The regret exploration needs to be above 0 and at most 1, not {settings.regret_exploration}")
             return self._search_at_once(rbs, state, settings, valuation, player, predicted or {}, rng)
@@ -170,7 +170,7 @@ class TreeSearch:
         self,
         iteration: int,
         root: DecisionNode,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         settings: SearchSettings,
         guidance: Guidance | None,
         valuation: LeafValuation | None,
@@ -310,7 +310,7 @@ class TreeSearch:
         self,
         chance: ChanceNode,
         state: State,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         guidance: Guidance | None,
         rng: random.Random,
         possible: Possible | None,
@@ -325,7 +325,7 @@ class TreeSearch:
 
     def _decision_node(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         guidance: Guidance | None,
         rng: random.Random,
@@ -338,7 +338,7 @@ class TreeSearch:
 
     def _new_decision_node(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         guidance: Guidance | None,
         rng: random.Random,
@@ -355,7 +355,7 @@ class TreeSearch:
         if ratings:
             rating_of = dict(zip(actions, ratings, strict=True))
             untried.sort(key=rating_of.__getitem__)
-        player = self._state_reader.player_to_act(state, rbs.players()) if actions else None
+        player = rbs.players().names.index(rbs.acting_player(state)) if actions else None
         priors: tuple[float, ...] = ()
         if settings.selection == PUCT and actions:
             priors = (
@@ -378,7 +378,7 @@ class TreeSearch:
 
     def _rollout(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         settings: SearchSettings,
         guidance: Guidance | None,
@@ -456,7 +456,7 @@ class TreeSearch:
 
     def _search_at_once(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         settings: SearchSettings,
         valuation: LeafValuation | None,
@@ -554,7 +554,7 @@ class TreeSearch:
         self,
         iteration: int,
         root: SimultaneousNode,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         settings: SearchSettings,
         valuation: LeafValuation | None,
         rng: random.Random,
@@ -616,7 +616,7 @@ class TreeSearch:
             )
         return len(chances)
 
-    def _node_at_once(self, rbs: RuleBasedSystem, state: State) -> SimultaneousNode:
+    def _node_at_once(self, rbs: RuleBasedGame, state: State) -> SimultaneousNode:
         legal = rbs.joint_actions(state)
         actions = tuple(actions for _, actions in legal)
         return SimultaneousNode(
@@ -671,7 +671,7 @@ class TreeSearch:
 
     def _rollout_at_once(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         settings: SearchSettings,
         valuation: LeafValuation | None,

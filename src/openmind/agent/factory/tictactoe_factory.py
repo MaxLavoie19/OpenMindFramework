@@ -1,6 +1,5 @@
 import textwrap
 
-from openmind.agent.constant.agent_constant import FLAGGED
 from openmind.agent.constant.tictactoe_constant import (
     CELL,
     COL,
@@ -17,15 +16,17 @@ from openmind.agent.constant.tictactoe_constant import (
     STANDARD,
     TURN,
     UNSET,
+    VARIANTS,
     WIN,
 )
 from openmind.agent.model.tictactoe_variant import TicTacToeVariant
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.game.service.game_declarer import GameDeclarer
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rule.model.python_rule import PythonRule
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
 from openmind.world.builder.state_builder import StateBuilder
+from openmind.world.constant.players_constant import PLAYER
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
@@ -75,11 +76,14 @@ def create_tictactoe_definitions(variant: TicTacToeVariant = STANDARD) -> Python
     )
 
 
-def declare_tictactoe_moves(declarer: RuleDeclarer, variant: TicTacToeVariant = STANDARD) -> None:
-    """While no payoff is set: place a mark on an empty cell or, with gravity, drop it in a column whose top cell is
-    empty."""
+def declare_tictactoe_moves(declarer: GameDeclarer, variant: TicTacToeVariant = STANDARD) -> None:
+    """While no payoff is set, the player whose turn it is places a mark on an empty cell or, with gravity, drops it in
+    a column whose top cell is empty; the other player has no action."""
     _check(variant)
-    no_payoff_set = tuple(PythonRule(f"{PAYOFF}[{player!r}] is {UNSET!r}") for player in PLAYERS)
+    no_payoff_set = (
+        PythonRule(f"{TURN} == {PLAYER}"),
+        *(PythonRule(f"{PAYOFF}[{player!r}] is {UNSET!r}") for player in PLAYERS),
+    )
     columns = PythonRule(repr(tuple(range(1, variant.width + 1))))
     if variant.gravity:
         declarer.values(DROP, COL, columns)
@@ -90,7 +94,7 @@ def declare_tictactoe_moves(declarer: RuleDeclarer, variant: TicTacToeVariant = 
     declarer.constraints(PLACE, *no_payoff_set, PythonRule(f"{CELL}[{ROW}, {COL}] is {EMPTY!r}"))
 
 
-def declare_tictactoe_effects(declarer: RuleDeclarer, variant: TicTacToeVariant = STANDARD) -> None:
+def declare_tictactoe_effects(declarer: GameDeclarer, variant: TicTacToeVariant = STANDARD) -> None:
     """Mark the landing cell and check only the lines through it for a win, set a draw on a full board, then pass the
     turn."""
     _check(variant)
@@ -117,31 +121,33 @@ def declare_tictactoe_effects(declarer: RuleDeclarer, variant: TicTacToeVariant 
     declarer.leads_to(action, PythonRule(effects))
 
 
-def create_tictactoe_timeout() -> PythonRule:
-    """On a clock, the player whose time ran out loses and the other wins."""
-    return PythonRule(f"{PAYOFF} = {PAYOFF}.with_item({FLAGGED}, LOSS).with_item(other({FLAGGED}), WIN)")
-
-
 def create_tictactoe_players() -> Players:
-    """X and O; turn names the player to act; the payoff map holds each one's payoff."""
-    return Players(PLAYERS, TURN, PAYOFF)
+    """X and O; the payoff map holds each one's payoff."""
+    return Players(PLAYERS, PAYOFF)
 
 
-def declare_tictactoe(
-    knowledge_base: KnowledgeBase, variant: TicTacToeVariant = STANDARD, weight: float = 1.0
-) -> str:
+def declare_tictactoe(knowledge_base: KnowledgeBase, variant: TicTacToeVariant = STANDARD) -> str:
     """Declares tic-tac-toe's rules, or one of its variants', into the knowledge base, and gives back the context they
     were declared under: "tictactoe" for the standard game, "tictactoe/<variant>" for any other."""
     context = NAME if variant == STANDARD else SEPARATOR.join((NAME, variant.name))
-    declarer = RuleDeclarer(knowledge_base, context, weight)
+    declarer = GameDeclarer(knowledge_base, context)
     declarer.starts_at(create_tictactoe_initial_state(variant))
     declarer.played_by(create_tictactoe_players())
-    declarer.empty(CELL, EMPTY)
     declarer.definitions(create_tictactoe_definitions(variant))
     declare_tictactoe_moves(declarer, variant)
     declare_tictactoe_effects(declarer, variant)
-    declarer.timeout(create_tictactoe_timeout())
     return declarer.done()
+
+
+def declare_tictactoe_named(name: str, knowledge_base: KnowledgeBase) -> str:
+    """Declares tic-tac-toe from its registered name: "tictactoe", or "tictactoe/<variant>"; an unknown variant raises
+    ValueError."""
+    _, separator, variant = name.partition(SEPARATOR)
+    if not separator:
+        return declare_tictactoe(knowledge_base)
+    if variant not in VARIANTS:
+        raise ValueError(f"Unknown variant {variant!r} of {NAME}; variants: {', '.join(VARIANTS)}")
+    return declare_tictactoe(knowledge_base, VARIANTS[variant])
 
 
 def _check(variant: TicTacToeVariant) -> None:

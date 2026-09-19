@@ -9,8 +9,7 @@ from openmind.agent.service.agent import Agent
 from openmind.agent.service.timekeeper import Timekeeper
 from openmind.parallel.model.dropped_call import DroppedCall
 from openmind.parallel.service.task_runner import TaskRunner
-from openmind.rbs.factory.rule_factory import create_rule_caller
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 from openmind.timing.model.clock import Clock
 from openmind.timing.model.time_control import TimeControl
@@ -44,11 +43,11 @@ class SelfPlay:
     ) -> None:
         self._state_reader = state_reader
         self._task_runner = task_runner
-        self._timekeeper = Timekeeper(create_rule_caller()) if timekeeper is None else timekeeper
+        self._timekeeper = Timekeeper() if timekeeper is None else timekeeper
 
     def play(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         agent_builder: AgentBuilder,
         games: int,
         rng: random.Random,
@@ -74,7 +73,7 @@ class SelfPlay:
 
     def play_arms(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         builders: Mapping[str, AgentBuilder],
         games: int,
         scores: Mapping[str, tuple[int, float]],
@@ -130,7 +129,7 @@ class SelfPlay:
 
     def play_game(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         agent_builder: AgentBuilder,
         agent_seed: int,
         outcome_seed: int,
@@ -155,7 +154,7 @@ class SelfPlay:
 
     def play_arm_game(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         builders: Sequence[AgentBuilder],
         arms: tuple[str, ...],
         agent_seed: int,
@@ -183,7 +182,7 @@ class SelfPlay:
 
     def _game(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         agents: Sequence[Agent],
         outcome_seed: int,
         keep_samples: bool,
@@ -196,14 +195,14 @@ class SelfPlay:
         clocks: list[Clock] = [] if time_control is None else list(self._timekeeper.clocks(rbs, time_control))
         steps, seconds, budgets, flagged = [0] * len(names), [], [], None
         while rbs.actions(state):
-            player = self._state_reader.player_to_act(state, rbs.players())
+            player = rbs.players().names.index(rbs.acting_player(state))
             agent = agents[player]
             if time_control is None:
                 result = agent.search(rbs, state)
             else:
                 clock, played = clocks[player], steps[player]
                 result, spent = self._timekeeper.timed(lambda: agent.search(rbs, state, None, clock, played))
-                clocks[player], steps[player] = clock.after(spent), played + 1
+                clocks[player], steps[player] = (clock if clock.flagged else clock.after(spent)), played + 1
                 seconds.append(spent)
                 budgets.append(result.budget)
                 logger.debug(
@@ -214,10 +213,9 @@ class SelfPlay:
                     "no" if result.budget is None else f"{result.budget:.2f}",
                     clocks[player].remaining,
                 )
-                if clocks[player].flagged:
+                if clocks[player].flagged and not clock.flagged:
                     flagged = names[player]
-                    state = self._timekeeper.flag(rbs, state, flagged)
-                    break
+                    logger.info("%s's time ran out; what that does is the game's own rule", flagged)
             sampled += len(result.samples)
             if keep_samples:
                 samples.extend(result.samples)
@@ -243,11 +241,11 @@ class SelfPlay:
         )
         return game, sampled, state
 
-    def _ending_of(self, rbs: RuleBasedSystem, state: State, game: PlayedGame) -> str | None:
+    def _ending_of(self, rbs: RuleBasedGame, state: State, game: PlayedGame) -> str | None:
         """Why the game ended: the player whose time ran out, or what the domain says."""
         return f"{game.flagged}'s flag" if game.flagged is not None else rbs.ended(state)
 
-    def _ending(self, rbs: RuleBasedSystem, state: State, game: PlayedGame) -> str:
+    def _ending(self, rbs: RuleBasedGame, state: State, game: PlayedGame) -> str:
         """` by <why the game ended>` when the domain says or a player's time ran out, nothing otherwise; on a clock,
         then ` on <time control>, clocks <player>=<seconds left> ...`."""
         ending = self._ending_of(rbs, state, game)
@@ -257,14 +255,14 @@ class SelfPlay:
         clocks = " ".join(f"{name}={clock.remaining:.2f}" for name, clock in zip(rbs.players().names, game.clocks))
         return f"{text} on {TimeControlTextMapper().to_text(game.time_control)}, clocks {clocks}"
 
-    def records(self, rbs: RuleBasedSystem, games: Sequence[PlayedGame]) -> tuple[str, ...]:
+    def records(self, rbs: RuleBasedGame, games: Sequence[PlayedGame]) -> tuple[str, ...]:
         """Each game's record, in the games' order; a game the domain doesn't record, or whose record rule gives nothing,
         is left out."""
-        found = (rbs.record(game.actions, game.flagged, game.payoffs) for game in games)
+        found = (rbs.record(game.actions, game.payoffs) for game in games)
         return tuple(record for record in found if record is not None)
 
-    def _log_record(self, rbs: RuleBasedSystem, game: PlayedGame, game_name: str) -> None:
-        record = rbs.record(game.actions, game.flagged, game.payoffs)
+    def _log_record(self, rbs: RuleBasedGame, game: PlayedGame, game_name: str) -> None:
+        record = rbs.record(game.actions, game.payoffs)
         if record is not None:
             logger.info("%s record: %s", game_name, record)
 

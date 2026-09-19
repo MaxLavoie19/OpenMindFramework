@@ -14,11 +14,10 @@ from openmind.agent.constant.sudoku_constant import (
     PUZZLE,
     SIZE,
     SOLVED,
-    TURN,
     UNSET,
 )
-from openmind.rbs.constant.rule_constant import ALL_DIFFERENT
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.rule.constant.rule_constant import ALL_DIFFERENT
+from openmind.game.service.game_declarer import GameDeclarer
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rule.model.python_rule import PythonRule
 from openmind.structure.model.grid import Grid
@@ -30,18 +29,17 @@ from openmind.structure.model.value import Value
 
 
 def create_sudoku_initial_state(grid: str = PUZZLE) -> State:
-    """The cell grid, 9 by 9, holding the puzzle's clues in their cells, every other cell empty; the solver to act; the
-    payoff map holding no payoff yet."""
+    """The cell grid, 9 by 9, holding the puzzle's clues in their cells, every other cell empty; the payoff map holding
+    no payoff yet."""
     return (
         StateBuilder()
         .with_model(CELL, Grid((SIZE, SIZE), tuple(clue for _, _, clue in _cells(grid))))
-        .with_model(TURN, PLAYER)
         .with_model(PAYOFF, Map.of({PLAYER: UNSET}))
         .build()
     )
 
 
-def declare_sudoku_moves(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
+def declare_sudoku_moves(declarer: GameDeclarer, grid: str = PUZZLE) -> None:
     """Fill every empty cell of the grid at once, with no digit twice in a row, a column or a box. Each empty cell is a
     parameter named like cell_1_3; a clue is read from the state as cell[1, 1]."""
     clues = {(row, col): clue for row, col, clue in _cells(grid)}
@@ -59,7 +57,7 @@ def declare_sudoku_moves(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
     )
 
 
-def declare_sudoku_effects(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
+def declare_sudoku_effects(declarer: GameDeclarer, grid: str = PUZZLE) -> None:
     """Place every filled value in its cell of the grid; a full grid pays the solver 1.0, the share of cells filled."""
     effects = "\n".join(
         (
@@ -75,23 +73,28 @@ def declare_sudoku_effects(declarer: RuleDeclarer, grid: str = PUZZLE) -> None:
 
 
 def create_sudoku_players() -> Players:
-    """A single player, the solver: turn names it and the payoff map holds its payoff."""
-    return Players((PLAYER,), TURN, PAYOFF)
+    """A single player, the solver; the payoff map holds its payoff."""
+    return Players((PLAYER,), PAYOFF)
 
 
-def declare_sudoku(
-    knowledge_base: KnowledgeBase, name: str = NAME, grid: str = PUZZLE, weight: float = 1.0
-) -> str:
+def declare_sudoku(knowledge_base: KnowledgeBase, name: str = NAME, grid: str = PUZZLE) -> str:
     """Declares sudoku's rules into the knowledge base and gives back the context they were declared under. Without
     arguments, the context "sudoku" holds the puzzle written here."""
-    declarer = RuleDeclarer(knowledge_base, name, weight)
+    declarer = GameDeclarer(knowledge_base, name)
     declarer.starts_at(create_sudoku_initial_state(grid))
     declarer.played_by(create_sudoku_players())
-    declarer.empty(CELL, EMPTY)
     declare_sudoku_moves(declarer, grid)
     declare_sudoku_effects(declarer, grid)
     return declarer.done()
 
+
+
+def declare_sudoku_named(name: str, knowledge_base: KnowledgeBase) -> str:
+    """Declares sudoku from its registered name: the puzzle written here, which has no variant; any other name raises
+    ValueError. Puzzles from a collection are declared by `openmind-solve`."""
+    if name != NAME:
+        raise ValueError(f"{NAME} has no variant: {name!r}; solve a collection's puzzle with openmind-solve")
+    return declare_sudoku(knowledge_base)
 
 def _cells(grid: str) -> list[tuple[int, int, Value]]:
     """Every cell's row, column and clue, or EMPTY, row by row; a grid that isn't 81 empty marks or digits raises

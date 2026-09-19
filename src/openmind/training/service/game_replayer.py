@@ -2,7 +2,7 @@ import math
 import random
 
 from openmind.agent.model.game_summary import GameSummary
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.training.model.played_game import PlayedGame
 from openmind.world.model.state import State
 
@@ -12,7 +12,7 @@ class GameReplayer:
     its positions come back exactly as they were. Its search values aren't remembered: each position gets the mean of
     the final payoffs instead."""
 
-    def replay(self, rbs: RuleBasedSystem, summary: GameSummary) -> PlayedGame:
+    def replay(self, rbs: RuleBasedGame, summary: GameSummary) -> PlayedGame:
         """The game with the positions its moves were played from, its payoffs, arms and actions. A summary without an
         outcome seed raises ValueError."""
         states = self.positions(rbs, summary)[:-1]
@@ -34,7 +34,7 @@ class GameReplayer:
             summary.ending,
         )
 
-    def positions(self, rbs: RuleBasedSystem, summary: GameSummary) -> tuple[State, ...]:
+    def positions(self, rbs: RuleBasedGame, summary: GameSummary) -> tuple[State, ...]:
         """Every position of the game, from the start to the position its last move led to: one more than its moves. A
         summary without an outcome seed raises ValueError."""
         if len(summary.seeds) < 2:

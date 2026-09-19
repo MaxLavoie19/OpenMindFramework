@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 from openmind.debug.factory.debugger_factory import process_debugger
 from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.training.model.continuous_training_settings import ContinuousTrainingSettings
 from openmind.training.model.game_lesson import GameLesson
 from openmind.training.service.ending_walker import EndingWalker
@@ -19,7 +19,7 @@ class GameStudy:
 
     def play_and_study(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         builders: Sequence[AgentBuilder],
         arms: tuple[str, ...],
         agent_seed: int,
@@ -31,7 +31,7 @@ class GameStudy:
 
     def _play_and_study(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         builders: Sequence[AgentBuilder],
         arms: tuple[str, ...],
         agent_seed: int,

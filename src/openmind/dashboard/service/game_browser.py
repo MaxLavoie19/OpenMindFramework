@@ -4,7 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from openmind.agent.constant.agent_constant import LAST_ACTION
-from openmind.agent.factory.game_factory import create_game
+from openmind.rbs.factory.rbs_factory import create_game
 from openmind.agent.mapper.game_summary_json_mapper import GameSummaryJsonMapper
 from openmind.agent.service.game_memory import GameMemory
 from openmind.dashboard.model.game_listing import GameListing
@@ -12,7 +12,7 @@ from openmind.dashboard.model.game_view import GameView
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.knowledge.model.direct_experience import DirectExperience
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.training.service.game_replayer import GameReplayer
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
@@ -26,9 +26,9 @@ class GameBrowser:
     picture rule, or laid out as text without one. The game last drawn is kept, so a page reloading doesn't draw it
     again."""
 
-    def __init__(self, game_factory: Callable[[str, object], RuleBasedSystem] = create_game) -> None:
+    def __init__(self, game_factory: Callable[[str, object], RuleBasedGame] = create_game) -> None:
         self._game_factory = game_factory
-        self._games: dict[str, RuleBasedSystem] = {}
+        self._games: dict[str, RuleBasedGame] = {}
         self._kept: GameView | None = None
 
     def decisive(self, directory: Path, domain_name: str) -> tuple[GameListing, ...]:
@@ -111,7 +111,7 @@ class GameBrowser:
             int(data["plies"]),
         )
 
-    def _game(self, name: str, knowledge_base: object) -> RuleBasedSystem:
+    def _game(self, name: str, knowledge_base: object) -> RuleBasedGame:
         """The RBS for a game, kept once it has been built: its rules don't change while a page is browsed."""
         if name not in self._games:
             self._games[name] = self._game_factory(name, knowledge_base)

@@ -1,12 +1,12 @@
 from collections.abc import Callable
 
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.structure.model.map import Map
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
 
-type Game = Callable[[str], RuleBasedSystem]
+type Game = Callable[[str], RuleBasedGame]
 
 
 def play(game: Game, *cells: tuple[int, int]) -> State:

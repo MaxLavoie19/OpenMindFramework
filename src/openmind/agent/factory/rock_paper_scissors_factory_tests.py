@@ -1,24 +1,24 @@
 from collections.abc import Callable
 import pytest
 
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.structure.model.map import Map
 from openmind.world.model.action import Action
 from openmind.world.model.joint_action import JointAction
 from openmind.world.service.state_reader import StateReader
 
 
-type Game = Callable[[str], RuleBasedSystem]
+type Game = Callable[[str], RuleBasedGame]
 
 
 def throw(shape: str) -> Action:
     return Action("throw", (("shape", shape),))
 
 
-def test_both_players_are_to_act_at_once_from_the_start(game: Game) -> None:
+def test_both_players_act_at_once_from_the_start(game: Game) -> None:
     rbs = game("rockpaperscissors")
 
-    assert StateReader().players_to_act(rbs.start(), rbs.players()) == (0, 1)
+    assert rbs.acting(rbs.start()) == (0, 1)
 
 
 @pytest.mark.parametrize(
@@ -36,4 +36,4 @@ def test_the_hands_thrown_at_once_decide_the_payoffs_and_end_the_game(game: Game
     assert probability == 1.0
     assert state.model("hand") == Map.of({"A": first, "B": second})
     assert StateReader().payoffs(state, rbs.players()) == payoffs
-    assert StateReader().players_to_act(state, rbs.players()) == ()
+    assert rbs.acting(state) == ()

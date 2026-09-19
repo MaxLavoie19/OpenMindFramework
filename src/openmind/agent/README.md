@@ -11,8 +11,7 @@ constants.
 
 | File | What it is |
 |---|---|
-| `service/timekeeper.py` | `Timekeeper(rule_caller, time_source=None)`, what a referee needs to keep the players' clocks, on wall time unless given another source: `clocks(rbs, control)`, each player's starting clock, raising `ValueError` for a game without a timeout rule; `timed(choose)`, what a choice gave and the seconds it took; `flag(rbs, state, player)`, the state after the player's clock ran out, by the game's timeout rule |
-| `factory/game_factory.py` | `declare_game(name, knowledge_base)`: declares a game's rules from its name (`"tictactoe"`, a variant such as `"tictactoe/fourinarow"`, `"sudoku"`, `"prisonersdilemma"`, `"rockpaperscissors"`, or a game an installed project registers) and gives back the context; `create_game(name, knowledge_base)`, the RBS for it. Declaring twice leaves the knowledge base as it was; an unknown name or variant raises `ValueError` listing the known ones |
+| `service/timekeeper.py` | `Timekeeper(time_source=None)`, what a referee needs to keep the players' clocks, on wall time unless given another source: `clocks(rbs, control)`, each player's starting clock; `timed(choose)`, what a choice gave and the seconds it took. What running out of time does is the game's own rule; OMF has none |
 | `model/game_rules.py` | `GameRules`: what an installed project registers, a function declaring its game's rules into a knowledge base from the whole game name and giving back the context |
 | `service/agent.py` | `Agent`: searches a game's state with MCTS over its RBS, guided by a rater and valuing positions with a valuer when built with them, falling back on deduction when built with a budget (see `mcts/README.md`); where players act at once, it searches for the player given to `search(rbs, state, player)` or `choose(rbs, state, player)` and samples its action from its average strategy; `search` gives the whole result, `choose` the action. Given a clock and the steps its player has played (`search(rbs, state, player, clock, steps_played)`), it asks its time budget estimator how long the step may take and searches for that long, the budget replacing any iterations it was built with; without a clock it searches its iterations. A clock without an estimator, or no clock for an agent built without iterations, raise `ValueError`. The deduction fallback keeps its own seconds, not bounded by the step's budget. On a clock, the whole move keeps to the estimator's budget, one deadline from the moment it starts choosing that the fallback, its deduction and the search all draw on; where players take turns, its `MovePlanner` picks the option, a fallback cut short still leaving the move at least one search iteration, and the move logs `INFO <player> plays by <option> within a <s> second budget: <s> seconds, <s> left`, the result's `option` saying which |
 | `service/deduction_fallback.py` | `DeductionFallback.result(rbs, state, valuation, deadline=None)`: when the agent has no valuer, or its valuer can't value every legal action's outcomes or values them all the same for the player to act, deduces the position (see `inference/README.md`); a proven best action comes back as a search result holding that action alone, with 1 visit and its proven payoff, and no samples; otherwise `None`, and the agent searches; with a deadline, valuing the legal actions stops once it passes, and the deduction gets no more than the time left |
@@ -31,32 +30,32 @@ constants.
 | `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), the guidance's prior weight (1.0), rollout temperature (0.2) and guided rollouts (true), and the entry point group installed domains register under (`openmind.domains`) |
 | `model/tictactoe_variant.py` | `TicTacToeVariant(name, width, height, line, gravity)`: how a variant differs from standard tic-tac-toe |
 | `constant/tictactoe_constant.py` | Game name and the variant separator, players, empty and unset values, payoff values, model and action names, and the variants (`STANDARD`, `VARIANTS`) |
-| `factory/tictactoe_factory.py` | `declare_tictactoe(knowledge_base, variant=STANDARD, weight=1.0)`, declaring `create_tictactoe_initial_state(variant)`, `create_tictactoe_players()`, the empty cell, `create_tictactoe_definitions(variant)`, the moves (`declare_tictactoe_moves`), their effects (`declare_tictactoe_effects`) and `create_tictactoe_timeout()`, on a clock the player whose time ran out losing; a variant without room for its line raises `ValueError` |
+| `factory/tictactoe_factory.py` | `declare_tictactoe(knowledge_base, variant=STANDARD)`, declaring `create_tictactoe_initial_state(variant)`, `create_tictactoe_players()`, `create_tictactoe_definitions(variant)`, the moves (`declare_tictactoe_moves`) and their effects (`declare_tictactoe_effects`); `declare_tictactoe_named(name, knowledge_base)`, registered under the `openmind.domains` entry points |
 | `constant/sudoku_constant.py` | Game name and the separator of puzzle names, box and grid size, digits, the puzzle, empty and clue marks, empty and unset values, the collection file suffix and Project Euler's format marks, payoff values, model and action names, and the parameter name template (`cell_{row}_{col}`) |
-| `factory/sudoku_factory.py` | `declare_sudoku(knowledge_base, name="sudoku", grid=PUZZLE, weight=1.0)`, declaring `create_sudoku_initial_state(grid)`, `create_sudoku_players()`, the empty cell, the fill (`declare_sudoku_moves`) and what it writes (`declare_sudoku_effects`) |
+| `factory/sudoku_factory.py` | `declare_sudoku(knowledge_base, name="sudoku", grid=PUZZLE)`, declaring `create_sudoku_initial_state(grid)`, `create_sudoku_players()`, the fill (`declare_sudoku_moves`) and what it writes (`declare_sudoku_effects`); `declare_sudoku_named(name, knowledge_base)`, registered |
 | `model/sudoku_puzzle.py` | `SudokuPuzzle(collection, number, grid)`: a published puzzle, numbered from 1 in its collection, its grid 81 characters row by row with `.` for an empty cell |
 | `mapper/sudoku_collection_mapper.py` | `SudokuCollectionMapper`: reads a collection's text into puzzles, from one 81-character line per puzzle (Norvig) or a `Grid NN` line and 9 rows (Project Euler), with `.` or `0` for an empty cell; anything else raises `ValueError` |
 | `repository/sudoku_puzzle_repository.py` | `SudokuPuzzleRepository`: lists the `<collection>.txt` files of a directory and loads a collection's puzzles |
 | `model/prisoners_dilemma_variant.py` | `PrisonersDilemmaVariant(name, rounds, ending_chance, simultaneous=False)`: how many rounds are played (`None` when no last round is known), the chance the game ends after each round, and whether both players choose at once |
 | `constant/rock_paper_scissors_constant.py` | Game name, players, the three shapes and what each beats, the payoffs of a win (1), draw (0.5) and loss (0), model, action and parameter names |
-| `factory/rock_paper_scissors_factory.py` | `declare_rock_paper_scissors(knowledge_base, weight=1.0)`, declaring `create_rock_paper_scissors_initial_state()`, `create_rock_paper_scissors_players()`, `create_rock_paper_scissors_definitions()`, the throws and what the two throws lead to together |
+| `factory/rock_paper_scissors_factory.py` | `declare_rock_paper_scissors(knowledge_base)`, declaring `create_rock_paper_scissors_initial_state()`, `create_rock_paper_scissors_players()`, `create_rock_paper_scissors_definitions()`, the throws and what the two throws lead to together; `declare_rock_paper_scissors_named(name, knowledge_base)`, registered |
 | `constant/prisoners_dilemma_constant.py` | Game name and the variant separator, players, the two choices, Axelrod's points (`REWARD`, `PUNISHMENT`, `TEMPTATION`, `SUCKER`, `POINTS`), model, action and parameter names, and the variants (`STANDARD`, `VARIANTS`) |
-| `factory/prisoners_dilemma_factory.py` | `declare_prisoners_dilemma(knowledge_base, variant=STANDARD, weight=1.0)`, declaring `create_prisoners_dilemma_initial_state()`, `create_prisoners_dilemma_players()`, `create_prisoners_dilemma_definitions(variant)`, the choices and what a round leads to with its ending chance; a variant with fewer than 1 round, an ending chance outside 0 to 1, or neither a last round nor an ending chance raises `ValueError` |
+| `factory/prisoners_dilemma_factory.py` | `declare_prisoners_dilemma(knowledge_base, variant=STANDARD)`, declaring `create_prisoners_dilemma_initial_state()`, `create_prisoners_dilemma_players()`, `create_prisoners_dilemma_definitions(variant)`, the choices and what a round leads to with its ending chance; a variant with fewer than 1 round, an ending chance outside 0 to 1, or neither a last round nor an ending chance raises `ValueError`; `declare_prisoners_dilemma_named(name, knowledge_base)`, registered |
 
 ## Domains from installed projects
 
 OpenMind ships without the libraries a problem needs. A problem is programmed in its own project, which installs
 OpenMind, writes its rules — free to import any library — and declares them into the knowledge base with a
-`RuleDeclarer` (see `rbs/README.md`). It registers the function that declares them in its `pyproject.toml`:
+`GameDeclarer` (see `game/README.md`). It registers the function that declares them in its `pyproject.toml`:
 
 ```toml
 [project.entry-points."openmind.domains"]
 chess = "openmind_chess.game.factory.chess_factory:declare_chess"
 ```
 
-The function takes the whole game name and a knowledge base and gives back the context it declared. `declare_game(name,
-knowledge_base)` looks in its own games first, then in the installed ones for the part of the name before `/`, and
-calls that function with the whole name (`"chess"`, or a variant such as `"chess/960"`). Every command taking a game
+The function takes the whole game name and a knowledge base and gives back the context it declared. The
+`GameRegistry` (see `game/README.md`) looks for the part of the name before `/`, and calls that function with the
+whole name (`"chess"`, or a variant such as `"chess/960"`). Every command taking a game
 name, `openmind-play` among them, then plays the project's game.
 
 ## Tic-tac-toe and its variants
@@ -78,8 +77,8 @@ read.
 
 ### Players
 
-`Players(("X", "O"), "turn", "payoff")`: `turn` names the player to act, and the `payoff` map holds each player's
-payoff.
+`Players(("X", "O"), "payoff")`: the `payoff` map holds each player's payoff. Whose turn it is is the game's own
+`turn` model, which the constraints read.
 
 ### State models
 
@@ -100,10 +99,13 @@ Without gravity, the action `place(row, col)`, with row in 1..height and col in 
 hold, checked in this order:
 
 ```python
+turn == player
 payoff['X'] is None
 payoff['O'] is None
 cell[row, col] is None
 ```
+
+`player` is the player the legal actions are solved for, so the player whose turn it isn't has no action.
 
 With gravity, the action `drop(col)`, with col in 1..width, has the same payoff rules and `cell[1, col] is None`, the
 column's top cell.
@@ -151,14 +153,13 @@ domain = create_sudoku_domain(f"sudoku/{puzzle.collection}/{puzzle.number}", puz
 
 ### Players
 
-`Players(("solver",), "turn", "payoff")`.
+`Players(("solver",), "payoff")`.
 
 ### State models
 
 | Model | Values | Initial |
 |---|---|---|
 | `cell`, a 9 by 9 `Grid`, `cell[row, col]` | a digit 1..9, or `None` when empty | the grid's clue, or `None` |
-| `turn`, a scalar | `"solver"` | `"solver"` |
 | `payoff`, a `Map` by player | 1.0 for the solver once the grid is filled; `None` until then | `{solver: None}` |
 
 ### Constraint rules (solved by the CSP)
@@ -187,10 +188,10 @@ choose at the same time, which the `standard` and `uncertain` variants play as A
 | `uncertain` | `prisonersdilemma/uncertain` | no known last round | 0.1 | A then B |
 | `simultaneous` | `prisonersdilemma/simultaneous` | 10 | 0 | at once |
 
-In the `simultaneous` variant, `turn` is a `Map` flagging A and B, true while the game goes on;
-`choose` is legal for a player to act when `turn[player]` holds and `chosen[player] is None`; its effects are only
+In the `simultaneous` variant, there is no turn: both players choose at once;
+`choose` is legal for a player when no payoff is set and `chosen[player] is None`; its effects are only
 `chosen = chosen.with_item(player, choice)`, and the rules for what the choices together lead to play the round with the script below, from `points =`
-on, with `each` for `player`, clearing both turns when the game ends. A choice is kept only until the resolution,
+on, with `each` for `player`. A choice is kept only until the resolution,
 which runs before anyone chooses again.
 
 With a known last round, perfect play defects in every round, whatever the ending chance. Without one, the game can't
@@ -198,7 +199,7 @@ be searched exactly, since its states never stop.
 
 ### Players
 
-`Players(("A", "B"), "turn", "payoff")`.
+`Players(("A", "B"), "payoff")`.
 
 ### State models
 
@@ -208,7 +209,7 @@ be searched exactly, since its states never stop.
 | `played`, a `Grid` of one row per round and one column per player, A then B | the choice played in a round; `None` for the round being chosen; a round's row is added when it starts | one row, `None` |
 | `round`, a scalar | the round being chosen, from 1 | 1 |
 | `score`, a `Map` by player | points so far | `{A: 0, B: 0}` |
-| `turn`, a scalar | `"A"` or `"B"` | `"A"` |
+| `turn`, a scalar, except in the `simultaneous` variant | `"A"` or `"B"` | `"A"` |
 | `payoff`, a `Map` by player | the player's score when the game ends; `None` until then | `{A: None, B: None}` |
 
 ### Constraint rules (solved by the CSP)
@@ -218,9 +219,10 @@ points of both players for a round, `ROUNDS`, `None` without a known last round,
 `choose(choice)`, with choice `"cooperate"` or `"defect"`, is legal when these rules hold:
 
 ```python
+turn == player
 payoff['A'] is None
 payoff['B'] is None
-chosen[turn] is None
+chosen[player] is None
 ```
 
 ### Effects rules (run by the predictor)
@@ -268,31 +270,30 @@ beating it.
 
 ### Players
 
-`Players(("A", "B"), "turn", "payoff")`, with the `turn` map flagging the players to act.
+`Players(("A", "B"), "payoff")`; both players act at once.
 
 ### State models
 
 | Model | Values | Initial |
 |---|---|---|
 | `hand`, a `Map` by player | the shape thrown, `"rock"`, `"paper"` or `"scissors"`; `None` until thrown | `{A: None, B: None}` |
-| `turn`, a `Map` by player | whether the player is to act | `{A: True, B: True}` |
 | `payoff`, a `Map` by player | 1, 0.5 or 0 once both have thrown; `None` until then | `{A: None, B: None}` |
 
 ### Constraint rules (solved by the CSP)
 
-Solved for each player to act, read as `player`: `throw(shape)`, with shape `"rock"`, `"paper"` or `"scissors"`, is
-legal when `turn[player]` holds and `hand[player] is None`.
+Solved for each player, read as `player`: `throw(shape)`, with shape `"rock"`, `"paper"` or `"scissors"`, is legal
+when `hand[player] is None`.
 
 ### Effects rules (run by the predictor)
 
 `throw` sets `hand = hand.with_item(player, shape)`. The rule for what the two throws lead to together, run once both have thrown, compares `hand['A']` and `hand['B']`
-with `BEATS`, sets both payoffs, and sets both turns to `False`, ending the game.
+with `BEATS` and sets both payoffs; no player has an action left, and the game is over.
 
 ## Usage
 
 ```python
 from openmind.agent.factory.agent_factory import create_agent
-from openmind.agent.factory.game_factory import create_game
+from openmind.rbs.factory.rbs_factory import create_game
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 
 knowledge_base = create_knowledge_base("tictactoe")

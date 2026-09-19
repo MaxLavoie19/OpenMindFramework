@@ -7,20 +7,20 @@ from openmind.agent.constant.prisoners_dilemma_constant import STANDARD, VARIANT
 from openmind.agent.model.prisoners_dilemma_variant import PrisonersDilemmaVariant
 from openmind.agent.factory.prisoners_dilemma_factory import declare_prisoners_dilemma
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.factory.rbs_factory import create_rule_based_game
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
 
-type Game = Callable[[str], RuleBasedSystem]
+type Game = Callable[[str], RuleBasedGame]
 
 
-def dilemma(knowledge: KnowledgeBase, variant: PrisonersDilemmaVariant) -> RuleBasedSystem:
+def dilemma(knowledge: KnowledgeBase, variant: PrisonersDilemmaVariant) -> RuleBasedGame:
     """The prisoner's dilemma variant declared under its own context, whether or not it is one of the known ones."""
-    return create_rule_based_system(knowledge, declare_prisoners_dilemma(knowledge, variant))
+    return create_rule_based_game(knowledge, declare_prisoners_dilemma(knowledge, variant))
 
 
 def choose(choice: str) -> Action:

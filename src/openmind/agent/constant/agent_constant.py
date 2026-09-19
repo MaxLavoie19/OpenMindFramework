@@ -5,10 +5,6 @@ EXPLORATION = math.sqrt(2)
 PRIOR_WEIGHT = 1.0
 ROLLOUT_TEMPERATURE = 0.2
 GUIDED_ROLLOUTS = True
-#: The entry point group under which installed projects register their domains' recipes.
-DOMAIN_ENTRY_POINTS = "openmind.domains"
-#: The parameter a domain's timeout rule reads: the name of the player whose clock ran out.
-FLAGGED = "flagged"
 #: How many hex digits of a model's text's SHA-256 make its id.
 MODEL_ID_DIGITS = 16
 #: What a part of an agent that can't describe itself is written as, besides its class: it can't be built again from

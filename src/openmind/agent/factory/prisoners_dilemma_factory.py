@@ -18,9 +18,10 @@ from openmind.agent.constant.prisoners_dilemma_constant import (
     STANDARD,
     TURN,
     UNSET,
+    VARIANTS,
 )
 from openmind.agent.model.prisoners_dilemma_variant import PrisonersDilemmaVariant
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.game.service.game_declarer import GameDeclarer
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rule.model.python_rule import PythonRule
 from openmind.structure.model.grid import Grid
@@ -32,20 +33,19 @@ from openmind.world.model.state import State
 
 
 def create_prisoners_dilemma_initial_state(variant: PrisonersDilemmaVariant = STANDARD) -> State:
-    """Round 1; A to choose first, or both to choose at once in a simultaneous variant, the turn map flagging A and B
-    true; the chosen map holding neither player's choice; the played grid, one row per round and one column per player
+    """Round 1; A to choose first, except in a simultaneous variant, where both choose at once and there is no turn;
+    the chosen map holding neither player's choice; the played grid, one row per round and one column per player
     in the players' order, holding round 1 not yet played; the score map holding 0 for both; the payoff map holding no
     payoff."""
-    return (
+    builder = (
         StateBuilder()
         .with_model(CHOSEN, Map.of(dict.fromkeys(PLAYERS, UNSET)))
         .with_model(PLAYED, Grid.filled((1, len(PLAYERS)), UNSET))
         .with_model(SCORE, Map.of(dict.fromkeys(PLAYERS, 0)))
         .with_model(PAYOFF, Map.of(dict.fromkeys(PLAYERS, UNSET)))
         .with_model(ROUND, 1)
-        .with_model(TURN, Map.of(dict.fromkeys(PLAYERS, True)) if variant.simultaneous else PLAYERS[0])
-        .build()
     )
+    return builder.build() if variant.simultaneous else builder.with_model(TURN, PLAYERS[0]).build()
 
 
 def create_prisoners_dilemma_definitions(variant: PrisonersDilemmaVariant = STANDARD) -> PythonRule:
@@ -68,25 +68,24 @@ def create_prisoners_dilemma_definitions(variant: PrisonersDilemmaVariant = STAN
     )
 
 
-def declare_prisoners_dilemma_moves(declarer: RuleDeclarer, variant: PrisonersDilemmaVariant = STANDARD) -> None:
-    """While no payoff is set, the player to act chooses to cooperate or defect, once a round; in a simultaneous variant,
-    every player to act, read as `player`."""
+def declare_prisoners_dilemma_moves(declarer: GameDeclarer, variant: PrisonersDilemmaVariant = STANDARD) -> None:
+    """While no payoff is set, a player who hasn't chosen this round chooses to cooperate or defect: the player whose
+    turn it is, or, in a simultaneous variant, both at once."""
     no_payoff_set = tuple(PythonRule(f"{PAYOFF}[{player!r}] is {UNSET!r}") for player in PLAYERS)
-    if variant.simultaneous:
-        constraints = (*no_payoff_set, PythonRule(f"{TURN}[{PLAYER}]"), PythonRule(f"{CHOSEN}[{PLAYER}] is {UNSET!r}"))
-    else:
-        constraints = (*no_payoff_set, PythonRule(f"{CHOSEN}[{TURN}] is {UNSET!r}"))
+    constraints = (*no_payoff_set, PythonRule(f"{CHOSEN}[{PLAYER}] is {UNSET!r}"))
+    if not variant.simultaneous:
+        constraints = (PythonRule(f"{TURN} == {PLAYER}"), *constraints)
     declarer.values(CHOOSE, CHOICE, PythonRule(repr(CHOICES)))
     declarer.constraints(CHOOSE, *constraints)
 
 
-def declare_prisoners_dilemma_effects(declarer: RuleDeclarer, variant: PrisonersDilemmaVariant = STANDARD) -> None:
+def declare_prisoners_dilemma_effects(declarer: GameDeclarer, variant: PrisonersDilemmaVariant = STANDARD) -> None:
     """Keep the choice until both players have chosen; then play both, add their points, and either end the game, each
     payoff the player's own score, or start the next round with its choices not yet played. The game ends after the
     variant's last round, and with the variant's ending chance after any round: the action then has a branch where the
     game goes on and one where it ends, which give the same state when the choice doesn't finish a round. In a
     simultaneous variant, each choice only keeps its player's choice, and the resolution, run once both have chosen,
-    plays the round with those same branches, ending the game by clearing both players' turns."""
+    plays the round with those same branches."""
     _check(variant)
     declarer.definitions(create_prisoners_dilemma_definitions(variant), effects=True)
     if variant.simultaneous:
@@ -116,21 +115,18 @@ def declare_prisoners_dilemma_effects(declarer: RuleDeclarer, variant: Prisoners
 
 
 def create_prisoners_dilemma_players() -> Players:
-    """A and B; turn names the player to act, or flags the players acting at once; the payoff map holds each one's
-    payoff."""
-    return Players(PLAYERS, TURN, PAYOFF)
+    """A and B; the payoff map holds each one's payoff."""
+    return Players(PLAYERS, PAYOFF)
 
 
-def declare_prisoners_dilemma(
-    knowledge_base: KnowledgeBase, variant: PrisonersDilemmaVariant = STANDARD, weight: float = 1.0
-) -> str:
+def declare_prisoners_dilemma(knowledge_base: KnowledgeBase, variant: PrisonersDilemmaVariant = STANDARD) -> str:
     """Declares the repeated prisoner's dilemma's rules, or one of its variants', and gives back the context they were
     declared under: "prisonersdilemma" for the standard game, "prisonersdilemma/<variant>" for any other. A variant with
     fewer than 1 round, an ending chance outside 0 to 1, or neither a last round nor an ending chance raises ValueError.
     In a simultaneous variant a choice is kept only until the round's resolution, which no player sees happen before
     choosing."""
     context = NAME if variant == STANDARD else SEPARATOR.join((NAME, variant.name))
-    declarer = RuleDeclarer(knowledge_base, context, weight)
+    declarer = GameDeclarer(knowledge_base, context)
     declarer.starts_at(create_prisoners_dilemma_initial_state(variant))
     declarer.played_by(create_prisoners_dilemma_players())
     declarer.definitions(create_prisoners_dilemma_definitions(variant))
@@ -138,6 +134,17 @@ def declare_prisoners_dilemma(
     declare_prisoners_dilemma_effects(declarer, variant)
     return declarer.done()
 
+
+
+def declare_prisoners_dilemma_named(name: str, knowledge_base: KnowledgeBase) -> str:
+    """Declares the prisoner's dilemma from its registered name: "prisonersdilemma", or "prisonersdilemma/<variant>";
+    an unknown variant raises ValueError."""
+    _, separator, variant = name.partition(SEPARATOR)
+    if not separator:
+        return declare_prisoners_dilemma(knowledge_base)
+    if variant not in VARIANTS:
+        raise ValueError(f"Unknown variant {variant!r} of {NAME}; variants: {', '.join(VARIANTS)}")
+    return declare_prisoners_dilemma(knowledge_base, VARIANTS[variant])
 
 def _outcomes(
     variant: PrisonersDilemmaVariant, goes_on: PythonRule, ends: PythonRule
@@ -150,7 +157,7 @@ def _outcomes(
     return ((goes_on, 1.0 - variant.ending_chance), (ends, variant.ending_chance))
 
 
-def _declare_simultaneous(declarer: RuleDeclarer, variant: PrisonersDilemmaVariant) -> None:
+def _declare_simultaneous(declarer: GameDeclarer, variant: PrisonersDilemmaVariant) -> None:
     resolution = textwrap.dedent(
         f"""\
         points = POINTS[{CHOSEN}[PLAYERS[0]], {CHOSEN}[PLAYERS[1]]]
@@ -161,7 +168,6 @@ def _declare_simultaneous(declarer: RuleDeclarer, variant: PrisonersDilemmaVaria
         if {ROUND} == ROUNDS or {ENDING}:
             for each in PLAYERS:
                 {PAYOFF} = {PAYOFF}.with_item(each, {SCORE}[each])
-                {TURN} = {TURN}.with_item(each, False)
         else:
             {ROUND} = {ROUND} + 1
             {PLAYED} = Grid(({ROUND}, len(PLAYERS)), {PLAYED}.cells + ({UNSET!r},) * len(PLAYERS))

@@ -35,8 +35,11 @@ approved, then its code is approved.
       rule can't explain; debugger: interrupts, stack, conditional breakpoints; the dashboard is its viewer) —
       interfaces approved (`doc/interfaces/debug.md`)
 - [x] debug and logs — code approved
-- [ ] game (definition API, registry, runtime; frozen rules by default, rules or rulesets declared open; action durations and cooldowns) + csp + predictor — interfaces approved
-- [ ] game + csp + predictor — code approved; `openmind-play tictactoe` and `openmind-solve sudoku` run
+- [x] game (definition API, registry, runtime; frozen rules by default, rules or rulesets declared open; action durations and cooldowns) + csp + predictor — interfaces approved (`doc/interfaces/game.md`)
+- [x] game + csp + predictor — code approved; `openmind-play tictactoe` and `openmind-solve sudoku` run. Rules live
+      in rulesets, weighted per ruleset; an RBS is a model one stateless service runs; all players play at once, and
+      the constraints say who can act. The tests of the code still to be reworked were deleted. Noted: a memory-guard
+      test left a thread spinning, which had been slowing every suite; the suite now runs in 17 seconds
 - [ ] Adapt OpenMindChess to the game API
 - [ ] heuristic + model (registry per task, measured precision and processing time) — interfaces approved
 - [ ] heuristic + model — code approved

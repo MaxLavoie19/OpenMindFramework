@@ -8,9 +8,9 @@ from openmind.agent.constant.agent_constant import HELD_OUT_SELF_PLAY_GAME, SELF
 from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.game_memory import GameMemory
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.rbs.factory.rbs_factory import create_rule_based_game
+from openmind.rbs.service.rule_based_game import RuleBasedGame
+from openmind.rbs.model.heuristic_target import HeuristicTarget
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.value_generator import ValueGenerator
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
@@ -49,10 +49,10 @@ class ValueDistiller:
 
     def distill(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         agent_builder: AgentBuilder,
         settings: ValueDistillationSettings,
-        declarer: RuleDeclarer,
+        target: HeuristicTarget,
         round_number: int | None = None,
         model_name: str = SELF_PLAY_GAME,
     ) -> ValueDistillationResult:
@@ -84,8 +84,8 @@ class ValueDistiller:
         )
         training = self._position_row_mapper.to_rows(rbs, training_games, settings.target)
         held_out = self._position_row_mapper.to_rows(rbs, held_out_games, settings.target)
-        generation = self._value_generator.generate(rbs, training, held_out, settings.values, declarer)
-        held_out_error = self._error(declarer.context, held_out)
+        generation = self._value_generator.generate(rbs, training, held_out, settings.values, target)
+        held_out_error = self._error(target.context, held_out)
         logger.info(
             "Distilled %d value rules from %d training rows valued at the %s target; mean absolute error %s on %d "
             "held-out rows",
@@ -113,7 +113,7 @@ class ValueDistiller:
 
     def _remembering(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         kind: str,
         round_number: int | None,
         models: Callable[[PlayedGame], tuple[ModelDescription, ...]],
@@ -133,7 +133,7 @@ class ValueDistiller:
     def _error(self, context: str, rows: Sequence[PositionRow]) -> float | None:
         """The mean absolute difference between what the declared rules value a position at and the row's target; None
         where no held-out row could be valued."""
-        valued = create_rule_based_system(self._knowledge_base, context)
+        valued = create_rule_based_game(self._knowledge_base, context)
         values_by_state: dict[State, tuple[float, ...] | None] = {}
         errors: list[float] = []
         for row in rows:

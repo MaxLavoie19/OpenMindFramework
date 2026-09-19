@@ -11,19 +11,20 @@ from openmind.agent.factory.tictactoe_factory import (
     declare_tictactoe,
 )
 from openmind.agent.model.tictactoe_variant import TicTacToeVariant
-from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, EFFECTS, TIMEOUT
+from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, EFFECTS
+from openmind.testing.plugin.game_fixtures import simulation_rules
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rule.model.python_rule import PythonRule
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
-from openmind.rbs.service.rule_compiler import RuleCompiler
-from openmind.rbs.service.rule_runner import RuleRunner
+from openmind.rbs.service.rule_based_game import RuleBasedGame
+from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.rule.service.rule_runner import RuleRunner
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 
-type Game = Callable[[str], RuleBasedSystem]
+type Game = Callable[[str], RuleBasedGame]
 
 
 def test_the_standard_game_starts_with_nine_empty_cells() -> None:
@@ -70,21 +71,27 @@ def test_definitions_give_the_sizes_and_the_lines_through_the_centre(name: str, 
 def test_each_variant_s_move_leads_somewhere_certain(knowledge: KnowledgeBase, name: str, action: str) -> None:
     context = declare_tictactoe(knowledge, VARIANTS[name])
 
-    (effects,) = knowledge.rules(knowledge.context_named(context).id, (EFFECTS,))
+    (effects,) = simulation_rules(knowledge, context, (EFFECTS,))
 
     assert (effects.action, effects.probability) == (action, 1.0)
 
 
-def test_players_are_x_and_o_with_the_turn_and_the_payoff_map() -> None:
-    assert create_tictactoe_players() == Players(("X", "O"), "turn", "payoff")
+def test_players_are_x_and_o_with_the_payoff_map() -> None:
+    assert create_tictactoe_players() == Players(("X", "O"), "payoff")
 
 
 def test_the_declared_game_holds_the_rules_of_tic_tac_toe(knowledge: KnowledgeBase) -> None:
     context = declare_tictactoe(knowledge)
 
     assert context == "tictactoe"
-    assert [rule.action for rule in knowledge.rules(knowledge.context_named(context).id, (CONSTRAINT,))] == ["place", "place", "place"]
-    assert [rule.kind for rule in knowledge.rules(knowledge.context_named(context).id, (TIMEOUT,))] == [TIMEOUT]
+    assert [rule.action for rule in simulation_rules(knowledge, context, (CONSTRAINT,))] == ["place"] * 4
+
+
+def test_only_the_player_whose_turn_it_is_has_an_action(game: Game) -> None:
+    rbs = game("tictactoe")
+    marked = rbs.outcomes(rbs.start(), rbs.actions(rbs.start())[0]).outcomes[0][0]
+
+    assert (rbs.acting(rbs.start()), rbs.acting(marked)) == ((0,), (1,))
 
 
 def test_a_variant_is_declared_under_its_own_name_and_the_standard_game_keeps_its_name(knowledge: KnowledgeBase) -> None:

@@ -232,3 +232,48 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
       - trained models;
       - rules, tactics and facts: no new ones;
       - beliefs: none are persisted. Those a task needs are kept in the task's instance context.
+16. **Simulation and the predictor.**
+    - Maxime: the integrator runs the game; OMF only simulates it. A context holds rulesets, one per purpose (the
+      simulation, the position heuristic, the move heuristic, one per known agent's play style). A ruleset is one model
+      of its task: any other model may replace it (a DNN, a lookup table, …; in chess's early game a lookup table is
+      more performant, accurate and explainable), or it may rationalize another model's decision.
+    - **Decided (Maxime):**
+      - The simulation is how the SDMCTS expands: the CSP provides legal actions, the heuristics choose between them,
+        the predictor provides the possible outcomes from the state and the set of actions.
+      - A ruleset lists the ids of its rules; a rule can belong to several rulesets (e.g. similar rulesets per tactic).
+      - Rules and rulesets can each be open or frozen. An integrator might freeze the chess simulation ruleset. A
+        heuristic can be modified at any time and modifies copies of frozen rules.
+      - A ruleset record: id, name, context, task, tags, open, rule ids; it may grow (its role, …).
+      - At a high level an agent chooses between playing the best move, offering a draw, abandoning, or planning
+        (running the simulation to explore viable options).
+      - A heuristic changes copies of a frozen ruleset, or has an open ruleset of its own. A frozen ruleset has only
+        frozen rules.
+      - The game's context declares who acts: one player at a time or simultaneously, and in complex game states (Magic:
+        The Gathering's phases) who may intervene and how. When it's black's turn, white can only plan.
+      - Payoffs come from the predictor: an end state declares a payoff per player.
+      - A game declares the rules for offering a draw and abandoning.
+      - A rule's weight lives in the relation between a ruleset and the rule: a rule weighs x in a given ruleset.
+      - Maxime first proposed a weight (a, b), contributing a·x^b. For now weights are linear (a·x); some RBS would do
+        better with non-linear weights, left for later (and what a·x^b is for negative x and fractional b with it).
+      - Every ruleset–rule relation carries a weight, even where it isn't used yet.
+      - A ruleset belongs to a context, and a rule to the rulesets that list it.
+      - Who acts in complex game states (Magic: The Gathering's phases): the constraints determine the legal actions
+        for each player in each phase. The players allowed to act are a variable part of the state (turn = black; turn
+        = Bob, phase = defender declaration lets Alice assign defenders).
+      - All players play at the same time, all the time; in a game played in turns, a player has no options outside
+        their turn. Turn structure doesn't belong in OMF: `Players.to_act` goes.
+      - OMF recognizes the actions that offer a draw or abandon by the effect of performing them.
+      - The producer of fitted heuristic terms links them into their ruleset.
+    - Open, found while coding the game step:
+      - A rule listed in two rulesets of the same context with different weights.
+        - **Decided (Maxime):** services are stateless, instantiated once at build and injected where necessary. The
+          RBS is a model, passed into a service that runs its rules, inference and so on.
+        - **Decided (Maxime):** caches are injected (a cache built once and passed to the stateless services); one
+          RBS per ruleset.
+      - Running out of time: with no timeout rule, OMF's own referees (self-play, `openmind-play`) log the flag and
+        let the game go on. What should they do? The game could declare it with its own clock variable, once durations
+        are used.
+      - `rule`'s services use the debugger, which uses `knowledge`, which uses `rule`'s models: a cycle between
+        packages.
+      - How a rationalizing ruleset is measured: by how often it agrees with the model it explains. Deferred to the
+        training step.

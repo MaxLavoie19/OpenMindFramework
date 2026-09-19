@@ -23,7 +23,7 @@ from openmind.inference.model.vocabulary import Vocabulary
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.parallel.model.call_over_memory import CallOverMemory
 from openmind.parallel.service.memory_meter import MemoryMeter
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.sparse_fitter import SparseFitter
@@ -89,7 +89,7 @@ class ExpressionSearch:
 
     def search(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         training: Sequence[PositionRow],
         held_out: Sequence[PositionRow],
         targets: np.ndarray | Mapping[str, np.ndarray],
@@ -256,7 +256,7 @@ class ExpressionSearch:
 
     def _admitted(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         batch: Sequence[Candidate],
         training: Sequence[PositionRow],
         held_out: Sequence[PositionRow],
@@ -314,7 +314,7 @@ class ExpressionSearch:
         return found, passed
 
     def _columns(
-        self, rbs: RuleBasedSystem, rows: Sequence[PositionRow], expressions: Sequence[Expression]
+        self, rbs: RuleBasedGame, rows: Sequence[PositionRow], expressions: Sequence[Expression]
     ) -> list[np.ndarray | None]:
         """Each expression's values on the rows: an aggregate whose body recorded its readings is folded from them, every
         reading read once per position however many candidates share it; anything else is run from its source."""

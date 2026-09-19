@@ -1,140 +1,61 @@
 import logging
 from dataclasses import replace
 
-from openmind.knowledge.constant.knowledge_constant import INFERENCE
-from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, EFFECTS, VALUES
-from openmind.knowledge.model.source import Source
-from openmind.knowledge.model.rule_record import RuleRecord
+from openmind.knowledge.constant.knowledge_constant import SIMULATION
+from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT
+from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.constant.rule_based_constant import RULES_DEFINITIONS
-from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rule.model.python_rule import PythonRule
-from openmind.rbs.service.rule_caller import RuleCaller
-from openmind.world.model.players import Players
 
 logger = logging.getLogger(__name__)
 
-#: The action a player takes to hand the turn over where the rules let them pass.
-PASS = "pass"
-
-#: How a relaxation that drops a constraint is named, and how one that lets a player pass is.
+#: How a relaxation that drops a constraint is named.
 WITHOUT = "{context} without {rule}"
-PASSING = "{context} where a player may pass"
 
 
 class GameRelaxer:
     """Makes a relaxation of a game: the same game with fewer constraints, where the rules allow more than they do.
 
-    A relaxation is not something applied to a game — it is a game of its own, a variant with its own context. Relaxing
-    declares nothing new except where a rule has to be invented: every rule of the game gains a weight in the relaxed
-    context, except the constraint the relaxation drops. An RBS built for that context is then a game like any other,
-    so the solver, the predictor and deduction work in it unchanged, and the game relaxed is left as it was.
+    A relaxation is not something applied to a game — it is a game of its own, with its own context. Its simulation
+    ruleset is an open copy of the game's, less the constraint it drops; the game's rules themselves stay as they are.
+    An RBS built for that context is then a game like any other, so the solver, the predictor and deduction work in it
+    unchanged. Dropping the constraint that keeps a player to their own turn gives the relaxation where that player can
+    act now.
 
     What is proved in a relaxation holds there; here it is a hint, which is what the `relaxed` kind of record is for."""
 
-    def __init__(self, knowledge_base: KnowledgeBase, rule_caller: RuleCaller) -> None:
+    def __init__(self, knowledge_base: KnowledgeBase) -> None:
         self._knowledge_base = knowledge_base
-        self._rule_caller = rule_caller
 
     def relaxations(self, context: str) -> tuple[str, ...]:
-        """The relaxations the game's own rules allow: each constraint dropped, and, where one player acts at a time,
-        every player also being able to pass. Wider values for a parameter aren't among them, since the rules don't say
-        what wider would mean; a project declares such a variant itself."""
-        rules = self._knowledge_base.rules(self._id(context))
-        found = [
+        """The relaxations the game's own rules allow: each constraint dropped. Wider values for a parameter aren't among
+        them, since the rules don't say what wider would mean; a project declares such a variant itself."""
+        simulation = self._simulation(context)
+        if simulation is None:
+            return ()
+        return tuple(
             WITHOUT.format(context=context, rule=rule.name)
-            for rule in rules
-            if rule.kind == CONSTRAINT
-        ]
-        if self._hands_over(context):
-            found.append(PASSING.format(context=context))
-        return tuple(found)
+            for rule, _ in self._knowledge_base.ruleset_rules(simulation.id, (CONSTRAINT,))
+        )
 
     def relax(self, context: str, relaxation: str) -> str:
-        """Declares the relaxation as a context of its own and gives back its name. A name that isn't one of the game's
-        own relaxations raises ValueError."""
+        """Makes the relaxation a context of its own and gives back its name. A name that isn't one of the game's own
+        relaxations raises ValueError."""
         if relaxation not in self.relaxations(context):
             raise ValueError(f"{relaxation!r} isn't a relaxation of {context}: {', '.join(self.relaxations(context))}")
-        passing = relaxation == PASSING.format(context=context)
-        dropped = None if passing else relaxation.removeprefix(f"{context} without ")
-        kept = 0
-        game = self._id(context)
+        simulation = self._simulation(context)
+        assert simulation is not None
+        dropped = relaxation.removeprefix(f"{context} without ")
+        game = self._knowledge_base.ensure_context(context).id
         relaxed = self._knowledge_base.ensure_context(relaxation)
         self._knowledge_base.context(replace(relaxed, inherits=(game,)))
-        for rule in self._knowledge_base.rules(game):
-            if rule.kind == CONSTRAINT and rule.name == dropped:
-                continue
-            self._knowledge_base.declare(
-                replace(rule, contexts=(*rule.contexts, (relaxed.id, rule.weight(game))))
-            )
-            kept += 1
-        if passing:
-            kept += self._passing(context, relaxation)
-        logger.info("Relaxed %s into %s: %d rules", context, relaxation, kept)
+        standing = self._knowledge_base.ruleset_named(relaxed.id, simulation.name)
+        copy = standing or self._knowledge_base.copy_ruleset(simulation.id, simulation.name, relaxed.id)
+        for rule, _ in self._knowledge_base.ruleset_rules(copy.id, (CONSTRAINT,)):
+            if rule.name == dropped:
+                copy = self._knowledge_base.unlink(copy.id, rule.id)
+        logger.info("Relaxed %s into %s: %d rules", context, relaxation, len(copy.links))
         return relaxation
 
-    def _passing(self, context: str, relaxation: str) -> int:
-        """The rules a passing player needs, declared in the relaxation alone: the constraints that read no parameter,
-        so a player can pass while the game goes on and not once it is over, and effects handing the turn over."""
-        game, relaxed = self._id(context), self._id(relaxation)
-        rules = self._knowledge_base.rules(game)
-        definitions = next(
-            (rule.rule for rule in rules if rule.name == RULES_DEFINITIONS and isinstance(rule.rule, PythonRule)), None
-        )
-        names_by_action: dict[str, list[str]] = {}
-        for rule in rules:
-            if rule.kind == VALUES and rule.action and rule.parameter:
-                names_by_action.setdefault(rule.action, []).append(rule.parameter)
-        free: list[RuleRecord] = []
-        for rule in rules:
-            if rule.kind != CONSTRAINT or not rule.action:
-                continue
-            prepared = self._rule_caller.prepare(rule.rule, names_by_action.get(rule.action, []), definitions)
-            if not prepared.arguments and all(rule.rule != kept.rule for kept in free):
-                free.append(rule)
-        declared = 0
-        source = Source(
-            self._knowledge_base.ensure_mechanism(INFERENCE).id, (("method", "relaxation"), ("relaxation", relaxation))
-        )
-        for number, rule in enumerate(free, start=1):
-            self._knowledge_base.declare(
-                RuleRecord(
-                    f"{PASS} is legal, {number}",
-                    CONSTRAINT,
-                    rule.rule,
-                    source,
-                    ((relaxed, rule.weight(game)),),
-                    PASS,
-                )
-            )
-            declared += 1
-        self._knowledge_base.declare(
-            RuleRecord(
-                f"what {PASS} leads to",
-                EFFECTS,
-                self._handover(self._players(context)),
-                source,
-                ((relaxed, 1.0),),
-                PASS,
-            )
-        )
-        return declared + 1
-
-    def _id(self, name: str) -> str:
-        return self._knowledge_base.ensure_context(name).id
-
-    def _handover(self, players: Players) -> PythonRule:
-        """Effects that give the turn to the next player, in the players' order."""
-        following = {name: players.names[(at + 1) % len(players.names)] for at, name in enumerate(players.names)}
-        return PythonRule(f"{players.to_act} = {following!r}[{players.to_act}]")
-
-    def _players(self, context: str) -> Players:
-        return create_rule_based_system(self._knowledge_base, context).players()
-
-    def _hands_over(self, context: str) -> bool:
-        """Whether a model says who acts, without which no player can pass."""
-        rbs = create_rule_based_system(self._knowledge_base, context)
-        try:
-            return rbs.start().has(rbs.players().to_act)
-        except ValueError:
-            return False
+    def _simulation(self, context: str) -> Ruleset | None:
+        game = self._knowledge_base.ensure_context(context).id
+        return next(iter(self._knowledge_base.rulesets(game, SIMULATION)), None)

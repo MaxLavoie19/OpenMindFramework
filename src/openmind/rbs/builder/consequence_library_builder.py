@@ -1,6 +1,6 @@
 from openmind.inference.service.mechanics import Mechanics
 from openmind.parallel.service.memory_meter import MemoryMeter
-from openmind.rbs.mapper.state_namespace_mapper import StateNamespaceMapper
+from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
 from openmind.world.service.state_reader import StateReader
 

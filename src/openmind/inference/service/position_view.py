@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from openmind.inference.constant.inference_constant import BEST, COUNT, HERE, ME, OTHER, OUTSIDE, WORST
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.structure.model.grid import Grid
 from openmind.world.model.state import State
 from openmind.structure.model.value import Value
@@ -21,15 +21,14 @@ class PositionView:
     rules give the rest:
 
     - `offset(base, at, *steps)`: the cell of the grid `base` at the coordinates `at` shifted by the steps, or OUTSIDE;
-    - `moves(player)`: for each action `player` could take if it were their turn, its outcomes as (view, probability);
+    - `moves(player)`: for each action `player` can take here, its outcomes as (view, probability); none where the
+      game gives the player no action;
     - `mobility(player)`: how many actions that is;
     - `changed(player, base, at)`: how many of those actions change the cell of the grid `base` at `at` (the entry at
       the key `at` of a map, or, `at` being None, a scalar or a list as a whole), each outcome weighted by its
       probability, worked out once for the position and player;
-    - what if: `with_value(base, at, value)`, the view with one cell set; `cleared(at)`, with every grid's cell at
-      `at` set to the grid's empty value, as the domain declares it; `copied(source, target)`, with every grid's value
-      at `source` also at `target`; `alone(at)`, with every grid emptied but at `at`. Everything else, the player to
-      act included, stays as it is;
+    - what if: `with_value(base, at, value)`, the view with one cell set; `copied(source, target)`, with every grid's
+      value at `source` also at `target`. Everything else stays as it is;
     - `best(player, reading)` and `worst(player, reading)`: the highest and lowest reading expected after one of those
       actions, or the reading here when the player has none;
     - `count(player, reading)`: how many of those actions the reading is expected to hold after.
@@ -39,7 +38,7 @@ class PositionView:
 
     __slots__ = ("_mechanics", "_rbs", "_state", "_variables", "_memo", "_changes", "_after")
 
-    def __init__(self, mechanics: "Mechanics", rbs: RuleBasedSystem, state: State, after: "PositionView | None" = None) -> None:
+    def __init__(self, mechanics: "Mechanics", rbs: RuleBasedGame, state: State, after: "PositionView | None" = None) -> None:
         self._mechanics = mechanics
         self._rbs = rbs
         self._state = state
@@ -101,14 +100,8 @@ class PositionView:
     def with_value(self, base: str, at: object, value: Value) -> "PositionView":
         return self._mechanics.view(self._rbs, self._mechanics.with_value(self._state, base, at, value))
 
-    def cleared(self, at: object) -> "PositionView":
-        return self._mechanics.view(self._rbs, self._mechanics.cleared(self._rbs, self._state, at))
-
     def copied(self, source: object, target: object) -> "PositionView":
         return self._mechanics.view(self._rbs, self._mechanics.copied(self._state, source, target))
-
-    def alone(self, at: object) -> "PositionView":
-        return self._mechanics.view(self._rbs, self._mechanics.alone(self._rbs, self._state, at))
 
     def best(self, player: str, reading: Reading) -> float:
         return self._look_ahead(BEST, player, reading)

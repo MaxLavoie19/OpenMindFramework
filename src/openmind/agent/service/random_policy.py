@@ -1,6 +1,6 @@
 import random
 
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.timing.model.clock import Clock
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -14,7 +14,7 @@ class RandomPolicy:
         self._rng = rng
 
     def choose(
-        self, rbs: RuleBasedSystem, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
+        self, rbs: RuleBasedGame, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
     ) -> Action:
         actions = rbs.actions(state, player=player)
         if not actions:

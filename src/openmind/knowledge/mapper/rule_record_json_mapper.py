@@ -34,7 +34,6 @@ class RuleRecordJsonMapper:
             "rule": source,
             "module": None if source is not None else getattr(written, "__module__", None),
             "function": None if source is not None else getattr(written, "__qualname__", None),
-            "contexts": [[context, weight] for context, weight in rule.contexts],
             "action": rule.action,
             "parameter": rule.parameter,
             "probability": rule.probability,
@@ -44,13 +43,11 @@ class RuleRecordJsonMapper:
         }
 
     def from_data(self, data: dict[str, object]) -> RuleRecord:
-        contexts = tuple((str(context), float(weight)) for context, weight in data.get("contexts", ()))  # type: ignore[misc]
         return RuleRecord(
             str(data["name"]),
             str(data["kind"]),
             self._rule(data),  # type: ignore[arg-type]
             self._knowledge.source_from_data(data["source"]),  # type: ignore[arg-type]
-            contexts,
             data.get("action"),  # type: ignore[arg-type]
             data.get("parameter"),  # type: ignore[arg-type]
             float(data.get("probability", 1.0)),  # type: ignore[arg-type]

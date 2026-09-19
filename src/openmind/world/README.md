@@ -11,15 +11,15 @@ The shared vocabulary every other domain uses to describe what the agent works o
 |---|---|
 | `model/state.py` | `State(models)`: named data models (see `structure/README.md`) sorted by name; `State.of(**models)`, a plain value becoming a Scalar; `model(name)`, `has(name)`, `value(name)` (a scalar's value), `names()`, `with_model(name, model)` |
 | `model/action.py` | `Action`: the thing performed, with its parameters sorted by name |
-| `model/players.py` | `Players(names, to_act, payoff)`: the players; the model saying who acts, a Scalar naming the player to act or, where players act at once, a Map flagging each player acting; and the Map of payoffs by player |
+| `model/players.py` | `Players(names, payoff)`: the players, and the Map of payoffs by player that an end state fills |
 | `model/joint_action.py` | `JointAction(actions)`: the actions players take at once, each player's name with its action, in the order of the players' names |
-| `constant/players_constant.py` | `PLAYER` (`"player"`): the name a domain's rules read the player they are solved or run for by, where players act at once |
+| `constant/players_constant.py` | `PLAYER` (`"player"`): the name a domain's rules read the player they are solved or run for by |
 | `builder/state_builder.py` | `StateBuilder`: `with_model(name, model)` collects models into a `State`; rejects a name set twice |
 | `mapper/action_text_mapper.py` | `ActionTextMapper`: readable text for logs, such as `place(col=3, row=2)`; `joint_text(joint)` for actions taken at once, `A: throw(shape='rock'), B: throw(shape='paper')` |
 | `mapper/state_text_mapper.py` | `StateTextMapper`: readable text, one `name = model` line per model, a scalar as its value |
 | `mapper/grid_text_mapper.py` | `GridTextMapper`: readable text with every two-dimensional grid laid out, then one `name = value` line per other model |
 | `constant/grid_text_constant.py` | The grid's marks for an empty cell (`.`) and a missing cell (a blank) |
-| `service/state_reader.py` | `StateReader`: a scalar's value by name, whether players act at once (`acts_at_once`), the players to act (`players_to_act`, `player_to_act`), and the payoffs in the order of the players (`payoffs`) |
+| `service/state_reader.py` | `StateReader`: a scalar's value by name, and the payoffs in the order of the players (`payoffs`) |
 
 ## Usage
 
@@ -49,10 +49,9 @@ Columns widen to fit the longest number or value, and `None` shows as `.`.
 
 ## Players acting at once
 
-In most domains one player acts at a time, named by the `to_act` scalar (`turn = 'X'`). Where players act at once, such
-as in rock paper scissors, `to_act` names a Map flagging each player acting: `turn = {A: True, B: True}` when both act,
-every flag false when the game is over. Services that only handle one player to act at a time raise `ValueError`
-through `player_to_act` in such a state.
+All players play at the same time, all the time. OMF knows nothing of turns: whose turn it is, when a game has turns,
+is one of its own models, and its constraints leave a player no action outside their turn. The players acting in a
+state are those with a legal action there (see `RuleBasedGame.acting` in `rbs/README.md`).
 
 ## Notes
 

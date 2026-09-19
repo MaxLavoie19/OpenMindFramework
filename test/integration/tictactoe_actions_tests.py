@@ -1,14 +1,14 @@
 from collections.abc import Callable
 
 from openmind.agent.factory.tictactoe_factory import create_tictactoe_initial_state
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.structure.model.coordinates import Coordinates
 from openmind.structure.model.map import Map
 from openmind.structure.model.value import Value
 from openmind.world.model.state import State
 
 
-type Game = Callable[[str], RuleBasedSystem]
+type Game = Callable[[str], RuleBasedGame]
 
 
 def legal_cells(game: Game, state: State) -> list[tuple[Value, Value]]:

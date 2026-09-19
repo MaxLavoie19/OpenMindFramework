@@ -3,7 +3,7 @@ import math
 
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.service.softmax import softmax
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.world.model.action import Action
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -21,7 +21,7 @@ class ValuationPrior:
     def __init__(
         self,
         valuer: PositionValuer,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         players: Players,
         temperature: float,
         state_reader: StateReader | None = None,
@@ -35,7 +35,7 @@ class ValuationPrior:
         self._state_reader = StateReader() if state_reader is None else state_reader
 
     def priors(self, state: State, actions: tuple[Action, ...]) -> tuple[float, ...]:
-        player = self._state_reader.player_to_act(state, self._players)
+        player = self._players.names.index(self._rbs.acting_player(state))
         return softmax([self._value(state, action, player) for action in actions], self._temperature)
 
     def describe(self) -> str:

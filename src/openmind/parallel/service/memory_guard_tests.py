@@ -1,6 +1,7 @@
 import gc
 import logging
 import pickle
+import time
 from pathlib import Path
 
 import pytest
@@ -194,7 +195,8 @@ def test_a_cut_starts_afresh_once_a_call_has_ended() -> None:
 def test_a_worker_cuts_its_caches_back_before_it_reaches_the_cap_that_would_end_it(tmp_path: Path) -> None:
     guard = MemoryGuard(Meter(100))  # type: ignore[arg-type]
 
-    guard.watch(MemoryCap(1_000, tmp_path, 1.0), lambda index, path: None, lambda code: None, lambda seconds: None)
+    # The watch's thread waits on a real sleep: given one that doesn't, it spins for the rest of the session.
+    guard.watch(MemoryCap(1_000, tmp_path, 1.0), lambda index, path: None, lambda code: None, time.sleep)
 
     assert guard.limit_bytes == 850
 

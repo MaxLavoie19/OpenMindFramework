@@ -5,13 +5,13 @@ from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.service.rater_prior import RaterPrior
 from openmind.mcts.service.uniform_prior import UniformPrior
 from openmind.mcts.service.valuation_prior import ValuationPrior
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 
 
 def create_move_prior(
     kind: str,
     temperature: float,
-    rbs: RuleBasedSystem,
+    rbs: RuleBasedGame,
     rater: ActionRater | None = None,
     valuer: PositionValuer | None = None,
 ) -> MovePrior:

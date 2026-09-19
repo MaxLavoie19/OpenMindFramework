@@ -5,7 +5,7 @@ import numpy as np
 
 from openmind.inference.constant.inference_constant import COUNT, HIGHEST, LOWEST, SUM
 from openmind.parallel.service.task_runner import TaskRunner
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
 from openmind.rbs.service.reading_cache import ReadingCache
@@ -14,8 +14,8 @@ from openmind.rbs.service.reading_cache import ReadingCache
 #: operations joining them.
 type AggregateParts = tuple[str, str, bool, tuple[str, ...], tuple[str, ...]]
 from openmind.rule.model.python_rule import PythonRule
-from openmind.rbs.service.rule_compiler import RuleCompiler
-from openmind.rbs.service.rule_runner import RuleRunner
+from openmind.rule.service.rule_compiler import RuleCompiler
+from openmind.rule.service.rule_runner import RuleRunner
 
 
 class TermEvaluator:
@@ -52,7 +52,7 @@ class TermEvaluator:
             self._reading_cache.clear()
 
     def aggregate_columns(
-        self, rbs: RuleBasedSystem, rows: Sequence[PositionRow], parts: Sequence[AggregateParts]
+        self, rbs: RuleBasedGame, rows: Sequence[PositionRow], parts: Sequence[AggregateParts]
     ) -> list[np.ndarray | None]:
         """What each aggregate gives on every row, folded from its readings instead of run as one expression: a reading
         is read once per position and reused by every aggregate that reads it. Parts are `(base, kind, pair, readings,
@@ -62,7 +62,7 @@ class TermEvaluator:
             return [None] * len(parts)
         return [self._folded(rbs, rows, part) for part in parts]
 
-    def _folded(self, rbs: RuleBasedSystem, rows: Sequence[PositionRow], parts: AggregateParts) -> np.ndarray | None:
+    def _folded(self, rbs: RuleBasedGame, rows: Sequence[PositionRow], parts: AggregateParts) -> np.ndarray | None:
         base, kind, pair, readings, operations = parts
         if pair or not readings or len(operations) != len(readings) - 1:
             return None
@@ -120,7 +120,7 @@ class TermEvaluator:
             return float(max(cells, default=0))
         raise ValueError(f"Unknown aggregate kind {kind!r}")
 
-    def column(self, rbs: RuleBasedSystem, rows: Sequence[PositionRow], term: PythonRule) -> np.ndarray | None:
+    def column(self, rbs: RuleBasedGame, rows: Sequence[PositionRow], term: PythonRule) -> np.ndarray | None:
         """The term's value on every row, a boolean counting as 0 or 1, and NaN on a row where the term gives None: what
         it reads isn't there at that moment, as a fork detector without a fork. None when the term raises KeyError,
         NameError, TypeError, AttributeError, ValueError or an arithmetic error on a row, or gives something other than a
@@ -144,7 +144,7 @@ class TermEvaluator:
         return column
 
     def columns(
-        self, rbs: RuleBasedSystem, rows: Sequence[PositionRow], terms: Sequence[PythonRule]
+        self, rbs: RuleBasedGame, rows: Sequence[PositionRow], terms: Sequence[PythonRule]
     ) -> list[np.ndarray | None]:
         """What column gives for each term, in the terms' order, the rows split between the task runner's workers."""
         slices = self._task_runner.split(rows)
@@ -159,7 +159,7 @@ class TermEvaluator:
         return merged
 
     def slice_columns(
-        self, rbs: RuleBasedSystem, rows: Sequence[PositionRow], terms: Sequence[PythonRule]
+        self, rbs: RuleBasedGame, rows: Sequence[PositionRow], terms: Sequence[PythonRule]
     ) -> list[np.ndarray | None]:
         """What column gives for each term on these rows, in this process."""
         return [self.column(rbs, rows, term) for term in terms]

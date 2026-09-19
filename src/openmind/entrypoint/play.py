@@ -7,7 +7,7 @@ from pathlib import Path
 from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import DEFAULT_ITERATIONS, EXPLORATION
-from openmind.agent.factory.game_factory import create_game
+from openmind.rbs.factory.rbs_factory import create_game
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.agent.service.agent import Agent
 from openmind.agent.service.timekeeper import Timekeeper
@@ -16,8 +16,7 @@ from openmind.entrypoint.rollout_options import checked_unfinished_payoff
 from openmind.entrypoint.search_options import add_selection_options
 from openmind.mcts.constant.mcts_constant import UNIFORM_PRIOR
 from openmind.mcts.service.uniform_prior import UniformPrior
-from openmind.rbs.factory.rule_factory import create_rule_caller
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.timing.model.clock import Clock
 from openmind.timing.model.time_control import TimeControl
 from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
@@ -76,8 +75,6 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(f"--prior {arguments.prior} needs rules the agent doesn't have when playing; use uniform")
     knowledge_base = create_knowledge_base(arguments.domain.split("/")[0], arguments.knowledge)
     rbs = create_game(arguments.domain, knowledge_base)
-    if arguments.time_control is not None and not rbs.timed():
-        parser.error(f"{rbs.context} can't be played on a clock: it has no timeout rule")
     unknown = [player for player in arguments.agent if player not in rbs.players().names]
     if unknown:
         parser.error(f"unknown player {', '.join(unknown)}; {rbs.context} players: {', '.join(rbs.players().names)}")
@@ -109,7 +106,7 @@ def main(argv: list[str] | None = None) -> None:
         debugger.stop()
 
 def _play(
-    rbs: RuleBasedSystem,
+    rbs: RuleBasedGame,
     agent_players: frozenset[str],
     agent: Agent | None,
     time_control: TimeControl | None = None,
@@ -117,7 +114,7 @@ def _play(
 ) -> None:
     action_text = ActionTextMapper()
     state_text, state_reader = GridTextMapper(), StateReader()
-    keeper = Timekeeper(create_rule_caller()) if timekeeper is None else timekeeper
+    keeper = Timekeeper() if timekeeper is None else timekeeper
     names = rbs.players().names
     clocks: dict[str, Clock] = {} if time_control is None else dict(zip(names, keeper.clocks(rbs, time_control), strict=True))
     steps = dict.fromkeys(names, 0)
@@ -125,7 +122,7 @@ def _play(
     logger.info("Playing %s", rbs.context)
     state = rbs.start()
     while actions := rbs.actions(state):
-        player = names[state_reader.player_to_act(state, rbs.players())]
+        player = rbs.acting_player(state)
         seen = state
         print(state_text.to_text(seen))
         print()
@@ -136,15 +133,11 @@ def _play(
         else:
             clock, played = clocks[player], steps[player]
             action, spent = keeper.timed(partial(_choose, rbs, player, seen, actions, agent_players, agent, clock, played))
-            clocks[player], steps[player] = clock.after(spent), played + 1
+            clocks[player], steps[player] = (clock if clock.flagged else clock.after(spent)), played + 1
             logger.info("%s took %.2f seconds, %.1f left", player, spent, clocks[player].remaining)
-            if clocks[player].flagged:
-                state = keeper.flag(rbs, state, player)
+            if clocks[player].flagged and not clock.flagged:
                 print(f"{player}'s time ran out")
-                print()
-                print(state_text.to_text(state))
-                logger.info("%s's time ran out: game over", player)
-                return
+                logger.info("%s's time ran out; what that does is the game's own rule", player)
         logger.info("Chose %s", action_text.to_text(action))
         outcomes = rbs.outcomes(state, action).outcomes
         (state,) = random.choices(
@@ -156,7 +149,7 @@ def _play(
 
 
 def _choose(
-    rbs: RuleBasedSystem,
+    rbs: RuleBasedGame,
     player: str,
     seen: State,
     actions: tuple[Action, ...],

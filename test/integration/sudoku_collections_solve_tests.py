@@ -8,12 +8,12 @@ from openmind.agent.model.sudoku_puzzle import SudokuPuzzle
 from openmind.agent.factory.sudoku_factory import declare_sudoku
 from openmind.agent.repository.sudoku_puzzle_repository import SudokuPuzzleRepository
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.factory.rbs_factory import create_rule_based_game
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 
 pytestmark = pytest.mark.log_level("INFO")
 
-type Game = Callable[[str], RuleBasedSystem]
+type Game = Callable[[str], RuleBasedGame]
 
 DIRECTORY = Path(__file__).parents[2] / "data" / "sudoku"
 REPOSITORY = SudokuPuzzleRepository(SudokuCollectionMapper())
@@ -34,7 +34,7 @@ def test_every_published_puzzle_has_one_solution_that_keeps_its_clues_and_follow
     knowledge: KnowledgeBase, puzzle: SudokuPuzzle
 ) -> None:
     context = declare_sudoku(knowledge, f"sudoku/{puzzle.collection}/{puzzle.number}", puzzle.grid)
-    rbs = create_rule_based_system(knowledge, context)
+    rbs = create_rule_based_game(knowledge, context)
 
     actions = rbs.actions(rbs.start(), limit=2)
 

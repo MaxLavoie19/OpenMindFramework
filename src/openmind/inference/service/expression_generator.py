@@ -27,7 +27,7 @@ from openmind.inference.model.expression import Expression
 from openmind.inference.model.pattern import Pattern
 from openmind.inference.model.pattern_condition import PatternCondition
 from openmind.inference.model.vocabulary import Vocabulary
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rule.model.python_rule import PythonRule
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
@@ -59,7 +59,7 @@ class ExpressionGenerator:
     - Look-aheads, for `me` and for `other`: the best, the worst and the count of the expression after an action, and
       the best and worst change of the expression, and how many actions raise or lower it."""
 
-    def vocabulary(self, rbs: RuleBasedSystem, states: Iterable[State]) -> Vocabulary:
+    def vocabulary(self, rbs: RuleBasedGame, states: Iterable[State]) -> Vocabulary:
         """Every scalar, grid cell and map entry of the states with the values seen; lists aren't read."""
         values_by_variable: dict[tuple[str, tuple[Value, ...]], dict[Value, None]] = {}
         values_by_base: dict[str, dict[Value, None]] = {}
@@ -89,7 +89,6 @@ class ExpressionGenerator:
                 offsets[tuple(a - b for a, b in zip(first, second, strict=True))] = None  # type: ignore[operator]
         return Vocabulary(
             rbs.players().names,
-            rbs.players().to_act,
             {variable: tuple(values) for variable, values in values_by_variable.items()},
             {base: tuple(values) for base, values in values_by_base.items()},
             {base: frozenset(indices) for base, indices in indices_by_base.items()},
@@ -107,8 +106,6 @@ class ExpressionGenerator:
                     continue
                 for value in values:
                     renderings = self._rendered(value, vocabulary)
-                    if name == (vocabulary.to_act, ()):
-                        renderings = (repr(value), *renderings)
                     for rendered in renderings:
                         self._add(expressions, Expression(f"{reading} == {rendered}", 1, 0))
         for base, values in vocabulary.values_by_base.items():
@@ -263,9 +260,9 @@ class ExpressionGenerator:
         return f"{VIEW}.changed({player}, {base!r}, {index})"
 
     def _what_if_readings(self, base: str, index: str, renderings: Sequence[str]) -> list[tuple[str, int]]:
-        """What if: how many moves the thing at the index has alone on the grids, for each player; and, for a grid whose
-        values name players, how many of a player's moves would change the cell if it held the other player's name."""
-        readings = [(f"{VIEW}.alone({index}).mobility({player})", 1) for player in (ME, OTHER)]
+        """What if: for a grid whose values name players, how many of a player's moves would change the cell if it held
+        the other player's name."""
+        readings: list[tuple[str, int]] = []
         if ME in renderings:
             readings.extend(
                 (f"{VIEW}.with_value({base!r}, {index}, {owner}).changed({player}, {base!r}, {index})", 1)

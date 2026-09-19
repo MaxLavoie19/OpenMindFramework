@@ -22,7 +22,7 @@ def test_solve_prints_the_single_solution_and_saves_a_log(capsys: pytest.Capture
 
     output = capsys.readouterr().out
     assert output.startswith("Solution 1 (probability 1.0):\ncell 1 2 3 4 5 6 7 8 9\n   1 5 3 4 6 7 8 9 1 2\n")
-    assert "   9 3 4 5 2 8 6 1 7 9\npayoff = Map(items=(('solver', 1.0),))\nturn = 'solver'\n" in output
+    assert "   9 3 4 5 2 8 6 1 7 9\npayoff = Map(items=(('solver', 1.0),))\n" in output
     assert output.splitlines()[-1].startswith("sudoku: 1 solution(s), ")
     (log_file,) = (tmp_path / "sudoku").glob("*.log")
     lines = said(log_file)

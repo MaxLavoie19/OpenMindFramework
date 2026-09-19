@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from openmind.inference.model.deduction import Deduction
 from openmind.inference.model.deduction_budget import DeductionBudget
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -40,14 +40,14 @@ class PositionDeducer:
         self._action_text_mapper = action_text_mapper
         self._clock = clock
 
-    def deduce(self, rbs: RuleBasedSystem, state: State, budget: DeductionBudget) -> Deduction:
+    def deduce(self, rbs: RuleBasedGame, state: State, budget: DeductionBudget) -> Deduction:
         """The first depth that proves the position, or nothing proven when the plies or the seconds run out; a budget of
         fewer than 1 ply or no seconds, or a position without a legal action, raises ValueError."""
         if budget.plies < 1 or budget.seconds <= 0.0:
             raise ValueError(f"A deduction needs at least 1 ply and more than 0 seconds, not {budget}")
         if not rbs.actions(state):
             raise ValueError("No legal action to deduce from")
-        player = rbs.players().names[self._state_reader.player_to_act(state, rbs.players())]
+        player = rbs.acting_player(state)
         deadline = self._clock() + budget.seconds
         memo: dict[tuple[State, int], Proof | None] = {}
         reached = 0
@@ -78,7 +78,7 @@ class PositionDeducer:
 
     def _decide(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         depth: int,
         highest: float,
@@ -95,7 +95,7 @@ class PositionDeducer:
         if not actions:
             proof = (self._state_reader.payoffs(state, rbs.players()), ())
         elif depth > 0:
-            mover = self._state_reader.player_to_act(state, rbs.players())
+            mover = rbs.players().names.index(rbs.acting_player(state))
             unproven = False
             for action in actions:
                 found = self._act(rbs, state, action, depth, highest, deadline, memo)
@@ -113,7 +113,7 @@ class PositionDeducer:
 
     def _act(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         action: Action,
         depth: int,

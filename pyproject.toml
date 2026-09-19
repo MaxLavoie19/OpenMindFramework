@@ -19,6 +19,13 @@ openmind-solve = "openmind.entrypoint.solve:main"
 openmind-dashboard = "openmind.entrypoint.dashboard:main"
 openmind-rerun-call = "openmind.entrypoint.rerun_call:main"
 
+# OMF's example games, registered the way a project registers its own.
+[project.entry-points."openmind.domains"]
+tictactoe = "openmind.agent.factory.tictactoe_factory:declare_tictactoe_named"
+sudoku = "openmind.agent.factory.sudoku_factory:declare_sudoku_named"
+prisonersdilemma = "openmind.agent.factory.prisoners_dilemma_factory:declare_prisoners_dilemma_named"
+rockpaperscissors = "openmind.agent.factory.rock_paper_scissors_factory:declare_rock_paper_scissors_named"
+
 [dependency-groups]
 dev = ["pytest>=9.1"]
 

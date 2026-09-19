@@ -9,14 +9,13 @@ from openmind.csp.model.solve_statistics import SolveStatistics
 from openmind.csp.model.support_table import SupportTable
 from openmind.csp.service.backtracking_search import BacktrackingSearch
 from openmind.csp.service.constraint_checker import ConstraintChecker
-from openmind.parallel.factory.memory_guard_factory import process_memory_guard
-from openmind.parallel.service.memory_evictor import evict_oldest
-from openmind.rbs.constant.rule_constant import ALL_DIFFERENT
-from openmind.rbs.mapper.call_operand_mapper import CallOperandMapper
-from openmind.rbs.model.called_rule import CalledRule
+from openmind.csp.repository.solution_cache import SolutionCache
+from openmind.rule.constant.rule_constant import ALL_DIFFERENT
+from openmind.rule.mapper.call_operand_mapper import CallOperandMapper
+from openmind.rule.model.called_rule import CalledRule
 from openmind.rule.model.python_rule import PythonRule
 from openmind.rule.model.rule import Rule
-from openmind.rbs.service.rule_caller import RuleCaller
+from openmind.rule.service.rule_caller import RuleCaller
 from openmind.world.constant.players_constant import PLAYER
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -32,7 +31,7 @@ class Solver:
     RBS hands it (see `rbs/README.md`). The constraints reading no parameter are checked first; then each parameter's
     rule gives its values; each other constraint takes the strongest form the parameters it reads allow (a domain
     filter, an all-different group, a support table, or a forward-checked constraint), backtracking search does the
-    rest, and results are cached per action and state until the process's memory guard clears them."""
+    rest, and results are kept per action and state in the solution cache it is given."""
 
     def __init__(
         self,
@@ -40,33 +39,13 @@ class Solver:
         call_operand_mapper: CallOperandMapper,
         constraint_checker: ConstraintChecker,
         backtracking_search: BacktrackingSearch,
+        solution_cache: SolutionCache,
     ) -> None:
         self._rule_caller = rule_caller
         self._call_operand_mapper = call_operand_mapper
         self._constraint_checker = constraint_checker
         self._backtracking_search = backtracking_search
-        self._cache: dict[tuple[State, int | None, object], tuple[tuple[Action, ...], SolveStatistics]] = {}
-        self._memory_guard = process_memory_guard()
-        self._memory_guard.register(self)
-
-    def __getstate__(self) -> dict[str, object]:
-        """The cache stays behind when the solver is copied to another process: its keys are this process's ids."""
-        return {name: value for name, value in self.__dict__.items() if name not in ("_cache", "_memory_guard")}
-
-    def __setstate__(self, state: dict[str, object]) -> None:
-        self.__dict__.update(state)
-        self._cache = {}
-        self._memory_guard = process_memory_guard()
-        self._memory_guard.register(self)
-
-    def memory_entries(self) -> int:
-        return len(self._cache)
-
-    def evict_memory(self, entries: int) -> None:
-        evict_oldest(self._cache, entries)
-
-    def clear_memory(self) -> None:
-        self._cache.clear()
+        self._cache = solution_cache
 
     def solve(
         self,
@@ -105,10 +84,7 @@ class Solver:
         if cached is not None:
             return cached
         found, statistics = self._solve_action(action, values, constraints, state, limit, definitions)
-        result = (tuple(found), statistics)
-        self._memory_guard.remembered()
-        self._cache[key] = result
-        return result
+        return self._cache.put(key, (tuple(found), statistics))
 
     def _solve_action(
         self,

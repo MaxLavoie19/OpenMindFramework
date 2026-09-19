@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
 from openmind.agent.constant.tictactoe_constant import VARIANTS
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
 from openmind.world.builder.state_builder import StateBuilder
@@ -9,14 +9,14 @@ from openmind.world.model.action import Action
 from openmind.world.model.state import State
 from openmind.structure.model.value import Value
 
-type Game = Callable[[str], RuleBasedSystem]
+type Game = Callable[[str], RuleBasedGame]
 
 FOURINAROW = "tictactoe/" + VARIANTS["fourinarow"].name
 # A full board without four in a row, row 1 at the top
 DRAWN_BOARD = ("OXXXOOX", "XXOOXXO", "OOOXOOO", "OXOXOXX", "XOXXXOX", "OXOOXOX")
 
 
-def drop(rbs: RuleBasedSystem, state: State, *columns: int) -> State:
+def drop(rbs: RuleBasedGame, state: State, *columns: int) -> State:
     for col in columns:
         ((state, probability),) = rbs.outcomes(state, Action("drop", (("col", col),))).outcomes
         assert probability == 1.0

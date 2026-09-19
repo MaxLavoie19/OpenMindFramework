@@ -16,7 +16,7 @@ from openmind.mcts.model.move_prior import MovePrior
 from openmind.mcts.model.position_valuer import PositionValuer
 from openmind.mcts.model.search_settings import SearchSettings
 from openmind.mcts.service.tree_search import TreeSearch
-from openmind.rbs.factory.rule_factory import create_rule_caller
+from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.timing.model.time_budget_estimator import TimeBudgetEstimator
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.service.state_reader import StateReader

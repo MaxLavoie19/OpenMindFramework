@@ -5,7 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from openmind.knowledge.constant.knowledge_constant import DECLARATION, DIRECT_EXPERIENCE, DONE, INFERENCE, PENDING
+from openmind.knowledge.constant.knowledge_constant import (
+    DECLARATION,
+    DIRECT_EXPERIENCE,
+    DONE,
+    INFERENCE,
+    PENDING,
+    POSITION_VALUE,
+    SIMULATION,
+)
 from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, MOVE, POSITION
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.knowledge.model.belief import Belief
@@ -14,6 +22,8 @@ from openmind.knowledge.model.direct_experience import DirectExperience
 from openmind.knowledge.model.evidence import Evidence
 from openmind.knowledge.model.opinion import Opinion
 from openmind.knowledge.model.rule_record import RuleRecord
+from openmind.knowledge.model.ruleset import Ruleset
+from openmind.knowledge.model.ruleset_link import RulesetLink
 from openmind.knowledge.model.source import Source
 from openmind.knowledge.model.task import Task
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
@@ -177,16 +187,23 @@ def test_everything_kept_is_still_there_for_a_base_opened_again_and_ids_carry_on
     assert opened.tasks() == (task,)
     assert opened.contexts() == (variant,)
     assert any(
-        "Knowledge of cheat: 1 direct experiences, 1 beliefs, 1 opinions, 1 tasks, 1 contexts, 0 mechanisms, 0 rules"
+        "Knowledge of cheat: 1 direct experiences, 1 beliefs, 1 opinions, 1 tasks, 1 contexts, 0 mechanisms, 0 rules, "
+        "0 rulesets"
         == message
         for message in caplog.messages
     )
 
 
 def new_rule(
-    name: str, kind: str = POSITION, source: str = "True", *contexts: tuple[str, float], mechanism: str = "mechanism-inference", open_: bool = False
+    name: str, kind: str = POSITION, source: str = "True", mechanism: str = "mechanism-inference", open_: bool = False
 ) -> RuleRecord:
-    return RuleRecord(name, kind, PythonRule(source), Source(mechanism), contexts or (("cheat", 1.0),), open=open_)
+    return RuleRecord(name, kind, PythonRule(source), Source(mechanism), open=open_)
+
+
+def new_ruleset(base: KnowledgeBase, name: str, *rules: RuleRecord, task: str = POSITION_VALUE, declared: bool = False) -> Ruleset:
+    mechanism = base.ensure_mechanism(DECLARATION if declared else INFERENCE).id
+    context = base.ensure_context("cheat").id
+    return base.ruleset(Ruleset(name, context, task, Source(mechanism), tuple(RulesetLink(rule.id) for rule in rules)))
 
 
 def test_a_declared_rule_is_given_an_id_and_a_time_and_is_found_again_by_it(tmp_path: Path) -> None:
@@ -200,46 +217,66 @@ def test_a_declared_rule_is_given_an_id_and_a_time_and_is_found_again_by_it(tmp_
     assert base.rule("rule-unknown") is None
 
 
-def test_the_rules_retrieved_are_those_weighing_in_the_context_the_heaviest_first(tmp_path: Path) -> None:
+def test_a_ruleset_belongs_to_a_context_and_lists_its_rules_each_with_its_weight_there(tmp_path: Path) -> None:
     base = new_base(tmp_path)
-    base.declare(new_rule("light here", POSITION, "1", ("cheat", 0.2)))
-    base.declare(new_rule("heavy here", POSITION, "2", ("cheat", 0.9)))
-    base.declare(new_rule("for another game", POSITION, "3", ("chess", 1.0)))
+    mobility = base.declare(new_rule("more moves is better placed", POSITION, "1"))
+    material = base.declare(new_rule("more cards is worse placed", POSITION, "2"))
+    ruleset = new_ruleset(base, "position value")
 
-    assert [rule.name for rule in base.rules("cheat")] == ["heavy here", "light here"]
-    assert [rule.name for rule in base.rules("chess")] == ["for another game"]
-    assert base.rules("go") == ()
+    base.link(ruleset.id, mobility.id, 0.3)
+    base.link(ruleset.id, material.id, 0.9)
+
+    assert ruleset.id.startswith("ruleset-")
+    assert base.ruleset_named(base.ensure_context("cheat").id, "position value").id == ruleset.id  # type: ignore[union-attr]
+    assert [(rule.name, weight) for rule, weight in base.ruleset_rules(ruleset.id)] == [
+        ("more moves is better placed", 0.3),
+        ("more cards is worse placed", 0.9),
+    ]
 
 
-def test_the_same_rule_carries_its_own_weight_in_each_context_it_bears_on(tmp_path: Path) -> None:
+def test_the_same_rule_weighs_differently_in_each_ruleset_listing_it(tmp_path: Path) -> None:
     base = new_base(tmp_path)
-    base.declare(new_rule("more moves is better placed", POSITION, "len(here.moves(me))", ("cheat", 0.3), ("chess", 0.8)))
+    mobility = base.declare(new_rule("more moves is better placed", POSITION, "1"))
+    charge = new_ruleset(base, "charge")
+    retreat = new_ruleset(base, "retreat")
 
-    ((in_cheat,), (in_chess,)) = base.rules("cheat"), base.rules("chess")
+    base.link(charge.id, mobility.id, 0.2)
+    base.link(retreat.id, mobility.id, 0.8)
 
-    assert in_cheat is in_chess
-    assert (in_cheat.weight("cheat"), in_chess.weight("chess")) == (0.3, 0.8)
+    assert base.ruleset_rules(charge.id) == ((mobility, 0.2),)
+    assert base.ruleset_rules(retreat.id) == ((mobility, 0.8),)
 
 
-def test_rules_are_retrieved_by_kind_and_by_tag_where_asked_for(tmp_path: Path) -> None:
+def test_linking_a_listed_rule_again_changes_only_its_weight(tmp_path: Path) -> None:
     base = new_base(tmp_path)
-    base.declare(new_rule("a cell is played only when it is empty", CONSTRAINT))
-    base.declare(replace(new_rule("more moves is better placed", POSITION), tags=(("topic", "mobility"),)))
-    base.declare(new_rule("a move taking a piece is worth looking at", MOVE))
+    mobility = base.declare(new_rule("more moves is better placed", POSITION, "1"))
+    ruleset = new_ruleset(base, "position value", mobility)
 
-    assert [rule.kind for rule in base.rules("cheat", (CONSTRAINT,))] == [CONSTRAINT]
-    assert {rule.kind for rule in base.rules("cheat", (POSITION, MOVE))} == {POSITION, MOVE}
-    assert [rule.name for rule in base.rules("cheat", tags=(("topic", "mobility"),))] == ["more moves is better placed"]
+    base.link(ruleset.id, mobility.id, 0.9)
+
+    assert base.ruleset_rules(ruleset.id) == ((mobility, 0.9),)
 
 
-def test_declaring_a_rule_again_under_its_id_changes_what_it_weighs(tmp_path: Path) -> None:
+def test_a_ruleset_s_rules_are_retrieved_by_kind_and_by_tag_where_asked_for(tmp_path: Path) -> None:
     base = new_base(tmp_path)
-    declared = base.declare(new_rule("more moves is better placed", POSITION, "1", ("cheat", 0.3)))
+    constraint = base.declare(new_rule("a cell is played only when it is empty", CONSTRAINT))
+    mobility = base.declare(replace(new_rule("more moves is better placed", POSITION), tags=(("topic", "mobility"),)))
+    move = base.declare(new_rule("a move taking a piece is worth looking at", MOVE))
+    ruleset = new_ruleset(base, "everything", constraint, mobility, move)
 
-    base.declare(replace(declared, contexts=(("cheat", 0.9),)))
+    assert [rule.kind for rule, _ in base.ruleset_rules(ruleset.id, (CONSTRAINT,))] == [CONSTRAINT]
+    assert {rule.kind for rule, _ in base.ruleset_rules(ruleset.id, (POSITION, MOVE))} == {POSITION, MOVE}
+    assert [rule.name for rule, _ in base.ruleset_rules(ruleset.id, tags=(("topic", "mobility"),))] == [mobility.name]
 
-    ((only,),) = (base.rules("cheat"),)
-    assert (only.id, only.weight("cheat")) == (declared.id, 0.9)
+
+def test_rulesets_are_retrieved_by_context_and_by_task(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    simulation = new_ruleset(base, "simulation", task=SIMULATION)
+    position = new_ruleset(base, "position value")
+
+    assert base.rulesets(base.ensure_context("cheat").id) == (simulation, position)
+    assert base.rulesets(task=SIMULATION) == (simulation,)
+    assert base.rulesets(base.ensure_context("chess").id) == ()
 
 
 def test_a_rule_an_application_declared_is_frozen_and_its_revision_refused_with_a_warning(
@@ -272,16 +309,78 @@ def test_a_rule_declared_open_or_produced_by_omf_can_be_revised(tmp_path: Path) 
     assert base.rule(inferred.id).rule == PythonRule("2")  # type: ignore[union-attr]
 
 
-def test_the_rules_declared_come_back_when_the_base_is_opened_again(tmp_path: Path) -> None:
+def test_a_frozen_ruleset_refuses_an_open_rule_with_a_warning(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
     base = new_base(tmp_path)
-    base.declare(new_rule("a cell is played only when it is empty", CONSTRAINT, open_=True))
-    base.declare(new_rule("more moves is better placed", POSITION))
+    frozen_rule = base.declare(new_rule("a pawn takes diagonally", CONSTRAINT, mechanism=base.ensure_mechanism(DECLARATION).id))
+    open_rule = base.declare(new_rule("mobility counts", POSITION, "1"))
+    simulation = new_ruleset(base, "simulation", frozen_rule, task=SIMULATION, declared=True)
+
+    kept = base.link(simulation.id, open_rule.id)
+
+    assert kept.rule_ids == (frozen_rule.id,)
+    assert base.ruleset_by_id(simulation.id).rule_ids == (frozen_rule.id,)  # type: ignore[union-attr]
+    assert any(record.levelname == "WARNING" and "is frozen" in record.getMessage() for record in caplog.records)
+
+
+def test_a_copy_of_a_frozen_ruleset_is_open_and_lists_the_same_rules_at_the_same_weights(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    frozen_rule = base.declare(new_rule("a pawn takes diagonally", CONSTRAINT, mechanism=base.ensure_mechanism(DECLARATION).id))
+    simulation = new_ruleset(base, "simulation", frozen_rule, task=SIMULATION, declared=True)
+
+    copy = base.copy_ruleset(simulation.id, "simulation with en passant")
+
+    assert base.frozen_ruleset(simulation) and not base.frozen_ruleset(copy)
+    assert (copy.links, copy.task, copy.context) == (simulation.links, SIMULATION, simulation.context)
+    assert copy.source.rests_on == (simulation.id,)
+
+
+def test_revising_a_frozen_rule_in_an_open_ruleset_revises_a_copy_there_only(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    frozen_rule = base.declare(new_rule("a pawn takes diagonally", CONSTRAINT, mechanism=base.ensure_mechanism(DECLARATION).id))
+    simulation = new_ruleset(base, "simulation", frozen_rule, task=SIMULATION, declared=True)
+    heuristic = base.link(new_ruleset(base, "charge").id, frozen_rule.id, 0.5)
+
+    revised = base.revise_in(heuristic.id, frozen_rule.id, replace(frozen_rule, rule=PythonRule("False")))
+
+    assert revised.id != frozen_rule.id and revised.open and revised.source.rests_on == (frozen_rule.id,)
+    assert base.rule(frozen_rule.id) == frozen_rule
+    assert base.ruleset_rules(heuristic.id) == ((revised, 0.5),)
+    assert base.ruleset_rules(simulation.id) == ((frozen_rule, 1.0),)
+
+
+def test_revising_an_open_rule_in_an_open_ruleset_revises_it_in_place(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    mobility = base.declare(new_rule("mobility counts", POSITION, "1"))
+    heuristic = new_ruleset(base, "position value", mobility)
+
+    revised = base.revise_in(heuristic.id, mobility.id, replace(mobility, rule=PythonRule("2")))
+
+    assert revised.id == mobility.id and base.rule(mobility.id).rule == PythonRule("2")  # type: ignore[union-attr]
+
+
+def test_a_frozen_ruleset_refuses_a_revision_with_a_warning(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    frozen_rule = base.declare(new_rule("a pawn takes diagonally", CONSTRAINT, mechanism=base.ensure_mechanism(DECLARATION).id))
+    simulation = new_ruleset(base, "simulation", frozen_rule, task=SIMULATION, declared=True)
+
+    kept = base.revise_in(simulation.id, frozen_rule.id, replace(frozen_rule, rule=PythonRule("False")))
+
+    assert kept == frozen_rule and base.ruleset_rules(simulation.id) == ((frozen_rule, 1.0),)
+    assert any(record.levelname == "WARNING" and "revise it in a copy" in record.getMessage() for record in caplog.records)
+
+
+def test_the_rules_and_rulesets_declared_come_back_when_the_base_is_opened_again(tmp_path: Path) -> None:
+    base = new_base(tmp_path)
+    constraint = base.declare(new_rule("a cell is played only when it is empty", CONSTRAINT, open_=True))
+    mobility = base.declare(new_rule("more moves is better placed", POSITION))
+    ruleset = base.link(new_ruleset(base, "position value", constraint).id, mobility.id, 0.4)
 
     opened = new_base(tmp_path)
 
-    assert [(rule.name, rule.open) for rule in opened.rules("cheat")] == [
-        ("a cell is played only when it is empty", True),
-        ("more moves is better placed", False),
+    assert opened.ruleset_by_id(ruleset.id) == ruleset
+    assert [(rule.name, rule.open, weight) for rule, weight in opened.ruleset_rules(ruleset.id)] == [
+        ("a cell is played only when it is empty", True, 1.0),
+        ("more moves is better placed", False, 0.4),
     ]
 
 
@@ -289,8 +388,9 @@ def test_an_undeclared_rule_is_retrieved_no_more_here_or_in_the_base_opened_agai
     base = new_base(tmp_path)
     kept = base.declare(new_rule("kept", POSITION, "1"))
     dropped = base.declare(new_rule("dropped", POSITION, "2"))
+    ruleset = new_ruleset(base, "position value", kept, dropped)
 
     base.undeclare(dropped.id)
 
-    assert [rule.name for rule in base.rules("cheat")] == [kept.name]
-    assert [rule.name for rule in new_base(tmp_path).rules("cheat")] == [kept.name]
+    assert [rule.name for rule, _ in base.ruleset_rules(ruleset.id)] == [kept.name]
+    assert [rule.name for rule, _ in new_base(tmp_path).ruleset_rules(ruleset.id)] == [kept.name]

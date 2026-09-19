@@ -80,23 +80,22 @@ Logs, besides every game's own lines:
 ```python
 from openmind.agent.builder.agent_builder import AgentBuilder
 from openmind.agent.constant.agent_constant import EXPLORATION
-from openmind.agent.factory.game_factory import create_game
+from openmind.rbs.factory.rbs_factory import create_game
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.rbs.model.value_settings import ValueSettings
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.rbs.model.heuristic_target import HeuristicTarget
 from openmind.training.factory.training_factory import create_value_distiller
 from openmind.training.model.value_distillation_settings import ValueDistillationSettings
 
 knowledge_base = create_knowledge_base("tictactoe")
 rbs = create_game("tictactoe", knowledge_base)
-declarer = RuleDeclarer(knowledge_base, "tictactoe distilled")
-declarer.inherits(rbs.context)                   # the fitted rules go to a variant of the game
+target = HeuristicTarget(knowledge_base, rbs.context)   # the fitted rules go to the game's position value ruleset
 values = ValueSettings((0.1, 0.03, 0.01, 0.003, 0.001), 1000, 1e-6, 3600.0, 8 * 1024**3)   # see rbs/README.md
 result = create_value_distiller(knowledge_base, workers=8).distill(
     rbs,
     AgentBuilder().with_exploration(EXPLORATION),
     ValueDistillationSettings(games=100, held_out_games=25, iterations=200, seed=1, target="outcome", values=values),
-    declarer,
+    target,
 )
 result.rules   # the position rules declared under result.context
 ```

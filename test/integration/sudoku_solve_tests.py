@@ -4,7 +4,7 @@ import pytest
 
 pytestmark = pytest.mark.log_level("INFO")
 
-type Game = Callable[[str], RuleBasedSystem]
+type Game = Callable[[str], RuleBasedGame]
 
 SOLUTION = "534678912672195348198342567859761423426853791713924856961537284287419635345286179"
 

@@ -10,7 +10,7 @@ such as sudoku, whose single action fills every empty cell at once. It returns e
 using propagation and backtracking.
 
 The solver knows nothing of a game. It's given the rules and gives back actions; which actions a game has, and which of
-its rules belong to each, is the RBS's to say (`rbs/service/rule_based_system.py`). A relaxation is just a game whose
+its rules belong to each, is the RBS's to say (`rbs/service/rule_based_game.py`). A relaxation is just a game whose
 RBS hands the solver fewer constraint rules.
 
 ## Content
@@ -30,7 +30,8 @@ RBS hands the solver fewer constraint rules.
 | `service/arc_consistency.py` | `ArcConsistency`: AC-3 over support tables |
 | `service/all_different_propagator.py` | `AllDifferentPropagator`: Régin's matching-based filtering for all-different |
 | `service/backtracking_search.py` | `BacktrackingSearch`: backtracking with maintained propagation and ordering heuristics |
-| `service/solver.py` | `Solver`: `solve(state, action, values, constraints=(), definitions=None, limit=None, player=None)` solves one action over its rules: gives each constraint its strongest form, searches, then orders and caches the solutions; `solve_with_statistics` also gives what the search did |
+| `repository/solution_cache.py` | `SolutionCache`: the solutions found so far, built once and given to the solver, which keeps nothing itself; the memory guard evicts the oldest |
+| `service/solver.py` | `Solver(..., solution_cache)`: `solve(state, action, values, constraints=(), definitions=None, limit=None, player=None)` solves one action over its rules: gives each constraint its strongest form, searches, then orders and caches the solutions; `solve_with_statistics` also gives what the search did |
 
 ## Usage
 
@@ -83,7 +84,7 @@ For the action given:
 7. Values are tried in domain order, or least-constraining first when a limit is set. The search stops once it has
    `limit` solutions.
 8. Solutions are sorted by the parameters' value order, first parameter slowest, and cached per state, limit and
-   rules, until the process's memory guard clears the cache (see `parallel/README.md`).
+   rules, in the solution cache it is given, until the process's memory guard evicts them (see `parallel/README.md`).
 
 `solve(state, action, values, constraints, definitions, limit=None, player=None)`: given a player, such as one of several players acting at once, every
 rule also reads it as `player`: it is added to the state as a variable, so results are cached per player too, and a

@@ -23,7 +23,7 @@ reading `here`.
 | `model/aggregate.py` | `Aggregate(base, pair, kind, body, body_clauses, body_plies=0, readings=(), operations=())`; `readings` and `operations` are the body's own parts, in the order they were added, so `body` is their fold and a candidate can be read from shared readings; a body built another way, such as one comparing a body with itself at `j`, records none: a body read at every index `i`, or every pair of different indices `i` and `j`, of a base, then counted where it holds, summed, or taken at its lowest or highest; `body_plies`, how many actions the body looks ahead |
 | `model/pattern.py` | `Pattern(anchor, conditions)`: conditions around an index, counted over every index of the anchor base |
 | `model/pattern_condition.py` | `PatternCondition(base, steps, relation, value=None, other_condition=None)`: a base read at the index shifted by steps, `==` or `!=` a value or another condition's variable |
-| `model/vocabulary.py` | `Vocabulary(players, to_act, values_by_variable, values_by_base, indices_by_base, offsets_by_arity, grids)`: variables by model name and index (empty for a scalar, coordinates for a grid cell, the key alone for a map entry); the grids' names |
+| `model/vocabulary.py` | `Vocabulary(players, values_by_variable, values_by_base, indices_by_base, offsets_by_arity, grids)`: variables by model name and index (empty for a scalar, coordinates for a grid cell, the key alone for a map entry); the grids' names |
 | `model/search_budget.py` | `SearchBudget(seconds, memory_bytes, candidates=None)`: how long a search runs, how many bytes its process holds, and how many candidates it tries, `None` for no limit |
 | `model/expression_search_result.py` | `ExpressionSearchResult(expressions, training, held_out, generations, stopped, tried)` |
 | `service/mechanics.py` | `Mechanics`: views of positions and the outcomes of any player's actions, with the domain's solver and predictor; `limit_memory(bytes)` and `clear()` |
@@ -41,19 +41,18 @@ search keeps (see `rbs/README.md`).
   `(row, column)` from 1, and a cell of a grid of one dimension is read with a tuple: `here.cell[3,]`.
 - `offset(base, at, *steps)`: the cell of the grid `base` at the coordinates `at` shifted by the steps, or `OUTSIDE`
   off the grid or when `base` isn't a grid of that many dimensions.
-- `moves(player)`: for each action `player` could take if it were their turn, its outcomes as `(view, probability)`.
+- `moves(player)`: for each action `player` can take here, its outcomes as `(view, probability)`; none where the game
+  gives the player no action, such as outside their turn.
 - `mobility(player)`: how many such actions there are.
 - `changed(player, base, at)`: how many of those actions change the cell of the grid `base` at the coordinates `at`,
   each outcome weighted by its probability; the entry of a map at the key `at`, or, `at` being `None`, a scalar or a
   list as a whole. The mechanics work out every change once per position and player, from the moves, so reading every
   cell of a grid costs one pass over the moves (`Mechanics.changes`); a model an outcome adds isn't a change.
-- What if, each the view of an edited copy, the player to act and every other model left as they are:
-  `with_value(base, at, value)`, one grid cell or map entry set (one the position doesn't have raises `KeyError`);
-  `cleared(at)`, every grid's cell at `at` set to the grid's empty value, as the domain declares it
-  (declared by the game as `empty` rules, read through `Mechanics.empties`; a grid without one raises `KeyError`); `copied(source, target)`, every grid's value at `source` also placed
-  at `target`; `alone(at)`, every grid emptied except at `at`. In chess, `here.with_value('color', at, other).changed(me,
-  'color', at)` counts the defenders of my piece on `at`, `here.alone(at).mobility(me)` its moves on an empty board, and
-  `here.copied(j, at).changed(me, 'color', at)` whether I attack an empty square `at`, pawns' diagonals included.
+- What if, each the view of an edited copy, every other model left as it is: `with_value(base, at, value)`, one grid
+  cell or map entry set (one the position doesn't have raises `KeyError`); `copied(source, target)`, every grid's value
+  at `source` also placed at `target`. In chess, `here.with_value('color', at, other).changed(me, 'color', at)` counts
+  the defenders of my piece on `at`, and `here.copied(j, at).changed(me, 'color', at)` whether I attack an empty square
+  `at`, pawns' diagonals included.
 - `best(player, reading)` and `worst(player, reading)`: the highest and lowest reading expected after one of those
   actions; the reading here when the player has none.
 - `count(player, reading)`: how many of those actions the reading is expected to hold after.
@@ -81,7 +80,6 @@ and aggregates build on it.
 1. **Leaves:**
    - a numeric variable as it is: `{view}.x[me]`, `{view}.halfmove`;
    - every other variable at every value seen: `{view}.cell[2, 2] == me`;
-   - the player to act, also absolutely: `{view}.turn == 'X'`;
    - for every indexed base of names and every value, how many indices hold it, a pattern of one condition:
      `sum(1 for at in {view}.cell if {view}.cell[at] == me)`;
    - for every numeric indexed base, the sum, the lowest and the highest of its values, aggregates of one reading:
@@ -194,18 +192,18 @@ games back from their ends with it (see `training/README.md`).
 
 ```python
 from openmind.inference.model.search_budget import SearchBudget
-from openmind.rbs.factory.rbs_factory import create_value_generator
+from openmind.rbs.factory.rbs_factory import create_rule_based_game, create_value_generator
 from openmind.rbs.model.value_settings import ValueSettings
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.rbs.model.heuristic_target import HeuristicTarget
 
 settings = ValueSettings(
     prices=(0.1, 0.01, 0.001), max_steps=1000, tolerance=1e-6, seconds=600.0, memory_bytes=8 * 1024**3, candidates=None
 )
-declarer = RuleDeclarer(knowledge_base, "tictactoe fitted")
-declarer.inherits("tictactoe")
-result = create_value_generator(workers=8).generate(rbs, training_rows, held_out_rows, settings, declarer)
+target = HeuristicTarget(knowledge_base, "tictactoe")
+result = create_value_generator(workers=8).generate(rbs, training_rows, held_out_rows, settings, target)
+fitted = create_rule_based_game(knowledge_base, "tictactoe")
 for rule in result.rules:
-    print(rule.weight(result.context), rule.name)   # e.g. here.worst(other, lambda v2: v2.best(me, lambda v1: v1.payoff[me] == 1.0))
+    print(fitted.weight(rule), rule.name)   # e.g. here.worst(other, lambda v2: v2.best(me, lambda v1: v1.payoff[me] == 1.0))
 ```
 
 ## Logs

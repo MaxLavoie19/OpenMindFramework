@@ -7,7 +7,7 @@ from openmind.agent.service.deduction_fallback import DeductionFallback
 from openmind.agent.service.move_planner import MovePlanner
 from openmind.agent.service.one_ply_chooser import OnePlyChooser
 from openmind.debug.factory.debugger_factory import process_debugger
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.mcts.constant.mcts_constant import FULL_OPTION, RANDOM_OPTION, SEARCH_OPTION
 from openmind.mcts.model.guidance import Guidance
 from openmind.mcts.model.leaf_valuation import LeafValuation
@@ -60,7 +60,7 @@ class Agent:
         self._estimator = estimator
 
     def search(
-        self, rbs: RuleBasedSystem, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
+        self, rbs: RuleBasedGame, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
     ) -> SearchResult:
         """`player` names the searching player where players act at once; elsewhere it's the player to act. A clock
         without an estimator, or no clock for an agent built without iterations, raise ValueError."""
@@ -68,14 +68,14 @@ class Agent:
         if clock is None:
             return self._search(rbs, state, player, settings)
         budget = settings.seconds or 0.0
-        if self._one_ply is None or self._state_reader.acts_at_once(state, rbs.players()):
+        if self._one_ply is None or len(rbs.acting(state)) > 1:
             spent = settings if budget > 0.0 else replace(settings, iterations=1, seconds=None)
             return replace(self._search(rbs, state, player, spent), budget=budget)
         return self._on_clock(rbs, state, player, settings, budget, clock, steps_played)
 
     def _on_clock(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         state: State,
         player: str | None,
         settings: SearchSettings,
@@ -123,14 +123,14 @@ class Agent:
         )
         return replace(result, budget=budget, option=option)
 
-    def _search_only(self, rbs: RuleBasedSystem, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
+    def _search_only(self, rbs: RuleBasedGame, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
         """The search, without the fallback."""
         return self._tree_search.search(
             rbs, state, settings, self._guidance, self._valuation, None
         )
 
-    def _search(self, rbs: RuleBasedSystem, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
-        if self._state_reader.acts_at_once(state, rbs.players()):
+    def _search(self, rbs: RuleBasedGame, state: State, player: str | None, settings: SearchSettings) -> SearchResult:
+        if len(rbs.acting(state)) > 1:
             return self._tree_search.search(
                 rbs,
                 state,
@@ -153,7 +153,7 @@ class Agent:
         )
 
     def choose(
-        self, rbs: RuleBasedSystem, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
+        self, rbs: RuleBasedGame, state: State, player: str | None = None, clock: Clock | None = None, steps_played: int = 0
     ) -> Action:
         return self.search(rbs, state, player, clock, steps_played).chosen
 

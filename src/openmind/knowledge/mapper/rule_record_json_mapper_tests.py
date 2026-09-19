@@ -24,7 +24,6 @@ def test_a_rule_written_as_source_goes_out_and_comes_back_with_everything_it_car
         CONSTRAINT,
         PythonRule("cell[row, col] is None"),
         Source(DECLARATION, (("application", "the tic-tac-toe project"),), when),
-        (("tictactoe", 1.0), ("four in a row", 0.75)),
         action="play",
         open=True,
         tags=(("topic", "legality"),),
@@ -33,13 +32,11 @@ def test_a_rule_written_as_source_goes_out_and_comes_back_with_everything_it_car
     back = mapper.from_line(mapper.to_line(rule))
 
     assert back == rule
-    assert back.weight("four in a row") == 0.75
-    assert back.weight("chess") == 0.0
 
 
 def test_a_rule_the_project_gave_as_a_function_comes_back_as_that_very_function() -> None:
     mapper = RuleRecordJsonMapper()
-    rule = RuleRecord("a rook moves straight", CONSTRAINT, rook_moves_straight, Source(DECLARATION), (("chess", 1.0),))
+    rule = RuleRecord("a rook moves straight", CONSTRAINT, rook_moves_straight, Source(DECLARATION))
 
     back = mapper.from_line(mapper.to_line(rule))
 
@@ -62,7 +59,6 @@ def test_a_heuristic_keeps_which_kind_it_is_and_where_it_came_from() -> None:
         POSITION,
         PythonRule("len(here.moves(me))"),
         Source(INFERENCE, (("method", "deduction"), ("game", "0031"), ("ply", 12))),
-        (("tictactoe", 0.4),),
     )
 
     back = mapper.from_line(mapper.to_line(rule))

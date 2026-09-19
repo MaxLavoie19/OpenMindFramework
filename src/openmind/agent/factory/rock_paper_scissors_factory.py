@@ -11,11 +11,10 @@ from openmind.agent.constant.rock_paper_scissors_constant import (
     SHAPE,
     SHAPES,
     THROW,
-    TURN,
     UNSET,
     WIN,
 )
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.game.service.game_declarer import GameDeclarer
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rule.model.python_rule import PythonRule
 from openmind.structure.model.map import Map
@@ -26,13 +25,11 @@ from openmind.world.model.state import State
 
 
 def create_rock_paper_scissors_initial_state() -> State:
-    """Both players to act at once, the turn map flagging A and B true; the hand map holding no hand thrown; the payoff
-    map holding no payoff."""
+    """The hand map holding no hand thrown; the payoff map holding no payoff."""
     return (
         StateBuilder()
         .with_model(HAND, Map.of(dict.fromkeys(PLAYERS, UNSET)))
         .with_model(PAYOFF, Map.of(dict.fromkeys(PLAYERS, UNSET)))
-        .with_model(TURN, Map.of(dict.fromkeys(PLAYERS, True)))
         .build()
     )
 
@@ -52,17 +49,15 @@ def create_rock_paper_scissors_definitions() -> PythonRule:
     )
 
 
-def declare_rock_paper_scissors_moves(declarer: RuleDeclarer) -> None:
-    """A player to act who hasn't thrown throws a shape."""
+def declare_rock_paper_scissors_moves(declarer: GameDeclarer) -> None:
+    """A player who hasn't thrown throws a shape, both at once."""
     declarer.values(THROW, SHAPE, PythonRule(repr(SHAPES)))
-    declarer.constraints(
-        THROW, PythonRule(f"{TURN}[{PLAYER}]"), PythonRule(f"{HAND}[{PLAYER}] is {UNSET!r}")
-    )
+    declarer.constraints(THROW, PythonRule(f"{HAND}[{PLAYER}] is {UNSET!r}"))
 
 
-def declare_rock_paper_scissors_effects(declarer: RuleDeclarer) -> None:
-    """Each throw sets its player's hand; once both have thrown, the resolution compares the hands, sets the payoffs and
-    ends the game."""
+def declare_rock_paper_scissors_effects(declarer: GameDeclarer) -> None:
+    """Each throw sets its player's hand; then the resolution compares the hands and sets the payoffs, after which no
+    player has an action left."""
     resolution = textwrap.dedent(
         f"""\
         first, second = {HAND}[PLAYERS[0]], {HAND}[PLAYERS[1]]
@@ -72,8 +67,6 @@ def declare_rock_paper_scissors_effects(declarer: RuleDeclarer) -> None:
             {PAYOFF} = {PAYOFF}.with_item(PLAYERS[0], WIN).with_item(PLAYERS[1], LOSS)
         else:
             {PAYOFF} = {PAYOFF}.with_item(PLAYERS[0], LOSS).with_item(PLAYERS[1], WIN)
-        for thrower in PLAYERS:
-            {TURN} = {TURN}.with_item(thrower, False)
         """
     )
     declarer.definitions(create_rock_paper_scissors_definitions(), effects=True)
@@ -82,17 +75,24 @@ def declare_rock_paper_scissors_effects(declarer: RuleDeclarer) -> None:
 
 
 def create_rock_paper_scissors_players() -> Players:
-    """A and B; the turn map flags the players to act; the payoff map holds each one's payoff."""
-    return Players(PLAYERS, TURN, PAYOFF)
+    """A and B; the payoff map holds each one's payoff."""
+    return Players(PLAYERS, PAYOFF)
 
 
-def declare_rock_paper_scissors(knowledge_base: KnowledgeBase, weight: float = 1.0) -> str:
+def declare_rock_paper_scissors(knowledge_base: KnowledgeBase) -> str:
     """Declares rock paper scissors' rules and gives back the context they were declared under: A and B throw at once;
     rock beats scissors, paper beats rock, scissors beat paper."""
-    declarer = RuleDeclarer(knowledge_base, NAME, weight)
+    declarer = GameDeclarer(knowledge_base, NAME)
     declarer.starts_at(create_rock_paper_scissors_initial_state())
     declarer.played_by(create_rock_paper_scissors_players())
     declarer.definitions(create_rock_paper_scissors_definitions())
     declare_rock_paper_scissors_moves(declarer)
     declare_rock_paper_scissors_effects(declarer)
     return declarer.done()
+
+
+def declare_rock_paper_scissors_named(name: str, knowledge_base: KnowledgeBase) -> str:
+    """Declares rock paper scissors from its registered name, which has no variant; any other raises ValueError."""
+    if name != NAME:
+        raise ValueError(f"{NAME} has no variant: {name!r}")
+    return declare_rock_paper_scissors(knowledge_base)

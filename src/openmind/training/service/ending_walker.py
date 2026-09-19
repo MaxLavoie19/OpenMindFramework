@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from openmind.inference.model.deduction import Deduction
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.inference.service.position_deducer import PositionDeducer
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ class EndingWalker:
         self._position_deducer = position_deducer
 
     def walk_back(
-        self, rbs: RuleBasedSystem, states: Sequence[State], budget: DeductionBudget, limit: int
+        self, rbs: RuleBasedGame, states: Sequence[State], budget: DeductionBudget, limit: int
     ) -> tuple[Deduction, ...]:
         """The game's positions deduced from the last one backward, stopping after the first one not proven or at the
         limit."""

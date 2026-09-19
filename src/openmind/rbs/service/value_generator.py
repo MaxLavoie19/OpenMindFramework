@@ -5,18 +5,23 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 
 from openmind.inference.constant.inference_constant import SINGLE_TARGET
+from openmind.knowledge.constant.knowledge_constant import INFERENCE, POSITION_VALUE
+from openmind.knowledge.constant.rule_kind_constant import POSITION
+from openmind.knowledge.model.rule_record import RuleRecord
+from openmind.knowledge.model.ruleset import Ruleset
+from openmind.knowledge.model.source import Source
 from openmind.inference.model.expression import Expression
 from openmind.inference.model.expression_search_result import ExpressionSearchResult
 from openmind.inference.model.search_budget import SearchBudget
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.expression_search import ExpressionSearch
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.sparse_fit import SparseFit
 from openmind.rbs.model.value_fit import ValueFit
 from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.model.value_generation_result import ValueGenerationResult
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.rbs.model.heuristic_target import HeuristicTarget
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.sparse_fitter import SparseFitter
 
@@ -50,11 +55,11 @@ class ValueGenerator:
 
     def generate(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         training: Sequence[PositionRow],
         held_out: Sequence[PositionRow],
         settings: ValueSettings,
-        declarer: RuleDeclarer,
+        target: HeuristicTarget,
         seeds: Sequence[Expression] = (),
     ) -> ValueGenerationResult:
         """Without held-out rows, the fit with the lowest training loss is kept; ties go to the fewest terms. The search
@@ -62,19 +67,19 @@ class ValueGenerator:
         payoffs = np.array([row.target for row in training], dtype=float)
         held_out_payoffs = np.array([row.target for row in held_out], dtype=float)
         return self.generate_for_targets(
-            rbs, training, held_out, {SINGLE_TARGET: (payoffs, held_out_payoffs)}, settings, declarer, seeds
+            rbs, training, held_out, {SINGLE_TARGET: (payoffs, held_out_payoffs)}, settings, target, seeds
         )[
             SINGLE_TARGET
         ]
 
     def generate_for_targets(
         self,
-        rbs: RuleBasedSystem,
+        rbs: RuleBasedGame,
         training: Sequence[PositionRow],
         held_out: Sequence[PositionRow],
         targets: Mapping[str, TargetValues],
         settings: ValueSettings,
-        declarer: RuleDeclarer,
+        target: HeuristicTarget,
         seeds: Sequence[Expression] = (),
     ) -> dict[str, ValueGenerationResult]:
         """Each target's result, in the targets' order. A target is its values on the training and held-out rows, scaled
@@ -92,7 +97,7 @@ class ValueGenerator:
                 logger.info(
                     "%sEvery training payoff is %s: nothing to fit", self._label(name, several), float(np.min(values))
                 )
-                results[name] = ValueGenerationResult(declarer.context, (), (), None, ())
+                results[name] = ValueGenerationResult(target.context, (), (), None, ())
                 continue
             scaled[name] = (values, held_out_values)
         if scaled:
@@ -110,14 +115,14 @@ class ValueGenerator:
             )
             for name, (values, held_out_values) in scaled.items():
                 results[name] = self._sweep(
-                    rbs, declarer, self._label(name, several), found, values, held_out_values, prices, settings, bool(held_out)
+                    rbs, target, self._label(name, several), found, values, held_out_values, prices, settings, bool(held_out)
                 )
         return {name: results[name] for name in targets}
 
     def _sweep(
         self,
-        rbs: RuleBasedSystem,
-        declarer: RuleDeclarer,
+        rbs: RuleBasedGame,
+        target: HeuristicTarget,
         label: str,
         found: ExpressionSearchResult,
         targets: np.ndarray,
@@ -195,10 +200,10 @@ class ValueGenerator:
         chosen = fitted[index]
         kept = sorted((at for at, weight in enumerate(chosen.weights) if weight != 0.0), key=lambda at: -abs(chosen.weights[at]))
         bias = chosen.bias - math.fsum(chosen.weights[at] * float(means[at]) / float(scales[at]) for at in kept)
-        declared = [declarer.position(CONSTANT_RULE, PythonRule(CONSTANT_SOURCE), bias)]
+        declared = [self._link(target, CONSTANT_RULE, PythonRule(CONSTANT_SOURCE), bias)]
         for at in kept:
             weight = chosen.weights[at] / float(scales[at])
-            declared.append(declarer.position(terms[at].source, terms[at], weight))
+            declared.append(self._link(target, terms[at].source, terms[at], weight))
             logger.debug("%s%+.6g × %s", label, weight, terms[at].source)
         logger.info(
             "%sChose price %s: %d position rules and a constant of %s",
@@ -208,7 +213,29 @@ class ValueGenerator:
             bias,
         )
         strengths = tuple((terms[at], float(chosen.weights[at])) for at in kept)
-        return ValueGenerationResult(declarer.context, tuple(declared), tuple(fits), fits[index], terms, strengths)
+        return ValueGenerationResult(target.context, tuple(declared), tuple(fits), fits[index], terms, strengths)
+
+    def _link(self, target: HeuristicTarget, name: str, rule: PythonRule, weight: float) -> RuleRecord:
+        """Declares a fitted position rule, open, and links it into the target's position value ruleset at its weight;
+        a rule of the same name already there is revised in place and its weight set anew."""
+        knowledge_base = target.knowledge_base
+        context_id = knowledge_base.ensure_context(target.context).id
+        mechanism = knowledge_base.ensure_mechanism(INFERENCE).id
+        ruleset = knowledge_base.ruleset_named(context_id, POSITION_VALUE) or knowledge_base.ruleset(
+            Ruleset(POSITION_VALUE, context_id, POSITION_VALUE, Source(mechanism, (("method", "fit"),)), open=True)
+        )
+        standing = next((held for held, _ in knowledge_base.ruleset_rules(ruleset.id, (POSITION,)) if held.name == name), None)
+        declared = knowledge_base.declare(
+            RuleRecord(
+                name,
+                POSITION,
+                rule,
+                Source(mechanism, (("method", "fit"), ("context", target.context))),
+                id="" if standing is None else standing.id,
+            )
+        )
+        knowledge_base.link(ruleset.id, declared.id, weight)
+        return declared
 
     def _label(self, name: str, several: bool) -> str:
         return f"{name}: " if several else ""

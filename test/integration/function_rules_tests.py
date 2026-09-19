@@ -7,16 +7,58 @@ import pickle
 
 import pytest
 
-from openmind.rbs.factory.rule_factory import create_rule_caller
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rule.factory.rule_factory import create_rule_caller
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.factory.rbs_factory import create_rule_based_system
-from openmind.rbs.service.consequence_library_tests import Declare, place, position, strip_domain
-from openmind.rbs.service.rule_declarer import RuleDeclarer
+from openmind.rbs.factory.rbs_factory import create_rule_based_game
+from openmind.rule.model.python_rule import PythonRule
+from openmind.structure.model.grid import Grid
+from openmind.world.model.action import Action
+from openmind.game.service.game_declarer import GameDeclarer
 from openmind.structure.model.map import Map
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
 from openmind.structure.model.value import Value
+from collections.abc import Callable
+
+type Declare = Callable[..., RuleBasedGame]
+
+def strip_domain(declared: Declare) -> RuleBasedGame:
+    """The strip written as rule source: X and O take turns marking a cell of a 1 by 4 strip; two marks side by side
+    win, a full strip is a draw."""
+    effects = PythonRule(
+        "cell = cell.placed((1, col), turn)\n"
+        "if any(cell[1, c] == turn and cell[1, c + 1] == turn for c in range(1, 4)):\n"
+        "    payoff = Map.of({turn: 1.0, 'O' if turn == 'X' else 'X': 0.0})\n"
+        "elif None not in cell.cells:\n"
+        "    payoff = Map.of({'X': 0.5, 'O': 0.5})\n"
+        "turn = 'O' if turn == 'X' else 'X'"
+    )
+    constraints = (
+        PythonRule("turn == player"),
+        PythonRule("payoff['X'] is None"),
+        PythonRule("payoff['O'] is None"),
+        PythonRule("cell[1, col] is None"),
+    )
+    return declared(
+        position({}, "X"),
+        legal={"place": constraints},
+        outcomes={"place": ((1.0, effects),)},
+        players=Players(("X", "O"), "payoff"),
+        parameters={"place": {"col": PythonRule("(1, 2, 3, 4)")}},
+        context="strip",
+    )
+
+
+def position(marks: dict[int, str], turn: str, payoff: dict[str, float | None] | None = None) -> State:
+    """A position of the strip: the marks by column, whose turn it is, and the payoffs, unset while the game goes on."""
+    cells = tuple(marks.get(col) for col in range(1, 5))
+    return State.of(cell=Grid((1, 4), cells), turn=turn, payoff=Map.of(payoff or {"X": None, "O": None}))
+
+
+def place(col: int) -> Action:
+    return Action("place", (("col", col),))
+
 
 COLUMNS = (1, 2, 3, 4)
 
@@ -33,6 +75,11 @@ def is_over(state: State) -> bool:
 def free_columns(state: State) -> tuple[Value, ...]:
     """The columns a mark can still go in: the state domain of the `col` parameter."""
     return () if is_over(state) else tuple(col for col, mark in marks(state).items() if mark is None)
+
+
+def is_their_turn(state: State) -> bool:
+    """The constraint: only the player whose turn it is has an action, `player` being the player solved for."""
+    return state.value("turn") == state.value("player")
 
 
 def is_empty(state: State, col: int) -> bool:
@@ -69,17 +116,17 @@ def game_record(state: State, actions: tuple) -> str:  # type: ignore[type-arg]
     return " ".join(str(dict(action.parameters)["col"]) for action in actions)
 
 
-def function_strip(knowledge: KnowledgeBase) -> RuleBasedSystem:
+def function_strip(knowledge: KnowledgeBase) -> RuleBasedGame:
     """The strip game with every rule declared as one of this module's functions."""
-    declarer = RuleDeclarer(knowledge, "function strip", rule_caller=create_rule_caller())
+    declarer = GameDeclarer(knowledge, "function strip", rule_caller=create_rule_caller())
     declarer.starts_at(position({}, "X"))
-    declarer.played_by(Players(("X", "O"), "turn", "payoff"))
+    declarer.played_by(Players(("X", "O"), "payoff"))
     declarer.values("place", "col", free_columns)
-    declarer.constraint("place", 1, is_empty)
+    declarer.constraints("place", is_their_turn, is_empty)
     declarer.leads_to("place", place_mark)
     declarer.ending(why_it_ended)
     declarer.record(game_record)
-    return create_rule_based_system(knowledge, declarer.done())
+    return create_rule_based_game(knowledge, declarer.done())
 
 
 def test_a_game_declared_as_functions_solves_and_plays_like_the_same_rules_as_source(
@@ -112,7 +159,7 @@ def test_a_function_no_worker_could_find_is_rejected(knowledge: KnowledgeBase) -
     def inside() -> bool:
         return True
 
-    declarer = RuleDeclarer(knowledge, "strip", rule_caller=create_rule_caller())
+    declarer = GameDeclarer(knowledge, "strip", rule_caller=create_rule_caller())
     with pytest.raises(ValueError, match="can't be found by a worker process"):
         declarer.ending(inside)
     with pytest.raises(ValueError, match="can't be found by a worker process"):

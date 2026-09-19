@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from openmind.rbs.model.called_rule import CalledRule
+from openmind.rule.model.called_rule import CalledRule
 
 
 @dataclass(frozen=True, slots=True)

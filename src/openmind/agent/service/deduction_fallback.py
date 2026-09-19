@@ -7,7 +7,7 @@ from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.mcts.model.action_statistics import ActionStatistics
 from openmind.mcts.model.leaf_valuation import LeafValuation
 from openmind.mcts.model.search_result import SearchResult
-from openmind.rbs.service.rule_based_system import RuleBasedSystem
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.timing.model.deadline import Deadline
 from openmind.world.model.state import State
 from openmind.world.service.state_reader import StateReader
@@ -32,7 +32,7 @@ class DeductionFallback:
         self._budget = budget
 
     def result(
-        self, rbs: RuleBasedSystem, state: State, valuation: LeafValuation | None, deadline: Deadline | None = None
+        self, rbs: RuleBasedGame, state: State, valuation: LeafValuation | None, deadline: Deadline | None = None
     ) -> SearchResult | None:
         """The proven choice, or None when the rules have a clue or nothing was proven. With a deadline, valuing the legal
         moves stops once it passes, the rules then taken to have a clue, and the deduction gets no more than the time
@@ -40,7 +40,7 @@ class DeductionFallback:
         actions = rbs.actions(state)
         if not actions:
             return None
-        player = self._state_reader.player_to_act(state, rbs.players())
+        player = rbs.players().names.index(rbs.acting_player(state))
         if valuation is not None:
             values = self._one_ply.values(rbs, state, actions, valuation.valuer, deadline)
             if values is None and deadline is not None and deadline.passed():
