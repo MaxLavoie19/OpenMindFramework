@@ -83,6 +83,20 @@ more: `"e2e4"` has no parts, and inventing a meaning for its letters would be OM
    position. Either it is declared as an opinion at once and revised when a candidate contradicts it, or it is held
    back until it has survived some number of positions. The first fits the doxastic side, which is built to hold
    opinions and revise them; the second declares less nonsense.
-2. **Whether it deduces constraints only, or effects too.** What a move *does* is as withheld as what makes it legal,
-   and it is deducible the same way — from positions before and after. It is a larger job, and everything bootstrapped
-   so far needs only legality.
+2. **Whether it deduces constraints only, or effects too.**
+   **Decided (Maxime):** constraints only. What a move *does* is as withheld as what makes it legal, but learning it
+   is the predictor's job, not the deducer's — the predictor is already a task with its own models, trained from
+   transitions it has seen, and "moving a rook loses that castling right" is one of the things it has to learn. The
+   deducer says what is allowed; the predictor says what happens.
+
+## What the prohibitions rest on
+
+A rule that forbids an action for what it leads to — the king left where it can be taken — is read from the position
+after it. That position comes from the predictor. So the exclusion layer sits on top of the predictor and is only
+ever as good as it: a predictor that has not yet learned that a pawn taken en passant disappears, or that a rook's
+move gives up a castling right, hands the deducer a position that never happens, and the deducer learns a prohibition
+from it and states it as a rule of the game.
+
+Two things follow. The order is predictor first, prohibitions second. And wherever the deducer is measured against a
+game that answers its own outcomes — as every run so far has been — it is being given a perfect predictor, and the
+numbers should be reported as such.
