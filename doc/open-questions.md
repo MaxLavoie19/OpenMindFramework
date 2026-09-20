@@ -372,3 +372,24 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
         utility of a mixed strategy, judging the whole distribution rather than its mean: a high-risk line can have a
         clearly low expected utility and still be the likeliest way to win. Maxime's intuition, not yet analysed; a
         risk preference and a bold policy would both work too.
+
+21. **The context hierarchy step.**
+    - **Decided (Maxime):**
+      - A parent delegates a goal and a budget, and the child runs its own agent loop in its own context with its own
+        models, reporting back what came of it. It is a call, not a task queue.
+      - The parent decides per delegation whether the child's seconds are carved out of its own or run alongside.
+        Noted and not dug further: a child running alongside also takes a core the parent could have used, and nothing
+        weighs cores.
+      - A level sees an abstraction of the state, made by a model of the `abstraction` task: every level abstracts from
+        what the world holds, each in its own way, and a level with no abstraction model sees the state as it is.
+      - Delegating is an action of the parent's game, declared with its constraints, duration and cooldown, and
+        dispatched into the hierarchy. A parent could play the child's level out itself, but not well: a level is
+        solved by the models that suit it — minimax for tic-tac-toe, MCTS for chess, SDMCTS for poker — and those live
+        in the child's context.
+      - Fetching specifics on demand is an action too: a level holding a file's path reads the file as a move of its
+        own game, whose effect puts the content in that level's state, so the abstractor stays stateless.
+      - A child keeps its parent informed after every step, not only when it is done: it hands up where its level
+        stands and the parent abstracts that into its own state. A coach delegating "move toward interesting
+        positions" hears of each move as it is played, in time to comment on what the student chose or warn them to
+        pay attention. What lands in the parent is its own state, never the child's game state applied to it: OMF
+        runs no games.

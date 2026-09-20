@@ -62,10 +62,12 @@ approved, then its code is approved.
       interfaces approved (`doc/interfaces/budget-agent.md`)
 - [x] budget + agent loop — code approved; `openmind-play tictactoe --agent X` plays, the terminal being the
       integrator
-- [ ] the context hierarchy: one loop per level, a parent delegating to a child with its goal and budget, each level
+- [x] the context hierarchy: one loop per level, a parent delegating to a child with its goal and budget, each level
       seeing an abstraction of the state and fetching specifics on demand, its own planning model per level —
-      interfaces approved
-- [ ] the context hierarchy — code approved
+      interfaces approved (`doc/interfaces/context-hierarchy.md`)
+- [x] the context hierarchy — code approved: a level runs its own loop on what its abstraction model lets it see, a
+      parent delegates a goal and a budget it carves or runs alongside, and the child keeps it informed after every
+      step. Nothing declares a delegating action or an abstraction ruleset yet
 - [ ] codec + rhetoric (any modality: text, image, sound, temperature, radar, …; detectors as decoders of a state
       (fork, pin, …), grounding emergent from decoders + epistemology; interpretations as a distribution;
       Meyer's tactics; balanced goals; validation gate; making the case for

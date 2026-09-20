@@ -20,7 +20,7 @@ deep, to go broad, or to improvise.
 
 | File | What it is |
 |---|---|
-| `model/budget.py` | `Budget(seconds, of_clock=None)`: what a step may spend, and the clock it was carved from |
+| `model/budget.py` | `Budget(seconds, of_clock=None)`: what a step may spend, and the clock it was carved from; `carve(seconds)`, `alongside(seconds)` |
 | `model/time_manager.py` | `TimeManager[Model]`, the time management task: `manage(model, knowledge_base, node, budget, tasks)` |
 | `model/allocation.py` | `Allocation(settings, models)`: the model chosen per task and how far to explore; `of(task)` |
 | `service/plain_time_manager.py` | `PlainTimeManager(model_registry)`: the bootstrap model |
@@ -38,6 +38,17 @@ deep, to go broad, or to improvise.
   millisecond where nothing has been measured. Never fewer than one.
 
 The training step fits a model of this task from what each allocation actually brought.
+
+## Carving a child's time
+
+A parent delegating to a child level decides, per delegation, whether the child's seconds come out of its own:
+
+- `carve(seconds)` gives the child's budget and what is left of the parent's, so a carve-out is visible in what the
+  parent has left. Carving more than there is gives the child what there is and leaves nothing.
+- `alongside(seconds)` gives a budget of its own on the same clock, taking nothing from the parent's.
+
+Seconds aren't all that is shared — a child running alongside also takes a core the parent could have used — and
+nothing here weighs cores.
 
 ## Usage
 
@@ -59,4 +70,4 @@ Logger `openmind.budget.service.plain_time_manager`: `DEBUG <seconds> seconds: <
 
 ## Notes
 
-- Tests: `service/plain_time_manager_tests.py`.
+- Tests: `model/budget_tests.py`, `service/plain_time_manager_tests.py`.

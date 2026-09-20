@@ -69,7 +69,7 @@ Certainty is only as rigorous as its caller makes it. `epistemology` will make i
 | `model/tags.py` | `Tags`, key–value pairs; `carries(tags, wanted)` |
 | `model/store.py` | `Store`: the port one kind of knowledge is kept behind, as JSON-ready dicts: `append`, `load`, `forget` |
 | `constant/knowledge_constant.py` | The knowledge directory and its files, the kinds ids start with, the names of the mechanisms OMF registers itself (`direct experience`, `declaration`, `inference`, `decoder`, `self-play`), and task statuses |
-| `constant/rule_kind_constant.py` | The kinds of rules: a game's (`GAME_KINDS`) and heuristics (`HEURISTIC_KINDS`) |
+| `constant/rule_kind_constant.py` | The kinds of rules: a game's (`GAME_KINDS`), heuristics (`HEURISTIC_KINDS`) and `abstraction`, what one level of the hierarchy sees of a state |
 | `mapper/knowledge_json_mapper.py` | `KnowledgeJsonMapper`: experiences, beliefs, opinions, tasks, contexts and sources to JSON-ready dicts and back |
 | `mapper/rule_record_json_mapper.py` | `RuleRecordJsonMapper`: a rule to JSON and back; a rule given as a function is found again by its module and name |
 | `service/file_store.py` | `FileStore(path)`: the default `Store`, JSON lines appended to one file; the last line of an id wins |

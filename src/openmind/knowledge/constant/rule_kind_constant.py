@@ -40,6 +40,9 @@ POSITION = "position"
 #: A move's value for the player to act: a move heuristic's term.
 MOVE = "move"
 
+#: What one level of the hierarchy sees of a state: an abstraction model's rule.
+ABSTRACTION = "abstraction"
+
 #: What a game project registers: the rules of the game itself.
 GAME_KINDS = (INITIAL, PLAYERS, DEFINITIONS, CONSTRAINT, VALUES, EFFECTS, ENDING, DURATION, COOLDOWN, RECORD, PICTURE)
 
@@ -47,5 +50,5 @@ GAME_KINDS = (INITIAL, PLAYERS, DEFINITIONS, CONSTRAINT, VALUES, EFFECTS, ENDING
 HEURISTIC_KINDS = (POSITION, MOVE, OPTIMUM)
 
 #: Every kind of rule the knowledge base holds.
-RULE_KINDS = GAME_KINDS + HEURISTIC_KINDS
+RULE_KINDS = GAME_KINDS + HEURISTIC_KINDS + (ABSTRACTION,)
 

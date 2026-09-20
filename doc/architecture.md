@@ -125,6 +125,11 @@ turns.
   - The goal of a sub-task is provided by the parent, for example coaching rather than winning.
 - **The child** is unit micromanagement, such as moving and targeting units. It pursues those goals within its own
   context, and reports its outcome back to the parent.
+- **The child keeps the parent informed as it works**, after every step, rather than only at the end. It hands up
+  where its level stands and the parent abstracts that into its own state, so the parent can act on it while it
+  matters: a coach whose child plays the moves hears of each one as it is played, in time to comment on what the
+  student chose. What lands in the parent is the parent's own state — OMF runs no games, so nothing applies a child's
+  game state to it.
 
 **Payoff and rhetorical gain live at different levels.**
 - Inside a game's context, the game's payoff is what counts.
@@ -875,6 +880,7 @@ in dependency order.
 | `rbs` | the rule-based system: a model family that runs whatever rules a ruleset holds, for any task; OMF's main explainable model |
 | `model` | models per task, with their measured precision and processing time |
 | `heuristic` | the position, move and policy value tasks: what any model filling them answers, whatever it is |
+| `abstraction` | the abstraction task: what one level of the hierarchy sees of a state, and the ruleset filling it |
 | `utility` | a move's utility over its outcomes, goals and their weights, binning |
 | `policy` | policies, the default policy, the optimizer |
 | `agent_model` | models of agents, from a generic player to one instance |

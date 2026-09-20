@@ -19,9 +19,14 @@ loop, a game client's connection, an API — and what happened comes back throug
 | `model/dispatcher.py` | `Dispatcher`, the port performing what a strategy calls for: `dispatch(action)`, `performing()` |
 | `service/actor.py` | `Actor(dispatcher, wait_seconds=0.01)`: acts on a strategy, in a thread of its own with `start`/`stop`; `follow(strategy)`, `act(world)` |
 | `service/agent.py` | `Agent(time_manager, planner, actor=None)`: `play(knowledge_base, game, world, guidance, budget)`, `allocate(...)` |
+| `model/delegation.py` | `Delegation(context, goal, budget, player)`: what a parent hands a child level |
+| `model/report.py` | `Report(delegation, state, value, seconds, reached, task)`: what the child gives back |
+| `service/level.py` | `Level(context, game, agent, guidance, world, abstractor=None, utility=None, …)`: one level of the hierarchy; `perceived(node)`, `run(knowledge_base, delegation, stopping=None, informing=None)` |
+| `service/hierarchy.py` | `Hierarchy(levels)`: the levels by context; `level`, `children`, `parent`, `perceived`, `delegate`, `delegate_alongside` |
+| `service/delegated.py` | `Delegated(level, knowledge_base, delegation, informing=None)`: a child running alongside its parent; `running`, `report`, `stop` |
 | `service/timekeeper.py` | `Timekeeper(time_source=None)`: each player's clock, and a choice timed |
 | `service/game_memory.py` | `GameMemory`: games remembered as direct experiences in the knowledge base |
-| `factory/agent_factory.py` | `create_actor(dispatcher)`, `create_agent(planner=None, actor=None)` |
+| `factory/agent_factory.py` | `create_actor(dispatcher)`, `create_agent(planner=None, actor=None)`, `create_level(...)`, `create_hierarchy(levels)` |
 
 The example games — tic-tac-toe and its variants, sudoku, the prisoner's dilemma, rock paper scissors — live in
 `constant/`, `factory/`, `model/`, `mapper/` and `repository/`; see the sections below.
@@ -36,15 +41,45 @@ The example games — tic-tac-toe and its variants, sudoku, the prisoner's dilem
 
 The actor opens no debugger frames: a pause in its thread would hold the game up, and what it did is in the logs.
 
+## The hierarchy of levels
+
+OMF runs one loop per level of the context hierarchy. A level is a problem of its own — its state, its actions, its
+policies, its models, its time scale — and it sees an abstraction of the state everything shares, made by a model of
+the abstraction task (see `abstraction/README.md`). What it doesn't hold, it fetches by acting.
+
+**A parent delegates a goal and a budget.** The child pursues that goal in its own context, with its own models, and
+reports back where it left its level, what that was worth and what it spent. A parent could play the child's level
+out itself, but not well: a level is solved by what suits it, minimax for tic-tac-toe, a Monte-Carlo tree search for
+chess, its semi-determinized form for poker.
+
+**The seconds are carved or alongside**, as the parent decides per delegation: `Budget.carve` leaves the parent that
+much less and `Hierarchy.delegate` makes it wait, while `Budget.alongside` costs it nothing in seconds and
+`Hierarchy.delegate_alongside` runs the child in a thread of its own.
+
+**Delegating is an action of the parent's game**, declared with its constraints, duration and cooldown like any other,
+so the parent's own planner weighs it against acting itself.
+
+**The child keeps its parent informed after every step**, handing up where its level stands; the parent abstracts
+that into its own state and acts on it while it matters. A coach whose child plays the moves hears of each one as it
+is played, in time to comment on what the student chose. What lands in the parent is the parent's own state: OMF runs
+no games, so nothing applies a child's game state to it.
+
+**What a delegation brought is kept** as a task in the child's context, with what it was expected to take and what it
+turned out to be worth, so what delegating to that level brings can be looked back on. Drifting those values over the
+runs is the next-best-task loop's.
+
 ## Logs
 
 - `openmind.agent.service.actor`: `INFO Dispatched <action>`, `DEBUG Nothing prepared for this state: waiting while
   the planner strategizes`.
 - `openmind.agent.service.agent`: `INFO Nothing to play for <player> here`.
+- `openmind.agent.service.level`: `INFO <goal> in <context> reached|ran out after <seconds> seconds, worth <value>`.
+- `openmind.agent.service.hierarchy`: `DEBUG Delegating to <context>`.
 
 ## Notes
 
-- Tests: `service/actor_tests.py`, `service/agent_tests.py`, `service/game_memory_tests.py`, and the example games'.
+- Tests: `service/actor_tests.py`, `service/agent_tests.py`, `service/level_tests.py`, `service/hierarchy_tests.py`,
+  `service/game_memory_tests.py`, and the example games'.
 
 ## Domains from installed projects
 
