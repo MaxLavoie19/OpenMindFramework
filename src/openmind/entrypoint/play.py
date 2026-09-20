@@ -10,7 +10,7 @@ from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.rbs.factory.rbs_factory import create_game
 from openmind.rbs.service.rule_based_game import RuleBasedGame
-from openmind.search.factory.search_factory import create_improvised, create_minimax
+from openmind.search.factory.search_factory import create_improvised, create_minimax, create_monte_carlo_tree_search
 from openmind.search.model.guidance import Guidance
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
@@ -20,7 +20,11 @@ from openmind.world.service.world import World
 logger = logging.getLogger(__name__)
 
 #: The planners a player can be given, and what each one is.
-PLANNERS = {"minimax": create_minimax, "improvised": create_improvised}
+PLANNERS = {
+    "minimax": create_minimax,
+    "monte-carlo": create_monte_carlo_tree_search,
+    "improvised": create_improvised,
+}
 
 #: How long an agent's move may take, in seconds.
 DEFAULT_SECONDS = 5.0

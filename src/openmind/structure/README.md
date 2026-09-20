@@ -20,6 +20,12 @@ sees it — and `GridAliases` stays the port for a game that names its cells som
 with `Grid.of`, writing the cells out as they are laid out, and declares that state as where its game starts. Lines and rays follow the directions a game declares for its grid; OMF offers the orthogonal and
 the diagonal sets, and a grid that declares none uses both.
 
+**A cell holding None holds nothing.** That is the convention of this package, and every game follows it: a grid
+starts `Grid.filled(shape, None)`, `where(None)` gives the free cells, and `moved` and `removed` leave None behind
+unless a game spells nothing its own way and says so. Reading a cell that isn't there raises, so nothing-here and
+not-a-cell are never confused, and what OMF infers from a position can tell an empty square from the edge of the
+board without being told.
+
 This package depends on nothing else in OMF: `world` builds states from it.
 
 ## Content

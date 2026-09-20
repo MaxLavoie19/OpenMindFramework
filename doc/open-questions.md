@@ -415,3 +415,12 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
       names a game gives a grid's cells, among the models a rule reads, and `Grid.of`, which populates a grid from its
       cells written out as they are laid out. A game's own alias class would still not read back, and `GridAliases`
       stays the port for one.
+
+23. **What a grid answers where nothing stands.** (found while designing the bootstrap)
+    Measuring what a piece is worth means taking it off the board and asking what that costs, so OMF has to know what
+    a cell holds when it holds nothing. A grid answers whatever the game stored, and reading a cell that isn't there
+    raises, so nothing-here and not-a-cell were already distinct — but nothing said which value means nothing.
+    - **Decided (Maxime):** a cell holding `None` holds nothing, as a convention of the `structure` package. Every
+      game already spells it that way, `Grid.filled(shape, None)` is the idiom, and `moved` and `removed` default to
+      it. A game that spells nothing its own way — 0 on a numeric board — passes its own marker where one is asked
+      for. Nothing is declared and nothing is inferred for what every game already agrees on.

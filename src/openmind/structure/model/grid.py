@@ -15,6 +15,11 @@ class Grid:
     row 1 at the top — or by the aliases a game gives them, such as chess's a1. Its cells are kept row-major. Lines and
     rays follow the directions the game declared; orthogonal and diagonal steps where it declared none.
 
+    **A cell holding None holds nothing**, which is how every game spells an empty square and what `where(None)`,
+    `moved` and `removed` take it to mean. Reading a cell that isn't there raises instead, so nothing-here and
+    not-a-cell are never confused. A game free to spell nothing its own way — 0 on a numeric board — passes its own
+    marker where one is asked for.
+
     Every change gives a new grid, so states holding grids can be compared and used as keys. Rules read a cell as
     `cell[2, 3]` and write a new grid, such as `cell = cell.placed((2, 3), turn)`."""
 
@@ -175,11 +180,13 @@ class Grid:
         index = self._index(self._coordinates(where))
         return Grid(self.shape, self.cells[:index] + (value,) + self.cells[index + 1 :], self.aliases, self.directions)
 
-    def moved(self, source: Coordinates | str, target: Coordinates | str, empty: Value) -> "Grid":
-        """The piece at `source` moved to `target`, taking whatever was there, `source` left empty."""
+    def moved(self, source: Coordinates | str, target: Coordinates | str, empty: Value = None) -> "Grid":
+        """The piece at `source` moved to `target`, taking whatever was there, `source` left empty. A cell holds None
+        when it holds nothing; a game that spells nothing its own way passes it."""
         return self.placed(target, self.at(source)).placed(source, empty)
 
-    def removed(self, where: Coordinates | str, empty: Value) -> "Grid":
+    def removed(self, where: Coordinates | str, empty: Value = None) -> "Grid":
+        """The cell emptied: it holds nothing, which is None unless the game spells nothing its own way."""
         return self.placed(where, empty)
 
     def _directions(self) -> tuple[Coordinates, ...]:

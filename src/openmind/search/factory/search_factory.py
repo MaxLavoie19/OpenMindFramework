@@ -1,6 +1,8 @@
 from openmind.policy.factory.policy_factory import create_rated_policy_picker, create_solver_optimizer
+from openmind.search.repository.search_tree_cache import SearchTreeCache
 from openmind.search.service.improvised import Improvised
 from openmind.search.service.minimax import Minimax
+from openmind.search.service.monte_carlo_tree_search import MonteCarloTreeSearch
 from openmind.utility.factory.utility_factory import create_utility
 
 
@@ -16,3 +18,9 @@ def create_improvised(policy_picker: object | None = None, optimizer: object | N
 def create_minimax() -> Minimax:
     """The planner reading a small game out to its end."""
     return Minimax(create_utility())
+
+
+def create_monte_carlo_tree_search(trees: SearchTreeCache | None = None) -> MonteCarloTreeSearch:
+    """The planner exploring the lines a position leads to, with the tree cache it keeps them in: one of its own
+    unless another is given, so a search built once carries its trees from move to move."""
+    return MonteCarloTreeSearch(create_utility(), SearchTreeCache() if trees is None else trees)
