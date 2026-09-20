@@ -361,6 +361,10 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
       - Dispatching actions is a port an integrator can fill — a robot's control loop, a game client's connection —
         with OMF's own thread as the default. It waits where the strategy has nothing prepared for the state it is
         in, which is the surprise case the planner is already strategizing from.
+      - The actor thread opens no debugger frames yet: the planner stays debuggable and acting shows in the logs, until
+        the dashboard can show threads.
+      - `openmind-play` becomes the integrator: it pushes what the human played, dispatches what OMF chose, and prints.
+        It is the worked example of integrating OMF.
       - Planning makes no sense where guesses can't be educated (no time, no model, no guiding principle): depth is
         wasted on random moves, and breadth might stumble on a win. The time management policy chooses on that.
       - The trailing player should gamble, the leading one shouldn't ("Optimal strategy in Guess Who?: beyond binary

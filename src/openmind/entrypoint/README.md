@@ -65,35 +65,33 @@ found without Tailscale and `--host`, which is rejected.
 
 ```bash
 .venv/bin/openmind-play tictactoe                                 # two humans
-.venv/bin/openmind-play tictactoe --agent O                       # human X against the agent
-.venv/bin/openmind-play tictactoe --agent X --agent O --seed 7    # the agent against itself
+.venv/bin/openmind-play tictactoe --agent O                       # human X against OMF
+.venv/bin/openmind-play tictactoe --agent X --agent O --seed 7    # OMF against itself
 .venv/bin/openmind-play tictactoe/fourinarow --agent O            # 4 in a row, a variant of tic-tac-toe
 ```
 
+**The terminal is the integrator.** OMF doesn't run games: here the command does. It applies the action OMF dispatched
+through the game's own rules, draws an outcome where there are several, and pushes what came of it back to the world
+OMF reads. That is what integrating OMF looks like, in one file.
+
 | Option | Default | Meaning |
 |---|---|---|
-| `--agent PLAYER` | none | a player the agent controls; repeat for several |
-| `--iterations N` | `1000` | MCTS iterations per agent move |
-| `--seed S` | unseeded | random seed for the agent's search |
-| `--rollout-limit N` | no limit | actions an agent's rollout plays at most before every player gets the unfinished payoff |
-| `--unfinished-payoff X` | none | each player's payoff for a rollout stopped at the limit; needed with `--rollout-limit`, and rejected without it |
-| `--time-control MINUTES+SECONDS` | no clock | every player, human or agent, plays on a clock, a human's thinking at the prompt included; both clocks are printed before each move, and a player whose time runs out is told `<player>'s time ran out`; what that does is the game's own rule, and OMF has none, so the game goes on and that player's clock stops; written as chess writes a time control: `3+2` is 3 minutes and 2 seconds a move; `--iterations` then no longer counts, each move's budget replacing it; anything but minutes+seconds or a base of 0 is refused |
-| `--expected-steps N` | `30` | with a clock: steps a player expects to be left at any point of a game, the plain time budget estimator sharing the time left between them (see `timing/README.md`); below 1 is refused |
-| `--time-reserve X` | `0.05` | with a clock: the share of a player's base time kept in reserve; below it the player plays only random moves, so its clock never runs out; from 0 to below 1 |
-| `--selection ucb1\|puct` | `ucb1` | how a tried node picks the action to follow: `ucb1` tries every legal action once first, `puct` follows Q + c · P · √N / (1 + n) with a prior (see `mcts/README.md`) |
-| `--prior uniform\|rater\|value` | `uniform` | the prior PUCT follows: every action alike, the agent's rules' ratings, or its value rules' values of each action's outcomes; only `uniform` here, the agent having no rules when playing |
-| `--puct-exploration X` | `1.5` | PUCT's exploration weight c; 0 or more |
-| `--prior-temperature X` | `0.1` | the softmax temperature turning ratings or values into a prior, lower following the best more closely; above 0 |
+| `--agent PLAYER` | none | a player OMF plays; repeat for several |
+| `--planner minimax\|improvised` | `minimax` | the planning model OMF plays with: read the game out to its end, or take the picked policy's optimized action (see `search/README.md`) |
+| `--seconds X` | `5.0` | seconds a move may take, which the time management policy spends (see `budget/README.md`) |
+| `--seed S` | unseeded | random seed for the outcomes drawn |
 | `--log-level LEVEL` | `INFO` | lowest level saved in the game log: `DEBUG`, `INFO` or `WARNING` |
 | `--log-directory DIR` | `data/log/play` | where game logs are saved |
+| `--knowledge DIR` | `data/knowledge` | where the knowledge base is kept |
 | `--debug-session FILE` | none | a debug session file (see `debug/README.md`): verbosity, breakpoints, what time does while paused; with it, Ctrl+C pauses at the next reasoning frame |
 
-1. Prints the state as the player to act sees it: each two-dimensional grid under its name and column numbers, with
-   `.` for an empty cell, then one `name = value` line per other model (`GridTextMapper`, see `world/README.md`).
+1. Prints the state: each two-dimensional grid under its name and column numbers, with `.` for an empty cell, then one
+   `name = value` line per other model (`GridTextMapper`, see `world/README.md`).
 2. On a human's turn, lists the legal actions by number and reads the number of the action to perform. Anything else
    asks again; end of input (Ctrl+D) ends the session.
-3. On an agent's turn, the agent searches and the CLI prints `<player> chose <action>`.
-4. The game's RBS gives the outcome distribution; when there are several outcomes, one is drawn by its probability.
+3. On OMF's turn, the agent strategizes within its budget and its actor dispatches what the strategy says to play.
+4. The command applies what was dispatched, drawing an outcome by its probability where there are several, and pushes
+   the result back.
 5. When no action is legal, prints the final state, payoffs included.
 
 Games are declared by name into the knowledge base through `agent/factory/game_factory.py`: `tictactoe`, its variants
@@ -103,15 +101,14 @@ rejected.
 
 Each session writes `<log directory>/<domain>/<YYYY-MM-DD_HH-MM-SS>.log`, from `--log-level` up (a variant's logs go
 in a folder per variant, such as `data/log/play/tictactoe/fourinarow/`), as
-`LEVEL logger message` lines. At `INFO`: the agent's search results (see `mcts/README.md`), plus, from logger
-`openmind.entrypoint.play`:
+`LEVEL logger message` lines. At `INFO`: what the planner worked out (see `search/README.md`), what the actor
+dispatched (see `agent/README.md`), plus, from logger `openmind.entrypoint.play`:
 
 - `INFO Playing <domain>`
-- `INFO Chose <action>`
 - `INFO No legal action left: game over`
 - `INFO Input ended before the game was over`
 
-At `DEBUG`, every solver candidate, predictor effect and search iteration is added, including those inside the
+At `DEBUG`, every solver candidate, predictor effect and planning step is added, including those inside the
 agent's rollouts.
 
 ## `openmind-solve`

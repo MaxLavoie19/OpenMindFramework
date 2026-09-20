@@ -22,8 +22,8 @@ class Minimax:
     what the game paid; an unfinished one at the depth given is worth what the position value heuristic says, and
     nothing where there is none.
 
-    It gives a strategy: the best move in every state it worked out, each at probability 1, so the agent can follow it
-    without searching again until the opponent leaves it."""
+    It gives a strategy: the best move in every state where the player it plans for acts, each at probability 1, so
+    that player can follow it without searching again until an opponent leaves it."""
 
     def __init__(self, utility: Utility) -> None:
         self._utility = utility
@@ -77,9 +77,9 @@ class Minimax:
         if not best:
             seen[node.state] = None
             return None
-        for index, (action, _) in best.items():
-            if index == players.names.index(guidance.player) or len(legal) == 1:
-                moves[node.state] = ((action, 1.0),)
+        mine = players.names.index(guidance.player) if guidance.player in players.names else None
+        if mine is not None and mine in best:
+            moves[node.state] = ((best[mine][0], 1.0),)
         values = self._together(best, len(players.names))
         seen[node.state] = values
         return values

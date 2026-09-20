@@ -2,45 +2,49 @@
 
 ## Purpose
 
-The agent and the games it plays. The agent chooses actions by searching with MCTS over a game's RBS (see
-`rbs/README.md`). Tic-tac-toe, sudoku, the prisoner's dilemma and rock paper scissors are games the agent knows, not
-domains in the code: they exist only as rules this domain's factories declare into the knowledge base, and their
-constants.
+The loop: perceive, process, plan, communicate, act, under one budget — and the example games OMF ships with.
+
+**Acting and strategizing run at once.** The planner strategizes while the actor acts on what it has worked out so
+far. Both read the same state, so the actor answers what is actually happening and the planner works from where the
+game really is. Where the strategy has nothing prepared for the state it is in, the actor waits: that is the surprise
+case, and the planner is already strategizing from there.
+
+**OMF doesn't run games; integrators do.** What performs an action is a port an integrator fills — a robot's control
+loop, a game client's connection, an API — and what happened comes back through the world OMF reads.
 
 ## Content
 
 | File | What it is |
 |---|---|
-| `service/timekeeper.py` | `Timekeeper(time_source=None)`, what a referee needs to keep the players' clocks, on wall time unless given another source: `clocks(rbs, control)`, each player's starting clock; `timed(choose)`, what a choice gave and the seconds it took. What running out of time does is the game's own rule; OMF has none |
-| `model/game_rules.py` | `GameRules`: what an installed project registers, a function declaring its game's rules into a knowledge base from the whole game name and giving back the context |
-| `service/agent.py` | `Agent`: searches a game's state with MCTS over its RBS, guided by a rater and valuing positions with a valuer when built with them, falling back on deduction when built with a budget (see `mcts/README.md`); where players act at once, it searches for the player given to `search(rbs, state, player)` or `choose(rbs, state, player)` and samples its action from its average strategy; `search` gives the whole result, `choose` the action. Given a clock and the steps its player has played (`search(rbs, state, player, clock, steps_played)`), it asks its time budget estimator how long the step may take and searches for that long, the budget replacing any iterations it was built with; without a clock it searches its iterations. A clock without an estimator, or no clock for an agent built without iterations, raise `ValueError`. The deduction fallback keeps its own seconds, not bounded by the step's budget. On a clock, the whole move keeps to the estimator's budget, one deadline from the moment it starts choosing that the fallback, its deduction and the search all draw on; where players take turns, its `MovePlanner` picks the option, a fallback cut short still leaving the move at least one search iteration, and the move logs `INFO <player> plays by <option> within a <s> second budget: <s> seconds, <s> left`, the result's `option` saying which |
-| `service/deduction_fallback.py` | `DeductionFallback.result(rbs, state, valuation, deadline=None)`: when the agent has no valuer, or its valuer can't value every legal action's outcomes or values them all the same for the player to act, deduces the position (see `inference/README.md`); a proven best action comes back as a search result holding that action alone, with 1 visit and its proven payoff, and no samples; otherwise `None`, and the agent searches; with a deadline, valuing the legal actions stops once it passes, and the deduction gets no more than the time left |
-| `service/one_ply_chooser.py` | `OnePlyChooser(state_reader)`: what choosing without searching needs: `legal(rbs, state)`; `values(rbs, state, actions, valuer, deadline=None)`, each legal move's value for the player to act, None when one can't be valued or the deadline passes first, which the deduction fallback reads; and `random(rbs, state, rng)`, a random legal move for a player out of time, with no value (NaN), nothing having been searched |
-| `service/move_planner.py` | `MovePlanner`: `plan(budget, moves, has_fallback, has_valuer)` picks how a move on a clock is chosen: the fallback then the search while the fallback's measured cost per legal move leaves time to search (a fallback never measured runs, its deadline cutting it short); the search alone otherwise, however few iterations fit, since exploring, even at random, beats choosing without searching; a random move only on a budget of 0; `observe(kind, seconds, count)` records what `fallback` and `iteration` cost, a cost being the mean of the game so far |
-| `model/policy.py` | `Policy`: anything with `choose(rbs, state, player=None, clock=None, steps_played=0) -> Action`, the player given where players act at once, and on a clock the player's clock and the steps it has played so far; `Agent` and `RandomPolicy` are policies |
-| `model/describable.py` | `Describable`: a part of an agent that can say what it is, `describe() -> str`, JSON enough to build it again; an RBS gives its context and its heuristics with their weights, `PlainTimeBudgetEstimator` its rule and steps expected |
-| `model/model_description.py` | `ModelDescription(name, text)`: a model as it played, `text` everything needed to build it again word for word; `id`, the first 16 hex digits of the text's SHA-256, is the same for the same model and changes with any setting or rule |
-| `model/game_summary.py` | `GameSummary(domain, kind, round, number, seeds, players, models, payoffs, plies, ending=None, record=None, time_control=None, seconds=(), budgets=(), clocks=(), flagged=None)`: a finished game as it is remembered, whatever played it, the model each player played in the players' order; `label` names it, `round 1 arms game 12` or `match game 3` |
-| `mapper/game_summary_json_mapper.py` | `GameSummaryJsonMapper`: a game summary as JSON and back, each model kept by name and id; reading one back takes the models by id and raises `ValueError` for one not given |
-| `service/game_memory.py` | `GameMemory(knowledge_base)`: `remember(summary)` keeps a finished game in the knowledge base as it ends — the game as a direct experience, its summary as JSON word for word, tagged with the keyword `game`, its kind and its models' ids and names; each model once, as a belief holding its text, tagged with the keyword `model`, its id and its name; and each player's payoff and outcome (`win`, `draw` or `loss` as the keyword), and the game's ending, as beliefs held at 100 % with the game as their evidence. The highest payoff alone wins, a highest payoff shared draws, anything lower loses. `scores(names)` counts each name's games, wins, draws and losses (a model playing both sides counts both); `models()` gives every model remembered; `games(kind=None)` every game, oldest first, and `experiences(kind=None)` the direct experiences they are kept as; `count(kind)` how many of a kind; `last_number(kind)` the highest number a game of that kind has, which new games are numbered after |
-| `model/policy_factory.py` | `PolicyFactory`: gives the policy that plays a game from the game's seed; to run in worker processes, it must pickle |
-| `service/random_policy.py` | `RandomPolicy(rng)`: chooses uniformly among the legal actions, the given player's where players act at once; a clock changes nothing; a baseline opponent |
-| `builder/agent_builder.py` | `AgentBuilder`: sets iterations, exploration, seed, guidance (`with_guidance(rater)`), whether guided rollouts follow the ratings (`with_guided_rollouts(guided)`), the valuer valuing the positions rollouts reach (`with_valuation(valuer)`), the rollout actions played before valuing (`with_rollout_actions(actions)`, 0 by default), the rollout limit (`with_rollout_limit(limit, unfinished_payoff)`) the deduction the agent falls back on when its rules have no clue (`with_deduction(budget)`, none by default), how it budgets a step's time on a clock (`with_time_budget_estimator(estimator)`, with which iterations may be left out, a move's budget replacing them on a clock), and how its search selects (`with_selection(selection, puct_exploration=1.5)`, `ucb1` by default, and `with_prior(prior)` for PUCT), and wires the services the agent searches with; `describe(name)` gives the agent it builds as a `ModelDescription`, every setting but the seed as JSON, each model as it describes itself and one that can't as its class marked `not rebuildable`; rejects a missing exploration, neither iterations nor an estimator, fewer than 1 iteration, negative rollout actions, a negative rollout limit or one without an unfinished payoff, and a deduction budget without plies or seconds |
-| `factory/agent_factory.py` | `create_agent(iterations=1000, seed=None, rollout_limit=None, unfinished_payoff=None)`: an agent searching with the exploration weight √2 |
-| `constant/agent_constant.py` | Default iterations (1000), exploration weight (√2), the guidance's prior weight (1.0), rollout temperature (0.2) and guided rollouts (true), and the entry point group installed domains register under (`openmind.domains`) |
-| `model/tictactoe_variant.py` | `TicTacToeVariant(name, width, height, line, gravity)`: how a variant differs from standard tic-tac-toe |
-| `constant/tictactoe_constant.py` | Game name and the variant separator, players, empty and unset values, payoff values, model and action names, and the variants (`STANDARD`, `VARIANTS`) |
-| `factory/tictactoe_factory.py` | `declare_tictactoe(knowledge_base, variant=STANDARD)`, declaring `create_tictactoe_initial_state(variant)`, `create_tictactoe_players()`, `create_tictactoe_definitions(variant)`, the moves (`declare_tictactoe_moves`) and their effects (`declare_tictactoe_effects`); `declare_tictactoe_named(name, knowledge_base)`, registered under the `openmind.domains` entry points |
-| `constant/sudoku_constant.py` | Game name and the separator of puzzle names, box and grid size, digits, the puzzle, empty and clue marks, empty and unset values, the collection file suffix and Project Euler's format marks, payoff values, model and action names, and the parameter name template (`cell_{row}_{col}`) |
-| `factory/sudoku_factory.py` | `declare_sudoku(knowledge_base, name="sudoku", grid=PUZZLE)`, declaring `create_sudoku_initial_state(grid)`, `create_sudoku_players()`, the fill (`declare_sudoku_moves`) and what it writes (`declare_sudoku_effects`); `declare_sudoku_named(name, knowledge_base)`, registered |
-| `model/sudoku_puzzle.py` | `SudokuPuzzle(collection, number, grid)`: a published puzzle, numbered from 1 in its collection, its grid 81 characters row by row with `.` for an empty cell |
-| `mapper/sudoku_collection_mapper.py` | `SudokuCollectionMapper`: reads a collection's text into puzzles, from one 81-character line per puzzle (Norvig) or a `Grid NN` line and 9 rows (Project Euler), with `.` or `0` for an empty cell; anything else raises `ValueError` |
-| `repository/sudoku_puzzle_repository.py` | `SudokuPuzzleRepository`: lists the `<collection>.txt` files of a directory and loads a collection's puzzles |
-| `model/prisoners_dilemma_variant.py` | `PrisonersDilemmaVariant(name, rounds, ending_chance, simultaneous=False)`: how many rounds are played (`None` when no last round is known), the chance the game ends after each round, and whether both players choose at once |
-| `constant/rock_paper_scissors_constant.py` | Game name, players, the three shapes and what each beats, the payoffs of a win (1), draw (0.5) and loss (0), model, action and parameter names |
-| `factory/rock_paper_scissors_factory.py` | `declare_rock_paper_scissors(knowledge_base)`, declaring `create_rock_paper_scissors_initial_state()`, `create_rock_paper_scissors_players()`, `create_rock_paper_scissors_definitions()`, the throws and what the two throws lead to together; `declare_rock_paper_scissors_named(name, knowledge_base)`, registered |
-| `constant/prisoners_dilemma_constant.py` | Game name and the variant separator, players, the two choices, Axelrod's points (`REWARD`, `PUNISHMENT`, `TEMPTATION`, `SUCKER`, `POINTS`), model, action and parameter names, and the variants (`STANDARD`, `VARIANTS`) |
-| `factory/prisoners_dilemma_factory.py` | `declare_prisoners_dilemma(knowledge_base, variant=STANDARD)`, declaring `create_prisoners_dilemma_initial_state()`, `create_prisoners_dilemma_players()`, `create_prisoners_dilemma_definitions(variant)`, the choices and what a round leads to with its ending chance; a variant with fewer than 1 round, an ending chance outside 0 to 1, or neither a last round nor an ending chance raises `ValueError`; `declare_prisoners_dilemma_named(name, knowledge_base)`, registered |
+| `model/dispatcher.py` | `Dispatcher`, the port performing what a strategy calls for: `dispatch(action)`, `performing()` |
+| `service/actor.py` | `Actor(dispatcher, wait_seconds=0.01)`: acts on a strategy, in a thread of its own with `start`/`stop`; `follow(strategy)`, `act(world)` |
+| `service/agent.py` | `Agent(time_manager, planner, actor=None)`: `play(knowledge_base, game, world, guidance, budget)`, `allocate(...)` |
+| `service/timekeeper.py` | `Timekeeper(time_source=None)`: each player's clock, and a choice timed |
+| `service/game_memory.py` | `GameMemory`: games remembered as direct experiences in the knowledge base |
+| `factory/agent_factory.py` | `create_actor(dispatcher)`, `create_agent(planner=None, actor=None)` |
+
+The example games — tic-tac-toe and its variants, sudoku, the prisoner's dilemma, rock paper scissors — live in
+`constant/`, `factory/`, `model/`, `mapper/` and `repository/`; see the sections below.
+
+## The loop
+
+1. **Perceive.** The integrator pushes what it saw; the world holds it (see `world/README.md`).
+2. **Plan.** The time management policy says what to run with; the planner gives a strategy (see `budget/README.md`
+   and `search/README.md`).
+3. **Act.** The actor dispatches what the strategy says to play in the state as it stands, and waits where it says
+   nothing.
+
+The actor opens no debugger frames: a pause in its thread would hold the game up, and what it did is in the logs.
+
+## Logs
+
+- `openmind.agent.service.actor`: `INFO Dispatched <action>`, `DEBUG Nothing prepared for this state: waiting while
+  the planner strategizes`.
+- `openmind.agent.service.agent`: `INFO Nothing to play for <player> here`.
+
+## Notes
+
+- Tests: `service/actor_tests.py`, `service/agent_tests.py`, `service/game_memory_tests.py`, and the example games'.
 
 ## Domains from installed projects
 
@@ -291,38 +295,40 @@ with `BEATS` and sets both payoffs; no player has an action left, and the game i
 
 ## Usage
 
+Playing a game with OMF, the caller being the integrator:
+
 ```python
-from openmind.agent.factory.agent_factory import create_agent
-from openmind.rbs.factory.rbs_factory import create_game
+from openmind.agent.factory.agent_factory import create_actor, create_agent
+from openmind.budget.model.budget import Budget
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
+from openmind.rbs.factory.rbs_factory import create_game
+from openmind.search.factory.search_factory import create_minimax
+from openmind.search.model.guidance import Guidance
+from openmind.world.service.world import World
 
 knowledge_base = create_knowledge_base("tictactoe")
-rbs = create_game("tictactoe", knowledge_base)
-action = create_agent(iterations=500, seed=1).choose(rbs, rbs.start())
+game = create_game("tictactoe", knowledge_base)
+world = World(game.start())
+agent = create_agent(create_minimax(), create_actor(my_dispatcher))
 
-fourinarow = create_game("tictactoe/fourinarow", knowledge_base)
+strategy = agent.play(knowledge_base, game, world, Guidance("X"), Budget(5.0))
+strategy.chosen(world.current())        # what it settled on here
 ```
 
-Playing a game forward through its RBS:
+`openmind-play` is the worked example: it runs the game in the terminal, dispatches what OMF chose, and pushes back
+what came of it (see `entrypoint/README.md`).
+
+Playing a game forward through its rules:
 
 ```python
-actions = rbs.actions(rbs.start())
+actions = game.actions(game.start())
 # 9 actions; actions[0] is Action(name='place', parameters=(('col', 1), ('row', 1)))
-rbs.outcomes(rbs.start(), actions[0])
-# OutcomeDistribution(outcomes=((State(models=(('cell', Grid(shape=(3, 3), cells=('X', None, …))), …, ('turn', Scalar(value='O')))), 1.0),))
+game.outcomes(game.start(), actions[0])
 ```
 
 ## Notes
 
-- Tests: `builder/agent_builder_tests.py`, `factory/agent_factory_tests.py`, `factory/prisoners_dilemma_factory_tests.py`, `factory/rock_paper_scissors_factory_tests.py`, `factory/sudoku_factory_tests.py`,
-  `factory/tictactoe_factory_tests.py`,
-  `mapper/sudoku_collection_mapper_tests.py`, `repository/sudoku_puzzle_repository_tests.py`,
-  `service/agent_tests.py`, `service/random_policy_tests.py`; integration:
-  `test/integration/tictactoe_actions_tests.py`, `test/integration/tictactoe_search_tests.py`,
-  `test/integration/tictactoe_transitions_tests.py`, `test/integration/tictactoe_variants_games_tests.py`,
-  `test/integration/tictactoe_fourinarow_transitions_tests.py`, `test/integration/tictactoe_fourinarow_search_tests.py`,
-  `test/integration/sudoku_solve_tests.py`, `test/integration/sudoku_collections_solve_tests.py`,
-  `test/integration/prisoners_dilemma_transitions_tests.py`, `test/integration/prisoners_dilemma_search_tests.py`;
-  end-to-end:
-  `test/end_to_end/play_tictactoe_tests.py`, `test/end_to_end/play_fourinarow_tests.py`,
-  `test/end_to_end/solve_sudoku_tests.py`.
+- Tests: `service/actor_tests.py`, `service/agent_tests.py`, `service/game_memory_tests.py`,
+  `factory/prisoners_dilemma_factory_tests.py`, `factory/rock_paper_scissors_factory_tests.py`,
+  `factory/sudoku_factory_tests.py`, `factory/tictactoe_factory_tests.py`,
+  `mapper/sudoku_collection_mapper_tests.py`, `repository/sudoku_puzzle_repository_tests.py`.

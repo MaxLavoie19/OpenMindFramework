@@ -56,12 +56,14 @@ approved, then its code is approved.
       distribution per state; an agent model is the heuristics trained for that agent; hypotheses are a distribution,
       over policies where the possibilities can't be counted) — interfaces approved (`doc/interfaces/search.md`)
 - [ ] search + agent models + hypotheses — code approved; MCTS and SDMCTS as later models of the planning task
-- [ ] budget + agent loop (one loop per level of the context hierarchy, a parent delegating to a child; each level
-      sees an abstraction of the state and fetches specifics on demand; planning model per level, SDMCTS only where
-      it fits; perceive, process, plan, communicate, act; a trainable time management policy choosing the
-      model and search size at each level: theory of mind, inferences, state value, action value, predictor, SDMCTS
-      nodes) — interfaces approved
-- [ ] budget + agent loop — code approved; tic-tac-toe, rock paper scissors and prisoner's dilemma played
+- [x] budget + agent loop (perceive, plan, act under one budget; the time management policy choosing the set of models
+      and how much to explore; a thread dispatching what a strategy calls for while the planner strategizes) —
+      interfaces approved (`doc/interfaces/budget-agent.md`)
+- [ ] budget + agent loop — code approved; `openmind-play tictactoe --agent X` plays
+- [ ] the context hierarchy: one loop per level, a parent delegating to a child with its goal and budget, each level
+      seeing an abstraction of the state and fetching specifics on demand, its own planning model per level —
+      interfaces approved
+- [ ] the context hierarchy — code approved
 - [ ] codec + rhetoric (any modality: text, image, sound, temperature, radar, …; detectors as decoders of a state
       (fork, pin, …), grounding emergent from decoders + epistemology; interpretations as a distribution;
       Meyer's tactics; balanced goals; validation gate; making the case for

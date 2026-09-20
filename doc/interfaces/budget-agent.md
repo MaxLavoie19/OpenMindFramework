@@ -102,3 +102,27 @@ class Agent:
 2. **What `openmind-play` becomes.** It drives the game itself today: prompts a human, applies the action, prints the
    state. With the integrator pushing observations, is it the integrator in that setup — pushing what the human played
    and dispatching what OMF chooses — or does it become a thin example of one?
+
+## As coded (2026-09-19)
+
+- **`budget`:** `Budget(seconds, of_clock)`, the `TimeManager` port, `Allocation(settings, models)` and
+  `PlainTimeManager`, which takes the best measured model of each task and works the node count out from the seconds
+  and what a node has been costing.
+- **`world/service/world.py`:** `World` holds the state for the actor and the planner, guarded across threads, with
+  `perceived`, `happened`, `current` and `changes`. Decoding what arrives comes at the codec step; an integrator pushes
+  a state for now.
+- **`agent`:** the `Dispatcher` port, `Actor` — which acts on a strategy, waits where it has nothing for the state, and
+  runs in a thread with `start`/`stop` — and `Agent.play`, which allocates, plans and lets the actor act.
+- **`openmind-play` is the integrator**: it runs the game, dispatches what OMF chose, draws an outcome and pushes back
+  what came of it. `--planner minimax|improvised` and `--seconds` replace the old search options.
+- The old agent services built around the deleted search are gone: the builder, the factory's agent, the move planner,
+  the deduction fallback, the one-ply chooser, the random policy and the policy description.
+- **Fixed while coding:** minimax recorded the acting player's move even when planning for another player, so an actor
+  playing O would have dispatched X's move. It now records only the moves of the player it plans for.
+
+### Not built here
+
+- The actor opens no debugger frames, as agreed.
+- Nothing trains the time management policy, and no planner is registered as a model yet, so `Allocation.of(planning)`
+  is empty and the caller passes its planner.
+- `training` and `dashboard` still import the deleted search; their own steps revive them.

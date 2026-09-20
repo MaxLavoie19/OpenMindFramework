@@ -19,6 +19,7 @@ The shared vocabulary every other domain uses to describe what the agent works o
 | `mapper/state_text_mapper.py` | `StateTextMapper`: readable text, one `name = model` line per model, a scalar as its value |
 | `mapper/grid_text_mapper.py` | `GridTextMapper`: readable text with every two-dimensional grid laid out, then one `name = value` line per other model |
 | `constant/grid_text_constant.py` | The grid's marks for an empty cell (`.`) and a missing cell (a blank) |
+| `service/world.py` | `World(state)`: the state as it stands, for whoever acts and whoever plans; `current()`, `perceived(state)`, `happened(action, outcome)`, `changes()`, guarded across threads |
 | `service/state_reader.py` | `StateReader`: a scalar's value by name, and the payoffs in the order of the players (`payoffs`) |
 
 ## Usage
