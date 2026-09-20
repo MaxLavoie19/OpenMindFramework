@@ -1,145 +1,84 @@
 import logging
-import math
-import random
-from collections.abc import Callable, Sequence
+import time
+from dataclasses import replace
 
-from openmind.agent.builder.agent_builder import AgentBuilder
-from openmind.agent.constant.agent_constant import HELD_OUT_SELF_PLAY_GAME, SELF_PLAY_GAME
-from openmind.agent.model.model_description import ModelDescription
-from openmind.agent.service.game_memory import GameMemory
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.factory.rbs_factory import create_rule_based_game
-from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.model.heuristic_target import HeuristicTarget
-from openmind.rbs.model.position_row import PositionRow
+from openmind.rbs.model.value_settings import ValueSettings
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.service.value_generator import ValueGenerator
-from openmind.timing.service.plain_time_budget_estimator import PlainTimeBudgetEstimator
-from openmind.training.mapper.played_game_summary_mapper import PlayedGameSummaryMapper
+from openmind.search.model.guidance import Guidance
 from openmind.training.mapper.position_row_mapper import PositionRowMapper
-from openmind.training.model.played_game import PlayedGame
-from openmind.training.model.value_distillation_result import ValueDistillationResult
-from openmind.training.model.value_distillation_settings import ValueDistillationSettings
+from openmind.training.model.distillation import Distillation
+from openmind.training.model.self_play_settings import SelfPlaySettings
 from openmind.training.service.self_play import SelfPlay
-from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)
 
 
 class ValueDistiller:
-    """Distills value rules from self-play: turns the positions of training and held-out games into rows valued at the
-    target, fits value rules on the training rows, chooses among the fits on the held-out rows, and measures the chosen
-    rules on the held-out rows. With a game memory, every game is remembered as it ends, with the model each player
-    played."""
+    """Learns a position heuristic from games the agent played against itself.
+
+    Pondering the rules gives a game its first heuristics where the rules settle enough positions; where they don't —
+    chess, where nothing is proved and nothing is paid until a hundred moves in — games are what is left. Every
+    position a game went through is valued at what that game paid, the candidates the readings allow are composed and
+    fitted on those, and what holds up on games it was not fitted on is declared and registered as a model.
+
+    It says nothing about whether the heuristic is any good. What it gives back is what it rests on: how many games,
+    how many of them anyone won, and what the fit was off by on games it never saw."""
 
     def __init__(
-        self,
-        self_play: SelfPlay,
-        value_generator: ValueGenerator,
-        position_row_mapper: PositionRowMapper,
-        knowledge_base: KnowledgeBase,
-        game_memory: GameMemory | None = None,
-        played_game_summary_mapper: PlayedGameSummaryMapper | None = None,
+        self, self_play: SelfPlay, position_row_mapper: PositionRowMapper, value_generator: ValueGenerator
     ) -> None:
-        self._game_memory = game_memory
-        self._summaries = PlayedGameSummaryMapper() if played_game_summary_mapper is None else played_game_summary_mapper
         self._self_play = self_play
-        self._value_generator = value_generator
-        self._position_row_mapper = position_row_mapper
-        self._knowledge_base = knowledge_base
+        self._rows = position_row_mapper
+        self._generator = value_generator
 
     def distill(
         self,
-        rbs: RuleBasedGame,
-        agent_builder: AgentBuilder,
-        settings: ValueDistillationSettings,
-        target: HeuristicTarget,
-        round_number: int | None = None,
-        model_name: str = SELF_PLAY_GAME,
-    ) -> ValueDistillationResult:
-        """Sets the builder's iterations; the builder needs its exploration set. `round_number` and `model_name`, what
-        the self-play agent is called, name the games a game memory remembers."""
-        rng = random.Random(settings.seed)
-        agent_builder.with_iterations(settings.iterations)
-        if settings.time_control is not None:
-            agent_builder.with_time_budget_estimator(PlainTimeBudgetEstimator(settings.expected_steps, self._reserve(settings)))
-        model = agent_builder.describe(model_name)
-        players = len(rbs.players().names)
-        training_games = self._self_play.play(
-            rbs,
-            agent_builder,
-            settings.games,
-            rng,
-            keep_samples=False,
-            time_control=settings.time_control,
-            on_game=self._remembering(rbs, SELF_PLAY_GAME, round_number, lambda game: (model,) * players),
+        knowledge_base: KnowledgeBase,
+        game: RuleBasedGame,
+        guidance: Guidance,
+        play: SelfPlaySettings,
+        values: ValueSettings,
+        held_out_games: int = 0,
+    ) -> Distillation:
+        """Plays, fits, and declares what held up. `held_out_games` are played after the rest and kept back, so the
+        rules are chosen on games they were not fitted on."""
+        started = time.monotonic()
+        played = self._self_play.play(knowledge_base, game, guidance, play)
+        held_out = (
+            self._self_play.play(
+                knowledge_base, game, guidance, replace(play, games=held_out_games, seed=play.seed + play.games)
+            )
+            if held_out_games
+            else ()
         )
-        held_out_games = self._self_play.play(
-            rbs,
-            agent_builder,
-            settings.held_out_games,
-            rng,
-            keep_samples=False,
-            time_control=settings.time_control,
-            on_game=self._remembering(rbs, HELD_OUT_SELF_PLAY_GAME, round_number, lambda game: (model,) * players),
+        training = self._rows.to_rows(game, played)
+        kept_back = self._rows.to_rows(game, held_out)
+        decisive = sum(1 for one in (*played, *held_out) if one.decisive)
+        if not training:
+            logger.info("Nothing to learn from %d games of %s: none of them paid anyone", len(played), game.context)
+            return Distillation(game.context, (), len(played), decisive, 0, 0, time.monotonic() - started)
+        generated = self._generator.generate(
+            game, training, kept_back, values, HeuristicTarget(knowledge_base, game.context)
         )
-        training = self._position_row_mapper.to_rows(rbs, training_games, settings.target)
-        held_out = self._position_row_mapper.to_rows(rbs, held_out_games, settings.target)
-        generation = self._value_generator.generate(rbs, training, held_out, settings.values, target)
-        held_out_error = self._error(target.context, held_out)
         logger.info(
-            "Distilled %d value rules from %d training rows valued at the %s target; mean absolute error %s on %d "
-            "held-out rows",
-            len(generation.rules),
+            "Distilled %d rules of %s from %d games, %d of them decisive: %d rows, %d held back",
+            len(generated.rules),
+            game.context,
+            len(played) + len(held_out),
+            decisive,
             len(training),
-            settings.target,
-            held_out_error,
-            len(held_out),
+            len(kept_back),
         )
-        return ValueDistillationResult(
-            generation.context,
-            generation.rules,
-            generation.fits,
-            generation.chosen,
-            generation.candidates,
+        return Distillation(
+            generated.context,
+            generated.rules,
+            len(played) + len(held_out),
+            decisive,
             len(training),
-            len(held_out),
-            held_out_error,
-            records=self._self_play.records(rbs, training_games),
+            len(kept_back),
+            time.monotonic() - started,
+            generated.chosen.held_out_loss if generated.chosen is not None else None,
         )
-
-    def _reserve(self, settings: ValueDistillationSettings) -> float:
-        """The seconds of the base time an agent keeps in reserve on the settings' clock; 0 without one."""
-        return 0.0 if settings.time_control is None else settings.time_control.base_seconds * settings.time_reserve
-
-    def _remembering(
-        self,
-        rbs: RuleBasedGame,
-        kind: str,
-        round_number: int | None,
-        models: Callable[[PlayedGame], tuple[ModelDescription, ...]],
-    ) -> Callable[[int, PlayedGame], None] | None:
-        """What remembers each game as it ends, the models each player played given by `models`; None without a game
-        memory."""
-        memory = self._game_memory
-        if memory is None:
-            return None
-
-        def remember(index: int, game: PlayedGame) -> None:
-            record = next(iter(self._self_play.records(rbs, (game,))), None)
-            memory.remember(self._summaries.to_summary(rbs, game, kind, round_number, index + 1, models(game), record))
-
-        return remember
-
-    def _error(self, context: str, rows: Sequence[PositionRow]) -> float | None:
-        """The mean absolute difference between what the declared rules value a position at and the row's target; None
-        where no held-out row could be valued."""
-        valued = create_rule_based_game(self._knowledge_base, context)
-        values_by_state: dict[State, tuple[float, ...] | None] = {}
-        errors: list[float] = []
-        for row in rows:
-            if row.state not in values_by_state:
-                values_by_state[row.state] = valued.values(row.state)
-            values = values_by_state[row.state]
-            if values is not None:
-                errors.append(abs(values[valued.players().names.index(row.player)] - row.target))
-        return math.fsum(errors) / len(errors) if errors else None

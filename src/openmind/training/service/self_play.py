@@ -1,280 +1,165 @@
 import logging
-import math
 import random
-from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 
-from openmind.agent.builder.agent_builder import AgentBuilder
+from openmind.agent.constant.agent_constant import SELF_PLAY_GAME
+from openmind.agent.model.game_summary import GameSummary
+from openmind.agent.model.model_description import ModelDescription
 from openmind.agent.service.agent import Agent
-from openmind.agent.service.timekeeper import Timekeeper
-from openmind.parallel.model.dropped_call import DroppedCall
-from openmind.parallel.service.task_runner import TaskRunner
+from openmind.agent.service.game_memory import GameMemory
+from openmind.budget.model.budget import Budget
+from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.service.rule_based_game import RuleBasedGame
-from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
-from openmind.timing.model.clock import Clock
-from openmind.timing.model.time_control import TimeControl
-from openmind.training.constant.training_constant import SEED_RANGE
+from openmind.search.model.guidance import Guidance
 from openmind.training.model.played_game import PlayedGame
-from openmind.training.service.arm_selector import ArmSelector
+from openmind.training.model.self_play_settings import SelfPlaySettings
+from openmind.world.model.joint_action import JointAction
 from openmind.world.model.state import State
-from openmind.world.service.state_reader import StateReader
+from openmind.world.service.world import World
 
 logger = logging.getLogger(__name__)
 
+#: What a game's two seeds are drawn from.
+SEEDS = 2**32
+
 
 class SelfPlay:
-    """Lets an agent play a domain against itself and keeps each game's searches, positions and payoffs. Every game draws
-    two seeds up front, one for its agents and one for its outcomes, so games don't depend on each other: they run in the
-    task runner's workers and give the same games whatever the number of workers. Each game is logged by the worker that
-    plays it, as soon as it ends.
+    """An agent playing a game against itself, which is how a heuristic deduced from the rules finds out whether it
+    holds up.
 
-    Arms, agents each following a signal's rules, can also play each other in a two-player rbs. A game's two arms are
-    chosen only when a worker starts it, by UCB on their scores so far, every game finished before counting; so games
-    between arms depend on the order games finish, and on the number of workers.
+    OMF simulates games; something always runs them, and here that something is self-play itself: it asks each
+    acting player what it would do, takes what they do together, draws one of the outcomes the predictor gives, and
+    plays on from there. That is the same referee `openmind-play` is for a terminal, with nobody to prompt.
 
-    Given a time control, games are played on a clock: each move is timed around the agent's search and charged to its
-    player's clock, and a player whose time runs out doesn't play that move; the domain's timeout rule ends the game."""
+    Both sides are the same agent with the same models. What tells one game from another is the seed its outcomes and
+    its mixed strategies are drawn from.
 
-    def __init__(
-        self,
-        state_reader: StateReader,
-        task_runner: TaskRunner,
-        timekeeper: Timekeeper | None = None,
-    ) -> None:
-        self._state_reader = state_reader
-        self._task_runner = task_runner
-        self._timekeeper = Timekeeper() if timekeeper is None else timekeeper
+    Every game is remembered in the knowledge base as it ends — what was played, what it paid, why it ended, and the
+    heuristics each side played with — so a game can be looked at afterwards rather than only counted."""
+
+    def __init__(self, agent: Agent) -> None:
+        self._agent = agent
 
     def play(
-        self,
-        rbs: RuleBasedGame,
-        agent_builder: AgentBuilder,
-        games: int,
-        rng: random.Random,
-        keep_samples: bool = True,
-        time_control: TimeControl | None = None,
-        on_game: Callable[[int, PlayedGame], None] | None = None,
+        self, knowledge_base: KnowledgeBase, game: RuleBasedGame, guidance: Guidance, settings: SelfPlaySettings
     ) -> tuple[PlayedGame, ...]:
-        """Every game, in order; the builder needs its iterations and exploration set. Without keeping samples, the
-        searches' samples are counted but not kept, which is all value training needs. A game that took its worker over
-        the memory cap in a fresh worker too is left out. `on_game` is given each game's index and the game in this
-        process as soon as it ends, in the order games end; a game left out isn't given."""
-        agent_seeds, outcome_seeds = self._seeds(games, rng)
-
-        def arguments_for(index: int) -> tuple[object, ...]:
-            return rbs, agent_builder, agent_seeds[index], outcome_seeds[index], keep_samples, time_control
-
-        def on_result(index: int, game: PlayedGame | DroppedCall) -> None:
-            if on_game is not None and not isinstance(game, DroppedCall):
-                on_game(index, game)
-
-        played = self._task_runner.stream(self.play_game, games, arguments_for, on_result, droppable=True)
-        return tuple(game for game in played if not isinstance(game, DroppedCall))
-
-    def play_arms(
-        self,
-        rbs: RuleBasedGame,
-        builders: Mapping[str, AgentBuilder],
-        games: int,
-        scores: Mapping[str, tuple[int, float]],
-        selector: ArmSelector,
-        exploration: float,
-        rng: random.Random,
-        keep_samples: bool = True,
-        time_control: TimeControl | None = None,
-        on_game: Callable[[int, PlayedGame], None] | None = None,
-    ) -> tuple[PlayedGame, ...]:
-        """Every game between two arms, in order. `on_game` is given each game's index and the game in this process as
-        soon as it ends, before the game's result adds to the scores; a game left out isn't given. `scores` gives each arm's games and points before these games, which
-        this round's results add to as they come; a game's first arm plays first in even games and second in odd ones.
-        A domain without two players, or fewer than two arms, raises ValueError; a game dropped for memory is left out."""
-        if len(rbs.players().names) != 2:
-            raise ValueError(f"Games between arms need two players, not {len(rbs.players().names)}")
-        arms = list(builders)
-        agent_seeds, outcome_seeds = self._seeds(games, rng)
-        live = {arm: scores.get(arm, (0, 0.0)) for arm in arms}
-        pending = dict.fromkeys(arms, 0)
-        pairs: dict[int, tuple[str, str]] = {}
-
-        def arguments_for(index: int) -> tuple[object, ...]:
-            first, second = selector.pair(live, pending, arms, exploration, rng)
-            seated = (first, second) if index % 2 == 0 else (second, first)
-            pairs[index] = seated
-            for arm in seated:
-                pending[arm] += 1
-            return rbs, tuple(builders[arm] for arm in seated), seated, agent_seeds[index], outcome_seeds[index], keep_samples, time_control
-
-        def on_result(index: int, game: PlayedGame | DroppedCall) -> None:
-            seated = pairs[index]
-            for arm in seated:
-                pending[arm] -= 1
-            if isinstance(game, DroppedCall):
-                return
-            if on_game is not None:
-                on_game(index, game)
-            for arm, points in zip(seated, self._points(game.payoffs), strict=True):
-                played, total = live[arm]
-                live[arm] = (played + 1, total + points)
-            logger.info(
-                "Arms game %d: %s against %s, payoffs %s; %s",
-                index + 1,
-                seated[0],
-                seated[1],
-                " ".join(f"{name}={payoff}" for name, payoff in zip(rbs.players().names, game.payoffs)),
-                ", ".join(f"{arm} scores {live[arm][1] / live[arm][0]:.3f} over {live[arm][0]} games" for arm in seated),
-            )
-
-        played = self._task_runner.stream(self.play_arm_game, games, arguments_for, on_result, droppable=True)
-        return tuple(game for game in played if not isinstance(game, DroppedCall))
+        """That many games, each from its own seed."""
+        memory = GameMemory(knowledge_base)
+        played = []
+        for number in range(settings.games):
+            one = self.play_game(knowledge_base, game, guidance, replace(settings, seed=settings.seed + number))
+            self._remembered(memory, game, one)
+            played.append(one)
+        played = tuple(played)
+        decisive = sum(1 for one in played if one.decisive)
+        logger.info(
+            "Played %d games of %s: %d decisive, %d drawn or cut short, %.0f steps on average",
+            len(played),
+            game.context,
+            decisive,
+            len(played) - decisive,
+            sum(one.steps for one in played) / max(len(played), 1),
+        )
+        return played
 
     def play_game(
-        self,
-        rbs: RuleBasedGame,
-        agent_builder: AgentBuilder,
-        agent_seed: int,
-        outcome_seed: int,
-        keep_samples: bool = True,
-        time_control: TimeControl | None = None,
+        self, knowledge_base: KnowledgeBase, game: RuleBasedGame, guidance: Guidance, settings: SelfPlaySettings
     ) -> PlayedGame:
-        """One game: the samples of its searches when kept, its positions with the search's mean payoff in each, and the
-        final payoffs."""
-        agent = agent_builder.with_seed(agent_seed).build()
-        game, sampled, last = self._game(rbs, (agent,) * len(rbs.players().names), outcome_seed, keep_samples, time_control)
-        logger.info(
-            "Self-play game with seeds %d and %d finished in %d plies%s: %d samples, payoffs %s",
-            agent_seed,
-            outcome_seed,
-            len(game.states),
-            self._ending(rbs, last, game),
-            sampled,
-            " ".join(f"{name}={payoff}" for name, payoff in zip(rbs.players().names, game.payoffs)),
-        )
-        self._log_record(rbs, game, f"Self-play game with seeds {agent_seed} and {outcome_seed}")
-        return replace(game, agent_seed=agent_seed, outcome_seed=outcome_seed, ending=self._ending_of(rbs, last, game))
+        """One game, from where it starts to where it stops: every position, what was played in each, and what it
+        paid.
 
-    def play_arm_game(
-        self,
-        rbs: RuleBasedGame,
-        builders: Sequence[AgentBuilder],
-        arms: tuple[str, ...],
-        agent_seed: int,
-        outcome_seed: int,
-        keep_samples: bool = True,
-        time_control: TimeControl | None = None,
-    ) -> PlayedGame:
-        """One game where each player's own agent, built from its builder, searches the player's moves."""
-        agents = tuple(builder.with_seed(agent_seed).build() for builder in builders)
-        game, sampled, last = self._game(rbs, agents, outcome_seed, keep_samples, time_control)
-        logger.info(
-            "Self-play game with seeds %d and %d, %s, finished in %d plies%s: %d samples, payoffs %s",
-            agent_seed,
-            outcome_seed,
-            " against ".join(arms),
-            len(game.states),
-            self._ending(rbs, last, game),
-            sampled,
-            " ".join(f"{name}={payoff}" for name, payoff in zip(rbs.players().names, game.payoffs)),
-        )
-        self._log_record(rbs, game, f"Self-play game with seeds {agent_seed} and {outcome_seed}")
-        return replace(
-            game, arms=arms, agent_seed=agent_seed, outcome_seed=outcome_seed, ending=self._ending_of(rbs, last, game)
-        )
-
-    def _game(
-        self,
-        rbs: RuleBasedGame,
-        agents: Sequence[Agent],
-        outcome_seed: int,
-        keep_samples: bool,
-        time_control: TimeControl | None = None,
-    ) -> tuple[PlayedGame, int, State]:
-        """The game each player's agent plays, how many samples its searches made, and its last state."""
-        rng = random.Random(outcome_seed)
-        state, samples, sampled, states, search_values, actions = rbs.start(), [], 0, [], [], []
-        names = rbs.players().names
-        clocks: list[Clock] = [] if time_control is None else list(self._timekeeper.clocks(rbs, time_control))
-        steps, seconds, budgets, flagged = [0] * len(names), [], [], None
-        while rbs.actions(state):
-            player = rbs.players().names.index(rbs.acting_player(state))
-            agent = agents[player]
-            if time_control is None:
-                result = agent.search(rbs, state)
-            else:
-                clock, played = clocks[player], steps[player]
-                result, spent = self._timekeeper.timed(lambda: agent.search(rbs, state, None, clock, played))
-                clocks[player], steps[player] = (clock if clock.flagged else clock.after(spent)), played + 1
-                seconds.append(spent)
-                budgets.append(result.budget)
-                logger.debug(
-                    "Step %d: %s took %.2f seconds of a %s second budget, %.1f left",
-                    len(seconds),
-                    names[player],
-                    spent,
-                    "no" if result.budget is None else f"{result.budget:.2f}",
-                    clocks[player].remaining,
-                )
-                if clocks[player].flagged and not clock.flagged:
-                    flagged = names[player]
-                    logger.info("%s's time ran out; what that does is the game's own rule", flagged)
-            sampled += len(result.samples)
-            if keep_samples:
-                samples.extend(result.samples)
-            visits = sum(item.visits for item in result.statistics)
-            states.append(state)
-            actions.append(result.chosen)
-            search_values.append(math.fsum(item.visits * item.mean_payoff for item in result.statistics) / visits)
-            outcomes = rbs.outcomes(state, result.chosen).outcomes
-            (state,) = rng.choices([outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes])
-        payoffs = self._state_reader.payoffs(state, rbs.players())
-        game = PlayedGame(
-            tuple(samples),
+        Two streams of chance, drawn from the seed and kept apart: one the players' mixed strategies follow, one the
+        game's own outcomes do. Apart, the game can be played again from its actions alone."""
+        drawn = random.Random(settings.seed)
+        agent_seed, outcome_seed = drawn.randrange(SEEDS), drawn.randrange(SEEDS)
+        rng, chance = random.Random(agent_seed), random.Random(outcome_seed)
+        world = World(game.start())
+        states: list[State] = [world.current()]
+        actions: list[JointAction] = []
+        while settings.steps is None or len(actions) < settings.steps:
+            state = world.current()
+            joint = self._chosen(knowledge_base, game, world, guidance, settings, rng)
+            if joint is None:
+                break
+            outcomes = game.joint_outcomes(state, joint).outcomes
+            if not outcomes:
+                break
+            outcome = chance.choices(
+                [state for state, _ in outcomes], weights=[probability for _, probability in outcomes]
+            )[0]
+            world.happened(joint.actions[0][1], outcome)
+            actions.append(joint)
+            states.append(outcome)
+        return PlayedGame(
             tuple(states),
-            tuple(search_values),
-            payoffs,
-            (),
             tuple(actions),
-            time_control,
-            tuple(seconds),
-            tuple(budgets),
-            tuple(clocks),
-            flagged,
+            self._payoffs(game, world.current()),
+            game.ended(world.current()),
+            agent_seed,
+            outcome_seed,
         )
-        return game, sampled, state
 
-    def _ending_of(self, rbs: RuleBasedGame, state: State, game: PlayedGame) -> str | None:
-        """Why the game ended: the player whose time ran out, or what the domain says."""
-        return f"{game.flagged}'s flag" if game.flagged is not None else rbs.ended(state)
+    def _chosen(
+        self,
+        knowledge_base: KnowledgeBase,
+        game: RuleBasedGame,
+        world: World,
+        guidance: Guidance,
+        settings: SelfPlaySettings,
+        rng: random.Random,
+    ) -> JointAction | None:
+        """What every player who can act here does, taken together: each one asked as the agent it is, with the seed
+        of this game, so what a mixed strategy calls for is drawn rather than always taken at its likeliest. None
+        where nobody can act."""
+        state = world.current()
+        players = game.players().names
+        acting = [players[index] for index, _ in game.joint_actions(state)]
+        if not acting:
+            return None
+        picked: list[tuple[str, object]] = []
+        for player in acting:
+            strategy = self._agent.play(
+                knowledge_base, game, world, replace(guidance, player=player), Budget(settings.seconds)
+            )
+            distribution = () if strategy is None else strategy.at(state)
+            if not distribution:
+                continue
+            action = rng.choices(
+                [action for action, _ in distribution], weights=[chance for _, chance in distribution]
+            )[0]
+            picked.append((player, action))
+        return JointAction(tuple(picked)) if picked else None  # type: ignore[arg-type]
 
-    def _ending(self, rbs: RuleBasedGame, state: State, game: PlayedGame) -> str:
-        """` by <why the game ended>` when the domain says or a player's time ran out, nothing otherwise; on a clock,
-        then ` on <time control>, clocks <player>=<seconds left> ...`."""
-        ending = self._ending_of(rbs, state, game)
-        text = "" if ending is None else f" by {ending}"
-        if game.time_control is None:
-            return text
-        clocks = " ".join(f"{name}={clock.remaining:.2f}" for name, clock in zip(rbs.players().names, game.clocks))
-        return f"{text} on {TimeControlTextMapper().to_text(game.time_control)}, clocks {clocks}"
+    def _remembered(self, memory: GameMemory, game: RuleBasedGame, played: PlayedGame) -> None:
+        """Keeps the game in the knowledge base: what was played, what it paid, and the heuristics it was played with,
+        which is what tells a game played before a heuristic was learned from one played after."""
+        actions = tuple(joint.actions[0][1] for joint in played.actions if len(joint.actions) == 1)
+        alone = len(actions) == len(played.actions)
+        model = ModelDescription(SELF_PLAY_GAME, game.describe())
+        memory.remember(
+            GameSummary(
+                game.context,
+                SELF_PLAY_GAME,
+                None,
+                memory.last_number(SELF_PLAY_GAME) + 1,
+                (played.agent_seed or 0, played.outcome_seed or 0),
+                game.players().names,
+                (model,) * len(game.players().names),
+                played.payoffs,
+                played.steps,
+                played.ending,
+                game.record(actions, played.payoffs) if alone else None,
+                actions=actions if alone else (),
+            )
+        )
 
-    def records(self, rbs: RuleBasedGame, games: Sequence[PlayedGame]) -> tuple[str, ...]:
-        """Each game's record, in the games' order; a game the domain doesn't record, or whose record rule gives nothing,
-        is left out."""
-        found = (rbs.record(game.actions, game.payoffs) for game in games)
-        return tuple(record for record in found if record is not None)
-
-    def _log_record(self, rbs: RuleBasedGame, game: PlayedGame, game_name: str) -> None:
-        record = rbs.record(game.actions, game.payoffs)
-        if record is not None:
-            logger.info("%s record: %s", game_name, record)
-
-    def _seeds(self, games: int, rng: random.Random) -> tuple[list[int], list[int]]:
-        agent_seeds, outcome_seeds = [], []
-        for _ in range(games):
-            agent_seeds.append(rng.randrange(SEED_RANGE))
-            outcome_seeds.append(rng.randrange(SEED_RANGE))
-        return agent_seeds, outcome_seeds
-
-    def _points(self, payoffs: Sequence[float]) -> tuple[float, float]:
-        """Each player's points for the game: 1 for a win, 0.5 for a draw, 0 for a loss."""
-        if payoffs[0] == payoffs[1]:
-            return 0.5, 0.5
-        return (1.0, 0.0) if payoffs[0] > payoffs[1] else (0.0, 1.0)
+    def _payoffs(self, game: RuleBasedGame, state: State) -> tuple[float, ...]:
+        """What the game paid each player where it is over, and nothing where it paid nobody."""
+        payoff = game.players().payoff
+        held = state.model(payoff) if state.has(payoff) else None
+        if held is None or not hasattr(held, "get"):
+            return ()
+        paid = [held.get(player) for player in game.players().names]
+        if any(isinstance(value, bool) or not isinstance(value, int | float) for value in paid):
+            return ()
+        return tuple(float(value) for value in paid)  # type: ignore[arg-type]

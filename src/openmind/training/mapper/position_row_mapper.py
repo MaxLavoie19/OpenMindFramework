@@ -1,34 +1,28 @@
-import math
 from collections.abc import Sequence
 
-from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.model.position_row import PositionRow
-from openmind.training.constant.training_constant import OUTCOME_TARGET, SEARCH_TARGET, VALUE_TARGETS
+from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.training.model.played_game import PlayedGame
-from openmind.world.service.state_reader import StateReader
 
 
 class PositionRowMapper:
-    """Maps self-play games to the position rows value rules are fitted on. With the outcome target, every position of a
-    game gives a row for every player, valued at that player's final payoff; with the search target, a row for the
-    player to act, valued at the search's mean payoff there, and none where nothing was searched, such as a random move
-    played out of time."""
+    """Games played into the rows a heuristic is fitted on: every position a game went through, once for each player,
+    valued at what that game paid that player.
 
-    def __init__(self, state_reader: StateReader) -> None:
-        self._state_reader = state_reader
+    A game's result is a rough thing to value a position by — a position can be winning and still lost by the player
+    who reached it — but it is the one value a game states for certain, and over many games it is what separates
+    positions worth reaching from positions worth avoiding.
 
-    def to_rows(self, rbs: RuleBasedGame, games: Sequence[PlayedGame], target: str) -> tuple[PositionRow, ...]:
-        if target not in VALUE_TARGETS:
-            raise ValueError(f"Unknown value target {target!r}: expected one of {', '.join(VALUE_TARGETS)}")
-        names = rbs.players().names
+    A game that paid nobody — one cut short before it ended — has nothing to say and gives no rows."""
+
+    def to_rows(self, game: RuleBasedGame, games: Sequence[PlayedGame]) -> tuple[PositionRow, ...]:
+        players = game.players().names
         rows: list[PositionRow] = []
-        for game in games:
-            if target == OUTCOME_TARGET:
-                for state in game.states:
-                    rows.extend(PositionRow(state, name, payoff) for name, payoff in zip(names, game.payoffs, strict=True))
-            elif target == SEARCH_TARGET:
-                for state, value in zip(game.states, game.search_values, strict=True):
-                    if math.isnan(value):
-                        continue
-                    rows.append(PositionRow(state, rbs.acting_player(state), value))
+        for played in games:
+            if len(played.payoffs) != len(players):
+                continue
+            for state in played.states:
+                rows.extend(
+                    PositionRow(state, player, payoff) for player, payoff in zip(players, played.payoffs, strict=True)
+                )
         return tuple(rows)

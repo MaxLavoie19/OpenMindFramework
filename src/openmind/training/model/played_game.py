@@ -1,33 +1,35 @@
 from dataclasses import dataclass
 
-from openmind.mcts.model.action_sample import ActionSample
-from openmind.timing.model.clock import Clock
-from openmind.timing.model.time_control import TimeControl
-from openmind.world.model.action import Action
+from openmind.world.model.joint_action import JointAction
 from openmind.world.model.state import State
 
 
 @dataclass(frozen=True, slots=True)
 class PlayedGame:
-    """A self-play game: the samples of every search, the positions searched from in order with the search's mean payoff
-    for the player to act in each, the final payoffs in the order of the players' names, in a game between arms the
-    arm each player followed, in the same order (empty otherwise), and the actions played, in order. On a
-    clock: the time control, each step's seconds and budget in order (a step that ran its player's time out included,
-    though its action wasn't played), each player's clock at the end in the order of the players' names, and the player
-    whose time ran out, if any. Then the seeds the game was played from and why it ended, when the domain says or a
-    player's time ran out."""
+    """A game played out: every position it went through, in order, what the players did in each, what it paid them at
+    the end, and why it ended.
 
-    samples: tuple[ActionSample, ...]
+    `payoffs` are in the order of the players' names, and empty where the game ended without paying anyone — a game
+    cut short by the steps it was given. `ending` is what the game says about why it ended, None where it says
+    nothing and the game simply left nobody an action.
+
+    Its two seeds are kept apart: `agent_seed` is what the players' mixed strategies were drawn from and
+    `outcome_seed` what the game's own chances were. Apart, a game can be played again from its actions alone — the
+    same chances come up in the same places — which is how it is shown again without keeping every position."""
+
     states: tuple[State, ...]
-    search_values: tuple[float, ...]
-    payoffs: tuple[float, ...]
-    arms: tuple[str, ...] = ()
-    actions: tuple[Action, ...] = ()
-    time_control: TimeControl | None = None
-    seconds: tuple[float, ...] = ()
-    budgets: tuple[float | None, ...] = ()
-    clocks: tuple[Clock, ...] = ()
-    flagged: str | None = None
+    actions: tuple[JointAction, ...]
+    payoffs: tuple[float, ...] = ()
+    ending: str | None = None
     agent_seed: int | None = None
     outcome_seed: int | None = None
-    ending: str | None = None
+
+    @property
+    def steps(self) -> int:
+        return len(self.actions)
+
+    @property
+    def decisive(self) -> bool:
+        """Whether anyone came out ahead: a game everyone was paid the same is not one anything was learned from
+        about how to play better."""
+        return bool(self.payoffs) and len(set(self.payoffs)) > 1

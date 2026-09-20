@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
 
+from openmind.entrypoint.clock_options import add_knowledge_option
 from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.dashboard.constant.dashboard_constant import DEFAULT_PORT, DEFAULT_REFRESH_SECONDS
 from openmind.dashboard.factory.dashboard_factory import create_dashboard_service
@@ -41,6 +42,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--dashboard-log-directory", default="data/log/dashboard", help="where the dashboard's log is saved (default: data/log/dashboard)"
     )
+    add_knowledge_option(parser)
     add_debug_option(parser)
     arguments = parser.parse_args(argv)
     host = arguments.host or _tailscale_address()
@@ -50,6 +52,7 @@ def main(argv: list[str] | None = None) -> None:
         arguments.domain,
         Path(arguments.log_directory),
         None if arguments.syslog == "none" else Path(arguments.syslog),
+        knowledge_directory=Path(arguments.knowledge),
     )
     debugger = start_debugging(arguments, "dashboard", Path(arguments.dashboard_log_directory))
     server = ThreadingHTTPServer((host, arguments.port), _handler(settings, arguments.refresh))
