@@ -28,10 +28,11 @@ class RulePolicyValuer:
         self._rule_caller = rule_caller
 
     def rate(
-        self, model: RuleBasedSystem, node: Node, policies: tuple[Policy, ...], player: str
+        self, model: RuleBasedSystem | None, node: Node, policies: tuple[Policy, ...], player: str
     ) -> tuple[float | None, ...]:
-        """What each policy is worth following here, in the policies' order; None where no rule could be read."""
-        rules = tuple((rule, weight) for rule, weight in model.rules if rule.kind == POSITION)
+        """What each policy is worth following here, in the policies' order; None for every policy where there is no
+        model to read, or where no rule could be read."""
+        rules = () if model is None else tuple((rule, weight) for rule, weight in model.rules if rule.kind == POSITION)
         if not rules:
             return (None,) * len(policies)
         definitions = model.definitions(RULES_DEFINITIONS)

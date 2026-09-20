@@ -52,9 +52,10 @@ approved, then its code is approved.
       valued by the judge's opinion) — interfaces approved (`doc/interfaces/policy.md`)
 - [x] policy + optimizer + utility — code approved: a policy narrows the actions before one is chosen, optimizing is
       the alternative to expanding, and a move's worth follows the preferences kept in the knowledge base
-- [ ] agent_model + search (SDMCTS, PUCT prior only, hypotheses from KB beliefs, the minimizer as one opponent model among others,
-      simultaneous + chance) — interfaces approved
-- [ ] agent_model + search — code approved
+- [x] search + agent models + hypotheses (planning is a task and searches are its models; a strategy is a move
+      distribution per state; an agent model is the heuristics trained for that agent; hypotheses are a distribution,
+      over policies where the possibilities can't be counted) — interfaces approved (`doc/interfaces/search.md`)
+- [ ] search + agent models + hypotheses — code approved; MCTS and SDMCTS as later models of the planning task
 - [ ] budget + agent loop (one loop per level of the context hierarchy, a parent delegating to a child; each level
       sees an abstraction of the state and fetches specifics on demand; planning model per level, SDMCTS only where
       it fits; perceive, process, plan, communicate, act; a trainable time management policy choosing the

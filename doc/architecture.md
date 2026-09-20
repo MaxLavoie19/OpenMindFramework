@@ -441,6 +441,9 @@ controllers know the goal, not the rules.
 
 **Control systems are optimizers.** A system with several inputs and several outputs is optimized the way control
 engineering optimizes one, and it fits without changing anything:
+- An optimizer solves its problem however it sees fit, including backwards: aiming at a distant point and working back
+  to where the target must be when the shot is fired is one way of leading a moving target, and rolling the state
+  forward through the predictor is another.
 - An optimizer gives the **next best step from the current position**, one action, whatever it computes it with.
 - **Model predictive control's plan** is the series of steps the optimizers give as the search explores: the horizon
   is how far the search goes, not something an optimizer returns.
@@ -506,16 +509,41 @@ or user satisfaction:
 - An agent can edit its own opinions, which are its direct experience. It can't edit someone else's opinion.
 - It can form beliefs about someone else's opinion, and update those beliefs, such as after hearing the judge.
 
-## Search: semi-determinized Monte-Carlo tree search
+## Strategies, not plans
 
-SDMCTS is OMF's search, for the levels where a tree search fits (see "Planning fits the level"). It is guided by two
-heuristics, as in AlphaZero:
+A plan is a series of actions and states, and it solves nothing a strategy doesn't solve better. A strategy covers the
+responses too, including the paths that invalidate it, so it survives what a plan can't: the opponent doing something
+else.
+
+- Planning gives a **strategy**: a move distribution per state. In state A, play one of these actions with these
+  probabilities; in state B, one of those instead. A mixed strategy is what regret matching converges to, and what a
+  single best move is a special case of.
+- A plan can still be read off a strategy — the line where everyone plays as expected — and fed to whatever enacts it.
+- **Surprise is the fallback.** When an opponent plays something the strategy has nothing for, the agent strategizes
+  again from there.
+
+**A strategy covers what is likely to be met.** Three moves deep in the main line, as a plan would, and the unlikely
+result of the action being taken, which a plan can't hold. Not an implausible state — unless the agent is so far ahead
+in its strategizing that those states are the next best thing left to improve.
+
+**Acting and strategizing run at once.** A fast model can play a pre-move from the strategy while the planner keeps
+strategizing: the agent doesn't wait for the strategy to be finished to use the part of it that is.
+
+## Planning: searches are models
+
+Planning is a task like any other, and a search is one model of it. OMF enforces none: minimax suits tic-tac-toe,
+Monte-Carlo tree search suits chess, semi-determinized Monte-Carlo tree search suits a game with hidden information
+such as poker or Stratego, and some work needs no search at all — a conversation is improvised, not planned. The time
+management policy picks among them as it picks any model, on accuracy, cost and explainability.
+
+What follows describes the tree searches, which share their shape. They are guided by two heuristics, as in
+AlphaZero:
 - The **move value** heuristic is the prior of PUCT.
 - The **position value** heuristic values the leaves.
 
 There are no playouts to the end of the game.
 
-**The simulation is how the search expands a node:**
+**The simulation is how a tree search expands a node:**
 1. the CSP provides the legal actions;
 2. the heuristics choose between them;
 3. the predictor provides the possible outcomes from the state and the set of actions.
@@ -523,8 +551,18 @@ There are no playouts to the end of the game.
 - **Chance:** chance nodes branch on the predictor's outcome distribution.
 - **Simultaneous play:** every node is a joint action of the agents with legal actions, and regret matching chooses
   where several agents act. Where one agent acts, as in chess, it reduces to that agent's choice.
-- **Hidden information:** the search is semi-determinized. It runs over hypotheses about the hidden parts of the state,
-  each weighted by the knowledge base's belief in it.
+- **Hidden information:** the search is semi-determinized. It runs over hypotheses about what it can't see, each with
+  how likely it is.
+
+**Hypotheses are a distribution.** What OMF asks of a model of them is a probability distribution; how it arrives at
+one is its own business, a hidden Markov model and a ruleset being as welcome as each other.
+
+- **Where the possibilities can be counted**, the distribution is over them: this player holds a royal flush, that one
+  holds two pair.
+- **Where they can't**, it collapses into a distribution over **policies**. In a real-time strategy game under the fog
+  of war, an opponent can't be enumerated, but they follow one of a few known ways of playing — economy, nuclear,
+  swarm — and can only specialise in one. The odds shift as the game goes on: a nuclear build looks like an economic
+  one until it reaches its nuclear stage, while a swarm build looks like neither from early on.
 - **Other agents:** their replies come from their agent models' heuristics.
 - **Budget:** the number of nodes to explore is set by the time management policy.
 
@@ -533,10 +571,22 @@ There are no playouts to the end of the game.
 Agents have different skill levels, knowledge and preferences, so OMF models specific agents when it can. The models
 range from a generic player, through a class of players, down to one specific instance.
 
-An agent model consists of:
-- that agent's heuristics;
-- that agent's goals;
-- that agent's beliefs, held in the knowledge base with the agent as holder.
+**An agent model is not another AI.** It is the position value and move value heuristics, trained to predict one
+agent's play: the same tasks OMF uses for itself, answered as that agent would answer them. What each is made of is
+its own business, and depends on what is being modelled:
+- in chess, a player's biases, measured over their games;
+- in conversation, the topics they know and how well, so an agent doesn't talk about Python decorators with a layman;
+- a network trained to predict human moves, such as Maia.
+
+OMF holds what it knows of an agent as beliefs with that agent as holder, and lets a model read them; it doesn't say
+how a model must represent an agent.
+
+**The caller says which model to use.** Playing a named opponent calls for that opponent's model; playing a stranger
+calls for a generic one.
+
+**Communicating is the exception.** An optimizer composing a message needs the knowledge base: the references both
+sides share, what was said before, how much the other knows of each topic. So an optimizer reads the knowledge base,
+where a heuristic reads a node.
 
 **Conflicting models are the norm.** The minimizer is only one model of an opponent:
 - It suffers from projection: it plays the moves the agent would play itself.

@@ -328,3 +328,21 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
       - The optimizer is an alternative to expanding: rather than listing every action and sorting them, it produces
         the one action that serves the goal, as an artillery piece calculates its firing solution instead of
         enumerating every ballistic one.
+
+19. **The agent model and search step.**
+    - **Decided (Maxime):**
+      - Planning gives a strategy, not a plan: a mixed strategy, a move distribution per state — in state A play these
+        actions at these probabilities, in state B those. A plan is a series of actions and states, while a strategy
+        covers the responses and the paths that invalidate it. A strategy covers what is likely to be met — deep in
+        the main line, and the unlikely result of the action being taken — but not implausible states, unless
+        strategizing is so far ahead that those are what is left to improve. A fast model can play pre-moves from the
+        strategy while the planner keeps strategizing. A plan can be read off a strategy; a surprise means strategizing
+        again from there.
+      - The existing MCTS is worth neither keeping nor editing; a MCTS and a SDMCTS are implemented later.
+      - Planning is a task and a search is one model of it: OMF enforces none. Minimax suits tic-tac-toe, MCTS chess,
+        SDMCTS poker or Stratego, and a conversation is improvised rather than planned. `mcts` goes, and the searches
+        become models of the planning task.
+      - An agent model is whatever the modelling calls for — a chess player's biases, a conversational partner's topics
+        and how well they know them, a network such as Maia — and OMF doesn't enforce how it is represented. The same
+        goes for hypotheses about hidden information: a hidden Markov model and a ruleset express them differently.
+      - The caller passes the agent model: a named opponent's where there is one, a generic one otherwise.

@@ -1,5 +1,8 @@
 #: The tasks OMF knows, each named here and each with a port of its own. A ruleset says which task it is a model of,
 #: and so does a model record. A task whose port has no model yet gets its port at the step that builds it.
+#:
+#: Modelling another agent is not a task of its own: an agent model is the position value and move value heuristics
+#: trained to predict that agent's play, registered in that agent's context.
 SIMULATION = "simulation"
 PREDICTION = "prediction"
 POSITION_VALUE = "position value"
@@ -10,7 +13,7 @@ OPTIMIZING = "optimizing"
 INFERENCE = "inference"
 BINNING = "binning"
 ABSTRACTION = "abstraction"
-AGENT_MODEL = "agent model"
+HYPOTHESIS = "hypothesis"
 PLANNING = "planning"
 TIME_MANAGEMENT = "time management"
 
@@ -26,7 +29,7 @@ TASKS = (
     INFERENCE,
     BINNING,
     ABSTRACTION,
-    AGENT_MODEL,
+    HYPOTHESIS,
     PLANNING,
     TIME_MANAGEMENT,
 )
