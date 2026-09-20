@@ -2,6 +2,7 @@ import pytest
 
 from openmind.structure.constant.direction_constant import DIAGONAL, MANHATTAN, ORTHOGONAL
 from openmind.structure.model.coordinates import Coordinates
+from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 
 EMPTY = None
@@ -100,3 +101,16 @@ def test_a_grid_has_any_number_of_dimensions() -> None:
     assert len(cube.neighbours((2, 2, 2))) == 26
     assert len(cube.lines(3)) == 49
     assert len(DIAGONAL) == 4 and len(ORTHOGONAL) == 4
+
+
+def test_a_grid_is_populated_from_its_cells_written_out_as_they_are_laid_out() -> None:
+    board = Grid.of([["rook", "knight"], ["pawn", EMPTY]], CellNames(("a", "b"), ("2", "1")))
+
+    assert (board.shape, board[1, 2], board.at("a1")) == ((2, 2), "knight", "pawn")
+    assert Grid.of(["one", "two", "three"]).shape == (3,)
+    assert Grid.of([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])[2, 1, 2] == 6
+
+
+def test_a_grid_of_ragged_rows_is_refused() -> None:
+    with pytest.raises(ValueError, match="no rows of different lengths"):
+        Grid.of([[1, 2], [3]])

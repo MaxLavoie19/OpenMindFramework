@@ -40,7 +40,10 @@ approved, then its code is approved.
       in rulesets, weighted per ruleset; an RBS is a model one stateless service runs; all players play at once, and
       the constraints say who can act. The tests of the code still to be reworked were deleted. Noted: a memory-guard
       test left a thread spinning, which had been slowing every suite; the suite now runs in 17 seconds
-- [ ] Adapt OpenMindChess to the game API
+- [x] Adapt OpenMindChess to the game API — rewritten rather than ported (`doc/interfaces/chess.md`): the
+      position is two named grids OMF's own structures populate, the constraint reads the player the moves are
+      solved for, and perft matches the published counts. OMF gained `CellNames` and `Grid.of`, so a game can
+      populate a data structure and declare it as its start
 - [x] heuristic + model (registry per task, measured precision and processing time) — interfaces approved
       (`doc/interfaces/heuristic-model.md`)
 - [x] heuristic + model — code approved: models are records measured as they run; a heuristic reads a node whose

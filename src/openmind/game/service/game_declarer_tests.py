@@ -22,7 +22,10 @@ from openmind.knowledge.constant.rule_kind_constant import (
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rule.constant.rule_constant import EFFECTS_DEFINITIONS, RULES_DEFINITIONS
+from openmind.rbs.factory.rbs_factory import create_rule_based_system, create_simulation
 from openmind.rule.model.python_rule import PythonRule
+from openmind.structure.model.cell_names import CellNames
+from openmind.structure.model.grid import Grid
 from openmind.structure.model.list import List
 from openmind.world.model.players import Players
 from openmind.world.model.state import State
@@ -208,3 +211,18 @@ def test_a_variant_declaring_a_rule_it_took_from_its_game_declares_its_own_in_it
     (base,) = rules(knowledge, kinds=(PLAYERS,))
     assert own.id != base.id
     assert base.rule == PythonRule(repr((("me",), "payoff")))
+
+
+def test_a_game_starting_on_a_grid_whose_cells_it_names_reads_its_start_back(knowledge: KnowledgeBase) -> None:
+    """A game populates OMF's own data structures and declares that as its start: a grid whose cells it names, as
+    chess names its squares, reads back as what it declared."""
+    board = Grid.filled((8, 8), None, CellNames(tuple("abcdefgh"), tuple("87654321"))).placed("e4", "pawn")
+    declarer = GameDeclarer(knowledge, "a game on a named board")
+    declarer.starts_at(State.of(square=board))
+    declarer.played_by(Players(("me",), "payoff"))
+    declarer.done()
+
+    start = create_simulation().start(create_rule_based_system(knowledge, "a game on a named board"))
+
+    assert start.model("square").at("e4") == "pawn"
+    assert start == State.of(square=board)

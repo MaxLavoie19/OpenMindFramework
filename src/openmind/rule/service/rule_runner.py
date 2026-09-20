@@ -6,6 +6,7 @@ from openmind.parallel.service.memory_evictor import evict_oldest
 from openmind.rule.constant.rule_constant import ALL_DIFFERENT
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rule.model.compiled_rule import CompiledRule
+from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.list import List
 from openmind.structure.model.map import Map
@@ -14,8 +15,9 @@ from openmind.world.model.state import State
 from openmind.structure.model.value import Value
 
 
-#: The data models every rule can build: `Grid.filled((3, 3), None)`, `Map.of({"X": None})`.
-STRUCTURES = {"Grid": Grid, "List": List, "Map": Map, "Scalar": Scalar}
+#: The data models every rule can build: `Grid.filled((3, 3), None)`, `Map.of({"X": None})`, and `CellNames`, the
+#: names a grid's cells go by, since a state made of them is read back through this namespace.
+STRUCTURES = {"Grid": Grid, "List": List, "Map": Map, "Scalar": Scalar, "CellNames": CellNames}
 
 
 def _all_different(*values: object) -> bool:
@@ -26,7 +28,8 @@ class RuleRunner:
     """Runs compiled rules against states. A value rule is called as a function of the parameters it reads, with the
     definitions' names and the state's variables as its globals, built once per state and kept. An effects rule runs as
     a module in a fresh copy of those names plus the action's parameters, and what it leaves in the state's variables is
-    the next state. Every rule also sees `all_different(*values)` and the data models, `Grid`, `List`, `Map` and `Scalar`. The namespaces built per state are kept until the
+    the next state. Every rule also sees `all_different(*values)` and the data models, `Grid`, `List`, `Map`, `Scalar` and
+    `CellNames`, so a state a game built from them reads back here. The namespaces built per state are kept until the
     process's memory guard clears them."""
 
     def __init__(self, state_namespace_mapper: StateNamespaceMapper) -> None:

@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from itertools import product
 from math import prod
@@ -36,6 +36,18 @@ class Grid:
     ) -> "Grid":
         """Every cell holding the same value."""
         return Grid(shape, (value,) * prod(shape), aliases, directions)
+
+    @staticmethod
+    def of(
+        cells: Sequence[object],
+        aliases: GridAliases | None = None,
+        directions: tuple[Coordinates, ...] = (),
+    ) -> "Grid":
+        """A grid from its cells written out, nested as it is laid out: `Grid.of([["a", "b"], ["c", "d"]])` is two rows
+        of two, row 1 first, and a game writes a board as a board looks. It nests as deep as the grid has dimensions,
+        so a plain sequence is one row. Rows of different lengths raise ValueError."""
+        shape = _shape(cells)
+        return Grid(shape, tuple(_flattened(cells, shape)), aliases, directions)
 
     # reading
 
@@ -200,3 +212,28 @@ def _scale(step: Coordinates, times: int) -> Coordinates:
 
 def _coordinates_of(shape: tuple[int, ...]) -> tuple[Coordinates, ...]:
     return tuple(product(*(range(1, size + 1) for size in shape)))
+
+
+def _shape(cells: object) -> tuple[int, ...]:
+    """The shape the nested cells lay out: their length, then the shape of the first one, down to the values. Cells of
+    different lengths raise ValueError, since a grid has no ragged rows."""
+    if not _nested(cells):
+        return ()
+    inside = tuple(_shape(cell) for cell in cells)  # type: ignore[union-attr]
+    if len(set(inside)) > 1:
+        raise ValueError(f"A grid has no rows of different lengths: {sorted(set(inside))}")
+    return (len(cells), *inside[0]) if inside else (0,)  # type: ignore[arg-type]
+
+
+def _flattened(cells: object, shape: tuple[int, ...]) -> Iterator[Value]:
+    """The cells row-major, as a grid keeps them."""
+    if len(shape) <= 1:
+        yield from cells  # type: ignore[misc]
+        return
+    for row in cells:  # type: ignore[union-attr]
+        yield from _flattened(row, shape[1:])
+
+
+def _nested(cells: object) -> bool:
+    """Whether this is a row of cells rather than one cell's value: a string is a value, not a row of letters."""
+    return isinstance(cells, Sequence) and not isinstance(cells, str | bytes)

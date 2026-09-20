@@ -393,3 +393,25 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
         positions" hears of each move as it is played, in time to comment on what the student chose or warn them to
         pay attention. What lands in the parent is its own state, never the child's game state applied to it: OMF
         runs no games.
+
+22. **A game whose starting state uses a grid's aliases can't declare where it starts.** (found while rewriting chess)
+    `GameDeclarer.starts_at` keeps the state as `PythonRule(repr(state.models))`, and `Simulation.start` reads that
+    rule with no definitions, so its namespace holds `Grid`, `List`, `Map`, `Scalar` and nothing else. A chess grid
+    carries `ChessSquares()` as its aliases — what makes `piece["e4"]` work, and what `Grid` offers aliases for — and
+    the repr of that name can't be read back: `NameError: name 'ChessSquares' is not defined`.
+    - **Options:**
+      - The initial rule reads the game's definitions script, as every other rule does, so a game declares
+        `from openmind_chess.game.model.chess_squares import ChessSquares` there and its start reads back. The
+        smallest change, and it removes the one inconsistency: the initial and players rules are the only ones that
+        can't see the definitions.
+      - `starts_at` keeps something other than a repr — but a rule is either Python source or a function a worker can
+        find by name, and neither holds a state.
+      - Chess declares its start as a function of its own, which works for the standard position but not for
+        `chess from <fen>`, since a function per position can't be found by name.
+      - Chess's grids carry no aliases, and squares are read by coordinates alone. No change to OMF; `piece["e4"]`
+        stops working, and `Grid`'s aliases have no user.
+    - **Decided (Maxime):** an integration should be able to populate an OMF data structure — a grid, from a 2D array
+      — and hand it over as its start, so what was missing was in OMF, not in chess. OMF now ships `CellNames`, the
+      names a game gives a grid's cells, among the models a rule reads, and `Grid.of`, which populates a grid from its
+      cells written out as they are laid out. A game's own alias class would still not read back, and `GridAliases`
+      stays the port for one.
