@@ -1,7 +1,10 @@
 from openmind.inference.service.heuristic_ponderer import HeuristicPonderer
+from openmind.inference.service.heuristic_proposer import HeuristicProposer
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.inference.service.position_gatherer import PositionGatherer
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.inference.service.expression_generator import ExpressionGenerator
+from openmind.model.factory.model_factory import create_model_registry
 from openmind.rbs.factory.rbs_factory import create_value_generator
 from openmind.rbs.service.game_relaxer import GameRelaxer
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
@@ -19,3 +22,8 @@ def create_heuristic_ponderer(knowledge_base: KnowledgeBase, workers: int = 1) -
     return HeuristicPonderer(
         PositionGatherer(), create_position_deducer(), create_value_generator(workers), GameRelaxer(knowledge_base)
     )
+
+
+def create_heuristic_proposer() -> HeuristicProposer:
+    """Proposing heuristics from a game's own vocabulary, before it has been played."""
+    return HeuristicProposer(ExpressionGenerator(), create_model_registry())

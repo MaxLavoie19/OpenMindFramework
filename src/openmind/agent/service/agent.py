@@ -2,6 +2,7 @@ import logging
 from collections.abc import Sequence
 
 from openmind.agent.service.actor import Actor
+from openmind.agent.service.outfitter import Outfitter
 from openmind.budget.model.allocation import Allocation
 from openmind.budget.model.budget import Budget
 from openmind.budget.model.time_manager import TimeManager
@@ -27,12 +28,20 @@ class Agent:
     the current state, the actor waits and the planner strategizes from there.
 
     What each step runs with is the time management policy's: which model fills each task, and how far the planner may
-    explore."""
+    explore. The outfitter loads what it chose, so a heuristic deduced from the rules or learned from games is what
+    the planner plays with rather than something the caller had to hand it."""
 
-    def __init__(self, time_manager: TimeManager[object], planner: Planner[object], actor: Actor | None = None) -> None:
+    def __init__(
+        self,
+        time_manager: TimeManager[object],
+        planner: Planner[object],
+        actor: Actor | None = None,
+        outfitter: Outfitter | None = None,
+    ) -> None:
         self._time_manager = time_manager
         self._planner = planner
         self._actor = actor
+        self._outfitter = outfitter
 
     def allocate(
         self, knowledge_base: KnowledgeBase, game: RuleBasedGame, world: World, budget: Budget, tasks: Sequence[str] = MOVE_TASKS
@@ -52,7 +61,8 @@ class Agent:
         None where nothing could be worked out."""
         allocation = self.allocate(knowledge_base, game, world, budget)
         node = game.node(world.current())
-        strategy = self._planner.plan(None, knowledge_base, node, guidance, allocation.settings)
+        playing = guidance if self._outfitter is None else self._outfitter.outfit(knowledge_base, guidance, allocation)
+        strategy = self._planner.plan(None, knowledge_base, node, playing, allocation.settings)
         if self._actor is not None:
             self._actor.follow(strategy)
             self._actor.act(world)

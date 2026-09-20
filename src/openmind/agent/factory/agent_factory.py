@@ -5,11 +5,12 @@ from openmind.agent.model.dispatcher import Dispatcher
 from openmind.agent.service.actor import Actor
 from openmind.agent.service.agent import Agent
 from openmind.agent.service.hierarchy import Hierarchy
+from openmind.agent.service.outfitter import Outfitter
 from openmind.agent.service.level import Level
 from openmind.budget.factory.budget_factory import create_plain_time_manager
 from openmind.knowledge.constant.task_constant import ABSTRACTION
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.factory.rbs_factory import find_rule_based_system
+from openmind.rbs.factory.rbs_factory import create_rule_heuristic, find_rule_based_system
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.search.factory.search_factory import create_improvised
 from openmind.search.model.planner import Planner
@@ -24,8 +25,14 @@ def create_actor(dispatcher: Dispatcher) -> Actor:
 
 
 def create_agent(planner: Planner[object] | None = None, actor: Actor | None = None) -> Agent:
-    """An agent with the bootstrap time management model and the planner given, improvising where none is."""
-    return Agent(create_plain_time_manager(), create_improvised() if planner is None else planner, actor)
+    """An agent with the bootstrap time management model and the planner given, improvising where none is. It plays
+    with the models that policy chooses, loaded by an outfitter of its own."""
+    return Agent(
+        create_plain_time_manager(),
+        create_improvised() if planner is None else planner,
+        actor,
+        Outfitter(create_rule_heuristic()),
+    )
 
 
 def create_level(

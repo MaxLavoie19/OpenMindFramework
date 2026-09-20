@@ -1,5 +1,6 @@
 import logging
 import random
+from collections.abc import Mapping
 from dataclasses import replace
 
 from openmind.agent.constant.agent_constant import SELF_PLAY_GAME
@@ -31,8 +32,9 @@ class SelfPlay:
     acting player what it would do, takes what they do together, draws one of the outcomes the predictor gives, and
     plays on from there. That is the same referee `openmind-play` is for a terminal, with nobody to prompt.
 
-    Both sides are the same agent with the same models. What tells one game from another is the seed its outcomes and
-    its mixed strategies are drawn from.
+    Each player is given its own guidance, so a game can be played between two heuristics to find out which is
+    worth more: a heuristic playing itself wins half its games whatever it is. Given one guidance, both sides play
+    with it and what tells one game from another is the seed.
 
     Every game is remembered in the knowledge base as it ends — what was played, what it paid, why it ended, and the
     heuristics each side played with — so a game can be looked at afterwards rather than only counted."""
@@ -41,7 +43,11 @@ class SelfPlay:
         self._agent = agent
 
     def play(
-        self, knowledge_base: KnowledgeBase, game: RuleBasedGame, guidance: Guidance, settings: SelfPlaySettings
+        self,
+        knowledge_base: KnowledgeBase,
+        game: RuleBasedGame,
+        guidance: Guidance | Mapping[str, Guidance],
+        settings: SelfPlaySettings,
     ) -> tuple[PlayedGame, ...]:
         """That many games, each from its own seed."""
         memory = GameMemory(knowledge_base)
@@ -63,7 +69,11 @@ class SelfPlay:
         return played
 
     def play_game(
-        self, knowledge_base: KnowledgeBase, game: RuleBasedGame, guidance: Guidance, settings: SelfPlaySettings
+        self,
+        knowledge_base: KnowledgeBase,
+        game: RuleBasedGame,
+        guidance: Guidance | Mapping[str, Guidance],
+        settings: SelfPlaySettings,
     ) -> PlayedGame:
         """One game, from where it starts to where it stops: every position, what was played in each, and what it
         paid.
@@ -104,7 +114,7 @@ class SelfPlay:
         knowledge_base: KnowledgeBase,
         game: RuleBasedGame,
         world: World,
-        guidance: Guidance,
+        guidance: Guidance | Mapping[str, Guidance],
         settings: SelfPlaySettings,
         rng: random.Random,
     ) -> JointAction | None:
@@ -119,7 +129,7 @@ class SelfPlay:
         picked: list[tuple[str, object]] = []
         for player in acting:
             strategy = self._agent.play(
-                knowledge_base, game, world, replace(guidance, player=player), Budget(settings.seconds)
+                knowledge_base, game, world, self._playing(guidance, player), Budget(settings.seconds)
             )
             distribution = () if strategy is None else strategy.at(state)
             if not distribution:
@@ -132,7 +142,12 @@ class SelfPlay:
 
     def _remembered(self, memory: GameMemory, game: RuleBasedGame, played: PlayedGame) -> None:
         """Keeps the game in the knowledge base: what was played, what it paid, and the heuristics it was played with,
-        which is what tells a game played before a heuristic was learned from one played after."""
+        which is what tells a game played before a heuristic was learned from one played after.
+
+        A game that paid nobody isn't kept: what is remembered is finished games, and a game cut short before it
+        ended has no result to remember it by."""
+        if len(played.payoffs) != len(game.players().names):
+            return
         actions = tuple(joint.actions[0][1] for joint in played.actions if len(joint.actions) == 1)
         alone = len(actions) == len(played.actions)
         model = ModelDescription(SELF_PLAY_GAME, game.describe())
@@ -152,6 +167,14 @@ class SelfPlay:
                 actions=actions if alone else (),
             )
         )
+
+    def _playing(self, guidance: Guidance | Mapping[str, Guidance], player: str) -> Guidance:
+        """What that player plays with: its own guidance where each side was given one, and the one guidance
+        otherwise. Either way it is named for the player, since a planner plans for somebody."""
+        held = guidance.get(player) if isinstance(guidance, Mapping) else guidance
+        if held is None:
+            raise ValueError(f"No guidance for {player}: every player who can act needs one")
+        return replace(held, player=player)
 
     def _payoffs(self, game: RuleBasedGame, state: State) -> tuple[float, ...]:
         """What the game paid each player where it is over, and nothing where it paid nobody."""
