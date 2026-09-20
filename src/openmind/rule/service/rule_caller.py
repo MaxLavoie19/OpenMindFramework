@@ -72,8 +72,10 @@ class RuleCaller:
     def apply(
         self, rule: Rule, state: State, parameters: Mapping[str, Value] | None = None, definitions: PythonRule | None = None
     ) -> State:
-        """The state after the rule's effects: a script's assignments, or what the function gives. A function giving
-        anything but a state raises TypeError. It runs under a `rule` reasoning frame."""
+        """The state after the rule's effects: a script's assignments, or what the function gives. A function is given
+        the parameters its signature names, as a value rule's is, so one written before a parameter was offered — the
+        player taking the action, say — still gets only what it asks for. A function giving anything but a state
+        raises TypeError. It runs under a `rule` reasoning frame."""
         with process_debugger().frame("rule", state=state, details=_about(self, rule)):
             return self._applied(rule, state, parameters, definitions)
 
@@ -82,7 +84,9 @@ class RuleCaller:
     ) -> State:
         if isinstance(rule, PythonRule):
             return self._rule_runner.apply(self._rule_compiler.compile_effects(rule, definitions), state, parameters)
-        outcome = rule(state, **(parameters or {}))
+        given = parameters or {}
+        accepted = self._accepted(rule, tuple(given))
+        outcome = rule(state, **{name: given[name] for name in accepted})
         if not isinstance(outcome, State):
             raise TypeError(f"Effects of {self.source(rule)} gave {outcome!r} instead of a state")
         return outcome
