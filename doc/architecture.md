@@ -532,6 +532,9 @@ strategizing: the agent doesn't wait for the strategy to be finished to use the 
 **A thread of its own dispatches the actions** a strategy calls for: several at once where they are synchronous, such
 as motors moving into position, and without waiting where they are asynchronous, such as calls to an API.
 
+**The dispatcher waits** where the strategy has nothing prepared for the state it is in: that is the surprise case,
+and the planner is already strategizing from there.
+
 **One state, kept current for both.** The actor and the planner read the same state as it changes, so the actor
 answers what is actually happening and the planner prunes the states that can no longer be reached.
 
@@ -541,6 +544,21 @@ Planning is a task like any other, and a search is one model of it. OMF enforces
 Monte-Carlo tree search suits chess, semi-determinized Monte-Carlo tree search suits a game with hidden information
 such as poker or Stratego, and some work needs no search at all — a conversation is improvised, not planned. The time
 management policy picks among them as it picks any model, on accuracy, cost and explainability.
+
+**Planning makes no sense without educated guesses.** A random move in chess is unlikely to be good for anything
+beyond surviving one more move: it hangs a piece, misses a capture, misses a mate, allows one. Simulating deeper from
+guesses that poor buys nothing. Whenever guesses can't be educated — no time, no model, no guiding principle — depth is
+wasted, and breadth is what might stumble on a win. The time management policy chooses on that: a deep search where the
+heuristics are worth following, a shallow or broad one where they aren't, and improvising where neither is.
+
+**Gambling when behind.** The player who is losing should play bolder, riskier moves, and the player who is ahead
+should not (see "Optimal strategy in Guess Who?: beyond binary search"). In chess it also buys time — playing a line
+that makes the opponent think while the agent strategizes.
+
+Where the imbalance belongs is in the **utility of a mixed strategy**: judging the whole distribution of outcomes
+rather than its mean. A line of high risk and high reward can have a clearly low expected utility and still be the most
+likely way to win, and an expectation can't say so. Maxime's intuition, not yet analysed rigorously: a preference for
+risk and a bold policy would both work, and this is where it seems to belong.
 
 What follows describes the tree searches, which share their shape. They are guided by two heuristics, as in
 AlphaZero:

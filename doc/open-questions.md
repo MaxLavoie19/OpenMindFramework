@@ -349,3 +349,22 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
         and how well they know them, a network such as Maia — and OMF doesn't enforce how it is represented. The same
         goes for hypotheses about hidden information: a hidden Markov model and a ruleset express them differently.
       - The caller passes the agent model: a named opponent's where there is one, a generic one otherwise.
+
+20. **The budget and agent loop step.**
+    - **Decided (Maxime):**
+      - The integrator pushes observations: OMF holds the current state, the decoders turn what arrives into models,
+        and the actor and the planner read the same one.
+      - The planner keeps its tree between moves: strategizing carries on, and what can no longer be reached is
+        pruned.
+      - The time management policy decides both the set of models each step runs with and how much to explore,
+        starting from a simple bootstrap policy and trainable later.
+      - Dispatching actions is a port an integrator can fill — a robot's control loop, a game client's connection —
+        with OMF's own thread as the default. It waits where the strategy has nothing prepared for the state it is
+        in, which is the surprise case the planner is already strategizing from.
+      - Planning makes no sense where guesses can't be educated (no time, no model, no guiding principle): depth is
+        wasted on random moves, and breadth might stumble on a win. The time management policy chooses on that.
+      - The trailing player should gamble, the leading one shouldn't ("Optimal strategy in Guess Who?: beyond binary
+        search"); in chess it also buys time to think on the opponent's turn. Where the imbalance belongs is the
+        utility of a mixed strategy, judging the whole distribution rather than its mean: a high-risk line can have a
+        clearly low expected utility and still be the likeliest way to win. Maxime's intuition, not yet analysed; a
+        risk preference and a bold policy would both work too.
