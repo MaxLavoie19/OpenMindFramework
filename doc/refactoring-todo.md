@@ -50,7 +50,8 @@ approved, then its code is approved.
       NLP or coding agents; a policy value heuristic; a policy takes its move's utility; a move's utility is the
       expectation over outcomes, binned when continuous, by a binning model; several goals weighed together; soft goals
       valued by the judge's opinion) — interfaces approved (`doc/interfaces/policy.md`)
-- [ ] policy + optimizer + utility — code approved
+- [x] policy + optimizer + utility — code approved: a policy narrows the actions before one is chosen, optimizing is
+      the alternative to expanding, and a move's worth follows the preferences kept in the knowledge base
 - [ ] agent_model + search (SDMCTS, PUCT prior only, hypotheses from KB beliefs, the minimizer as one opponent model among others,
       simultaneous + chance) — interfaces approved
 - [ ] agent_model + search — code approved
