@@ -529,6 +529,12 @@ in its strategizing that those states are the next best thing left to improve.
 **Acting and strategizing run at once.** A fast model can play a pre-move from the strategy while the planner keeps
 strategizing: the agent doesn't wait for the strategy to be finished to use the part of it that is.
 
+**A thread of its own dispatches the actions** a strategy calls for: several at once where they are synchronous, such
+as motors moving into position, and without waiting where they are asynchronous, such as calls to an API.
+
+**One state, kept current for both.** The actor and the planner read the same state as it changes, so the actor
+answers what is actually happening and the planner prunes the states that can no longer be reached.
+
 ## Planning: searches are models
 
 Planning is a task like any other, and a search is one model of it. OMF enforces none: minimax suits tic-tac-toe,

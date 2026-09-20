@@ -336,7 +336,10 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
         covers the responses and the paths that invalidate it. A strategy covers what is likely to be met — deep in
         the main line, and the unlikely result of the action being taken — but not implausible states, unless
         strategizing is so far ahead that those are what is left to improve. A fast model can play pre-moves from the
-        strategy while the planner keeps strategizing. A plan can be read off a strategy; a surprise means strategizing
+        strategy while the planner keeps strategizing. A thread of its own dispatches a strategy's actions —
+        several synchronous ones at once, such as motors moving into position, and asynchronous ones such as API calls
+        — and the state is kept current for both the actor and the planner, so the actor answers what is happening and
+        the planner prunes what can no longer be reached. A plan can be read off a strategy; a surprise means strategizing
         again from there.
       - The existing MCTS is worth neither keeping nor editing; a MCTS and a SDMCTS are implemented later.
       - Planning is a task and a search is one model of it: OMF enforces none. Minimax suits tic-tac-toe, MCTS chess,
