@@ -6,6 +6,7 @@ import pytest
 from openmind.csp.factory.csp_factory import create_solver
 from openmind.csp.model.solve_statistics import SolveStatistics
 from openmind.rule.model.python_rule import PythonRule
+from openmind.structure.model.grid import Grid
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
@@ -173,3 +174,19 @@ def test_logs_each_try_and_a_summary(caplog: pytest.LogCaptureFixture) -> None:
         "set: 2 solutions, 2 assignments, 0 dead ends, 0 values pruned",
         "set: no solution, constraint is false: False",
     ]
+
+
+def test_allows_checks_one_action_against_its_constraints_rather_than_searching() -> None:
+    """An action a model computed isn't legal by construction: its constraints run against the values it carries."""
+    state = State.of(cell=Grid.filled((3, 3), None))
+    values = {"row": PythonRule("(1, 2, 3)"), "col": PythonRule("(1, 2, 3)")}
+    empty = (PythonRule("cell[row, col] is None"),)
+
+    solver = create_solver()
+
+    assert solver.allows(state, Action("place", (("col", 2), ("row", 2))), values, empty)
+    assert not solver.allows(state, Action("place", (("col", 9), ("row", 2))), values, empty)
+    assert not solver.allows(state, Action("place", (("row", 2),)), values, empty)
+    assert not solver.allows(
+        State.of(cell=Grid((3, 3), ("X",) + (None,) * 8)), Action("place", (("col", 1), ("row", 1))), values, empty
+    )

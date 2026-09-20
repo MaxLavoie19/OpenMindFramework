@@ -93,12 +93,12 @@ def declared(knowledge: KnowledgeBase) -> Callable[..., RuleBasedGame]:
 
 @pytest.fixture
 def heuristic(knowledge: KnowledgeBase) -> Callable[..., RuleRecord]:
-    """Links a heuristic rule into a context's position value ruleset, or its move value ruleset for a move rule, at
-    that weight, as a producer of heuristics does: `heuristic("tictactoe", "a constant", PythonRule("1.0"), 0.25)`. A
+    """Links a heuristic rule into a context's ruleset for a task — its position value ruleset, or its move value
+    ruleset for a move rule, or the task named — at that weight, as a producer of heuristics does: `heuristic("tictactoe", "a constant", PythonRule("1.0"), 0.25)`. A
     rule of the same name already there is declared anew and its weight set anew."""
 
-    def link(context: str, name: str, rule: Rule, weight: float, kind: str = POSITION) -> RuleRecord:
-        task = MOVE_VALUE if kind == MOVE else POSITION_VALUE
+    def link(context: str, name: str, rule: Rule, weight: float, kind: str = POSITION, task: str | None = None) -> RuleRecord:
+        task = task or (MOVE_VALUE if kind == MOVE else POSITION_VALUE)
         context_id = knowledge.ensure_context(context).id
         source = Source(knowledge.ensure_mechanism(INFERENCE).id, (("method", "fit"),))
         ruleset = knowledge.ruleset_named(context_id, task)

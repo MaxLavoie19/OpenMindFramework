@@ -31,6 +31,9 @@ COOLDOWN = "cooldown"
 #: A position as an image, for pages showing games.
 PICTURE = "picture"
 
+#: The action a policy settles on in a state: an optimizer's rule.
+OPTIMUM = "optimum"
+
 #: A position's value for a player: a position heuristic's term.
 POSITION = "position"
 
@@ -41,7 +44,7 @@ MOVE = "move"
 GAME_KINDS = (INITIAL, PLAYERS, DEFINITIONS, CONSTRAINT, VALUES, EFFECTS, ENDING, DURATION, COOLDOWN, RECORD, PICTURE)
 
 #: What the inference engine and fitting produce: rules that judge rather than rule.
-HEURISTIC_KINDS = (POSITION, MOVE)
+HEURISTIC_KINDS = (POSITION, MOVE, OPTIMUM)
 
 #: Every kind of rule the knowledge base holds.
 RULE_KINDS = GAME_KINDS + HEURISTIC_KINDS

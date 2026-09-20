@@ -32,7 +32,7 @@ class ModelRegistry:
         logger.info(
             "Registered %s as a model of %s in %s",
             knowledge_base.readable_model(kept.id),
-            kept.task,
+            ", ".join(kept.tasks),
             knowledge_base.readable_context(kept.context),
         )
         return kept
@@ -44,7 +44,7 @@ class ModelRegistry:
             knowledge_base,
             ModelRecord(
                 name or ruleset.name,
-                ruleset.task,
+                (ruleset.task,),
                 ruleset.context,
                 RULES,
                 ruleset.source.mechanism,

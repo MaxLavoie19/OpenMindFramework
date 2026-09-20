@@ -17,7 +17,7 @@ def timed_model(tmp_path: Path) -> tuple[ModelTimer, ModelRecord, object]:
         knowledge,
         ModelRecord(
             "the network",
-            POSITION_VALUE,
+            (POSITION_VALUE,),
             knowledge.ensure_context("chess").id,
             NETWORK,
             knowledge.ensure_mechanism("the network").id,

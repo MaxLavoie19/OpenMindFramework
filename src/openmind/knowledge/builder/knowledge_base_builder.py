@@ -9,7 +9,10 @@ from openmind.knowledge.constant.knowledge_constant import (
     MECHANISMS_FILE,
     OPINIONS_FILE,
     RULES_FILE,
+    GOALS_FILE,
     MODELS_FILE,
+    POLICIES_FILE,
+    PREFERENCES_FILE,
     RULESETS_FILE,
     TASKS_FILE,
 )
@@ -28,6 +31,9 @@ KINDS = {
     "rules": RULES_FILE,
     "rulesets": RULESETS_FILE,
     "models": MODELS_FILE,
+    "policies": POLICIES_FILE,
+    "goals": GOALS_FILE,
+    "preferences": PREFERENCES_FILE,
 }
 
 
@@ -45,7 +51,7 @@ class KnowledgeBaseBuilder:
         return self
 
     def with_store(self, kind: str, store: Store) -> Self:
-        """The store for one kind of knowledge: experiences, beliefs, opinions, tasks, contexts, mechanisms, rules, rulesets or models."""
+        """The store for one kind of knowledge: experiences, beliefs, opinions, tasks, contexts, mechanisms, rules, rulesets, models, policies, goals or preferences."""
         if kind not in KINDS:
             raise ValueError(f"No kind of knowledge {kind!r}: the kinds are {', '.join(KINDS)}")
         self._stores[kind] = store
@@ -66,4 +72,7 @@ class KnowledgeBaseBuilder:
             stores["rules"],
             stores["rulesets"],
             stores["models"],
+            stores["policies"],
+            stores["goals"],
+            stores["preferences"],
         )

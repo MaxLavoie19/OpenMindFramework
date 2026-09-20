@@ -42,14 +42,15 @@ OpenMindChess project, with python-chess.
 - **Ruleset**: a part of a context holding the rules for one purpose, such as the game's simulation, the board
   position heuristic, the move heuristic, or one known agent's play style. A rule belongs to the rulesets that list it,
   with a weight in each.
-- **Tactic**: a general direction that guides the optimizer, such as charge, kite sideways or retreat.
+- **Policy**: a way of playing tuned to a subset of the actions, such as fleeing moves or attacking moves. Choosing a
+  policy narrows what the optimizer has to look at, before it picks the action within it.
 - **Node**: a state with what has been worked out about it — its extracted features, and, in a search, what exploring
   it found. A feature is extracted by the first model that asks for it and shared with every model after, like a
   memoized call. A search builds nodes for its tree, and anything else valuing a position builds one too.
 - **Heuristic**: a fast estimate. OMF uses three kinds:
   - the **position value**: what a state is worth to each agent;
   - the **move value**: what an action is worth in a state;
-  - the **tactic value**: which tactic is worth exploring.
+  - the **policy value**: which policy is worth following here.
 - **Task**: something OMF can spend time on, such as valuing a position, predicting an outcome, self-play or reviewing
   a game.
 - **Model**: one way to perform a task: rules, a lookup table, a decision tree, an ensemble, a DNN, … A step is solved
@@ -77,7 +78,7 @@ and add that as a task.
 ## OMF runs continuously, always doing the next best task
 
 OMF never waits idle. At every moment it performs the task worth the most right now. The candidates are:
-- ponder the game: possible inferences, heuristics, tactics or any other important aspect;
+- ponder the game: possible inferences, heuristics, policies or any other important aspect;
 - play itself;
 - review its games;
 - study literature: imported games, texts decoded into rules, and other models' output such as engine evaluations;
@@ -110,7 +111,7 @@ becomes worth it a few minutes later, instead of starting a new game right away.
 
 OMF works on a hierarchy of contexts. Each level is a problem of its own, with:
 - its own state, actions and rules;
-- its own tactics, heuristics and models;
+- its own policies, heuristics and models;
 - its own time scale.
 
 **A level can be simpler than its parent.** Life is real time, and OMF processes high-level events in real time. Inside
@@ -138,17 +139,17 @@ checkers don't mix, and macromanagement doesn't mix with micromanagement.
 - A model can be tried in another context, and is kept there only if it proves itself.
 - A generic principle, such as mobility, can be tested in several games, each with its own measured value.
 
-Each level runs the same machinery: the agent loop, the time management policy, tactics and the optimizer. The
+Each level runs the same machinery: the agent loop, the time management policy, policies and the optimizer. The
 next-best-task choice runs at the top, across contexts.
 
 **State abstraction.** A level sees an abstraction of the state, not every detail. In a coding agent, the full state is
 very large: the file tree, the diff, the libraries, the environment, … The high level may hold a file's path but not
-its content, and fetch the specifics only when a tactic needs them, such as reading a file to edit it. Abstractions
+its content, and fetch the specifics only when a policy needs them, such as reading a file to edit it. Abstractions
 are made by models, like any other task: decoders, summaries, or relaxations that drop detail.
 
 **Planning fits the level.** Search is one model of planning, not a requirement:
 - In chess, MCTS fits well.
-- A coding agent's high level plans with tactics such as testing, debugging and refactoring. The state is too large
+- A coding agent's high level plans with policies such as testing, debugging and refactoring. The state is too large
   and the outcomes too uncertain for a tree search to pay off. How it plans instead is still open.
 
 The time management policy picks the planning model for each level, like any other model.
@@ -161,7 +162,7 @@ OMF is a real-time AI. Each step draws on one budget:
 |---|---|
 | Perceive | decoders turn inputs into structured data |
 | Process | inference and belief updates in the knowledge base |
-| Plan | tactics, the optimizer and the search choose an action |
+| Plan | a policy, the optimizer and the search choose an action |
 | Communicate | rhetoric plans messages, encoders word them |
 | Act | encoders turn the chosen action into an output |
 
@@ -187,7 +188,7 @@ It works at every level:
 - inferences: how much deduction or relaxation;
 - the position value heuristic;
 - the move value heuristic;
-- the tactic value heuristic;
+- the policy value heuristic;
 - the predictor;
 - binning;
 - the number of SDMCTS nodes to explore;
@@ -207,10 +208,10 @@ with the parts it needs built in.
    - their constraints: knights can jump over pieces and bishops can't;
    - when the king can castle;
    - when a pawn can take en passant or promote.
-2. Load the game's tactics. If it has none, create a default tactic.
-   - The default tactic is an unnamed tactic whose sub-goal must be populated.
+2. Load the game's policies. If it has none, create a default policy.
+   - The default policy is an unnamed policy whose sub-goal must be populated.
    - At worst, it plays randomly.
-   - A chess agent with free time should deduce by itself that it will need to prepare a tactic. It then analyses the
+   - A chess agent with free time should deduce by itself that it will need to prepare a policy. It then analyses the
      game's rules, facts and so on to emit credible heuristics.
 3. Infer the heuristics, assuming the user gave only minimal instructions. Two ways:
    - **Relaxed problems**: remove constraints and measure how far a win is. For example: how far am I from a win if I
@@ -228,7 +229,7 @@ Bootstrapping may itself need training. The **bootstrapper** is a model that lea
 off:
 - which relaxations;
 - which guiding principles;
-- which default tactics;
+- which default policies;
 - which starting models;
 - in what order to do the early tasks.
 
@@ -247,7 +248,7 @@ The programmer defines a game with rules in the knowledge base, in the simulatio
 | Durations and cooldowns | how long an action takes to perform, and how long before it is available again |
 | Who acts | the constraints determine each player's legal actions in a state, reading the game's variables such as `turn` and `phase`; a player without options that turn can only plan |
 | End and payoffs | when the game is over and what each agent gets: an end state declares a payoff per player, which the predictor gives with the outcome |
-| Tactics | the game's tactics, if the programmer gives any |
+| Policies | the game's policies, if the programmer gives any |
 
 OMF knows nothing of turns, phases, priority, draws, abandoning, clocks or boards. They belong to the game the integrator
 implements, as its own variables, actions and rules, and OMF doesn't enforce them. A draw offer, for instance, is just
@@ -357,7 +358,7 @@ OMF's RBS is its main explainable model:
 
 A ruleset has an id, a name, its context, the task it models, tags, whether it is open, and the ids of the rules that
 belong to it; more may be added as needed, such as its role. A rule can belong to several rulesets, since OMF may create
-many similar rulesets, for example one per tactic.
+many similar rulesets, for example one per policy.
 
 A ruleset belongs to a context, and a rule belongs to the rulesets that list it. A rule's weight belongs to the
 relation between a ruleset and the rule, so it weighs differently in each ruleset. Every relation carries a weight, even
@@ -383,44 +384,74 @@ the same features they are extracted once and shared.
 **A win always carries the payoff value.** Whatever the heuristic, a finished position is worth what the game paid,
 never what a model guesses.
 
-## Tactics and the optimizer
+## Policies and the optimizer
 
-A tactic is a general direction that guides the optimizer.
+A policy is a way of playing tuned to a subset of the actions. Choosing one narrows what the optimizer has to look at.
 
-For example, a soldier can move in any direction with `move(directionDegree)`. It might have three tactics that
-determine which direction it goes:
-- charge forward;
-- kite sideways;
-- retreat.
+The set of all possible actions is too large to weigh one by one, and much of it is nonsense. A soldier who can move
+in any direction with `move(directionDegree)` has fleeing moves, attacking moves and moves that make no sense at all.
+So the agent picks how it wants to play — flee, charge, kite — and then picks the action that serves that best.
 
-**What a tactic is made of.** A tactic has:
-- a sub-goal;
-- a move generator;
-- an evaluator.
+**What a policy is made of.** A policy is a pair of heuristics specialised to it:
+- a **position value** heuristic, valuing the states the policy is after;
+- a **move value** heuristic, valuing the moves that serve it.
 
-The generator and the evaluator are consistent with the sub-goal. For example, a "flee" tactic might ignore attacking
-moves, and weigh directions by how much distance each one puts between itself and the enemy.
+A fleeing policy values a state by how safe it is, and a move by how much distance it puts between the soldier and the
+enemy. Both follow the policy's sub-goal, which is what makes them specialised: the same game, judged another way.
 
-For a tactic:
+Each heuristic is a model like any other, so a policy's position value can be a ruleset in one game and a network in
+the next (see "Models and the time management policy").
+
+**Where a policy comes from.** It can be manufactured — an agent is told to learn freeze, fight and flight — or
+learned by policy optimization.
+
+**The optimizer is an alternative to expanding.** Expanding means listing the valid actions and sorting them, which
+the CSP and the heuristics do. Optimizing means producing the one action that best serves the goal, without listing
+anything: an artillery piece doesn't expand every ballistic solution, it calculates the one that hits the target.
+
+For a policy:
 1. The CSP determines the valid values for the action.
-2. The optimizer uses the state to find the best action and parameters for that tactic.
+2. Either the search expands those values and rates them with the policy's move value heuristic, or an optimizer
+   solves for the action that serves the policy's sub-goal best.
 
-In a discrete game with only the default tactic, before its sub-goal is populated, the optimizer's candidates are the
-legal moves.
+In a discrete game with only the default policy, before its sub-goal is populated, expanding gives the legal moves.
+
+**Policies are how time is traded.** Picking at random among the valid values is itself a policy, the one that saves
+time when there is none. With time to spare, an agent follows several complementary policies and weighs what each one
+proposes. In chess it might begin with one and, as it learns, come to know when to play aggressively and when to play
+safe.
 
 **Generative optimizers.** When the action space is too large to list, such as the text of an NLP agent or the edits
 of a coding agent, the optimizer does not list the possible actions. It proposes solutions instead:
-- A coding agent might have tactics for testing, debugging, reviewing, tracing, writing and editing.
-- The selected tactic generates the edit that best fits its needs.
+- A coding agent might have policies for testing, debugging, reviewing, tracing, writing and editing.
+- The selected policy generates the edit that best fits its needs.
 - The CSP then checks that proposal against the constraints, rather than enumerating every valid value.
 
-Optimizers are models of the same task, from cheap to costly. The time management policy picks among them:
-- a random picker, among the valid values or a generator's proposals: the cheapest;
-- listing the candidates and valuing each one;
-- proposing solutions.
+Optimizers are models of the same task, from cheap to costly. The time management policy picks among them, and picks
+between optimizing and expanding:
+- a random pick among the valid values: the cheapest, for when there is no time to think;
+- equations computing the value that serves the sub-goal, such as a firing solution;
+- a controller holding a variable on target, such as a PID;
+- a constraint solver working the values out one at a time: an optimizer can be a special kind of CSP, and then what
+  it gives is legal by construction;
+- a model proposing a solution, such as the edit a coding agent makes.
 
-The **tactic value heuristic** picks which tactics are worth exploring. A tactic takes the utility of the move it
-decided on, and that utility trains the tactic value heuristic.
+What an optimizer gives is checked against the constraints, unless the optimizer is itself the solver: equations and
+controllers know the goal, not the rules.
+
+**Control systems are optimizers.** A system with several inputs and several outputs is optimized the way control
+engineering optimizes one, and it fits without changing anything:
+- An optimizer gives the **next best step from the current position**, one action, whatever it computes it with.
+- **Model predictive control's plan** is the series of steps the optimizers give as the search explores: the horizon
+  is how far the search goes, not something an optimizer returns.
+- **Model reference adaptive control** adapts its parameters as it runs, and what it adapted is its own data, kept
+  where the model record says, so it outlives the run.
+
+**The policy picker** says which policies are worth expanding, and which aren't worth considering at all. Picking at
+random is rarely worth expanding; when it is — when there is no time to think — nothing else is worth considering.
+
+The **policy value heuristic** picks which policies are worth following. A policy takes the utility of the move it
+decided on, and that utility trains the policy value heuristic.
 
 ## Utility
 
@@ -440,12 +471,16 @@ Each bin multiplied by its likelihood shows the trip isn't worth it.
 - an RBS;
 - any other model.
 
+**Preferences live in the knowledge base**, like everything else OMF produces, so that an agent can look back on its
+own choices and say what it preferred.
+
 **Several goals at once.** An agent may weigh several goals at once. A chess coach might play to barely win, while
 prioritizing teachable moments. An outcome's value is its value on each goal, weighed by the agent's goal weights for
 its role and situation. The weights are preferences, and they can be learned.
 
-**Values are gauged in words, not numbers.** Values are gauged the way we gauge temperature: freezing, cold, lukewarm,
-warm, hot, burning.
+**Some values are qualitative.** In chess a value is a number, such as centipawns. In rhetoric it is a judgement, such
+as "sounds selfish", gauged the way we gauge temperature: freezing, cold, lukewarm, warm, hot, burning. A domain says
+which kind of value it uses.
 - What each word means is learned, for one agent or in general.
 - It depends on the context, the audience, and so on. The same outcome may be gauged differently for different
   agents.
@@ -537,7 +572,7 @@ that information.
 hallucination, such as an LLM producing a board analysis with no grounding in the move played or the board, sometimes
 even making up pieces.
 
-Chess tactics, such as a fork or a pin, are a different idiom from OMF tactics. The first belongs to chess; the second
+Chess tactics, such as a fork or a pin, are a different idiom from OMF's policies. The first belongs to chess; the second
 is a general direction that guides the optimizer.
 
 ## Encoders and decoders
@@ -581,13 +616,19 @@ Rhetoric is a built-in module that lets a player communicate with another. It fo
   - A negative problematicity means that the more distance there is, the better. A teacher ought to have a much better
     understanding than their student; the more, the better.
 
-### Tactics
+### Rhetorical policies
 
-Rhetoric's pre-defined tactics each negotiate a distance in a given direction. They are permutations of:
+Rhetoric's policies are policies like any other: each narrows the messages worth considering to those negotiating one
+distance in one direction. They are permutations of:
 - which distance: between the projective ethos, effective ethos, projective pathos and effective pathos;
-- what the tactic does to it: increase, affirm or reduce the distance, or its problematicity.
+- what the policy does to it: increase, affirm or reduce the distance, or its problematicity.
 
-All 36 are pre-defined: 6 pairs of terms × 6 operations. Each tactic learns to perform its specific job.
+All 36 are pre-defined: 6 pairs of terms × 6 operations. Each learns to perform its specific job.
+
+**A message carries several policies at once**, because more than one question is usually negotiated at a time. A
+message must support them together: "If I could eat gold, I wouldn't starve; alas, during this siege even the king
+can't buy food, so yes, I resorted to eating what I must to live another day" affirms nobility, affirms disgust at rat
+meat, and reduces the problematicity of having eaten it, in one breath.
 
 ### Composing a message
 
@@ -675,7 +716,7 @@ warnings, and the dashboard is its viewer.
 - interrupts;
 - a stack, which is both, linked:
   - the Python call stack;
-  - OMF's reasoning stack, such as task → tactic → search node → evaluation → rule.
+  - OMF's reasoning stack, such as task → policy → search node → evaluation → rule.
 
   Each reasoning frame points to the code it runs.
 - time while paused, decided by the debug session: OMF's clocks either freeze or keep running;
@@ -736,7 +777,7 @@ OMF has a no-learning entrypoint, for when a trained model must be frozen and sh
 freezes:
 - trained models;
 - rules: no new ones;
-- tactics: no new ones;
+- policies: no new ones;
 - facts: no new ones;
 - beliefs: none are persisted.
 
@@ -759,19 +800,19 @@ in dependency order.
 | `predictor` | the predictor port and its rule-based model |
 | `rbs` | the rule-based system: a model family that runs whatever rules a ruleset holds, for any task; OMF's main explainable model |
 | `model` | models per task, with their measured precision and processing time |
-| `heuristic` | the position, move and tactic value tasks: what any model filling them answers, whatever it is |
+| `heuristic` | the position, move and policy value tasks: what any model filling them answers, whatever it is |
 | `utility` | a move's utility over its outcomes, goals and their weights, binning |
-| `tactic` | tactics, the default tactic, the optimizer |
+| `policy` | policies, the default policy, the optimizer |
 | `agent_model` | models of agents, from a generic player to one instance |
 | `search` | semi-determinized MCTS |
 | `budget` | time, clocks, deadlines, the time management policy |
 | `codec` | encoders and decoders |
-| `rhetoric` | Meyer's model, rhetorical tactics, message composition, the validation gate |
+| `rhetoric` | Meyer's model, rhetorical policies, message composition, the validation gate |
 | `inference` | relaxations, guiding principles, deduction, the bootstrapper |
 | `training` | self-play, reviewing games, studying literature, training models |
 | `agent` | the agent loop, one loop per level of the hierarchy with delegation between them, the continuous next-best-task loop, roles such as player and coach |
 | `debug` | logging with per-session verbosity, warnings (conflicting rules, observations a frozen rule can't explain), a debugger (interrupts, stack, conditional breakpoints); the dashboard is its viewer |
-| `dashboard` | a page to visualize and debug: tasks, time management choices, tactics and the search tree, beliefs and sources, models, games |
+| `dashboard` | a page to visualize and debug: tasks, time management choices, policies and the search tree, beliefs and sources, models, games |
 | `entrypoint` | ways to run OMF: `openmind-play`, `openmind-solve`, `openmind-dashboard`, and a no-learning entrypoint that runs trained models frozen, for production |
 
 `parallel` (worker processes) and `testing` (the pytest plugin that saves logs) are infrastructure that any package may

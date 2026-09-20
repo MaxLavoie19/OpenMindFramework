@@ -4,7 +4,9 @@ SIMULATION = "simulation"
 PREDICTION = "prediction"
 POSITION_VALUE = "position value"
 MOVE_VALUE = "move value"
-TACTIC_VALUE = "tactic value"
+POLICY_VALUE = "policy value"
+POLICY_PICKING = "policy picking"
+OPTIMIZING = "optimizing"
 INFERENCE = "inference"
 BINNING = "binning"
 ABSTRACTION = "abstraction"
@@ -18,7 +20,9 @@ TASKS = (
     PREDICTION,
     POSITION_VALUE,
     MOVE_VALUE,
-    TACTIC_VALUE,
+    POLICY_VALUE,
+    POLICY_PICKING,
+    OPTIMIZING,
     INFERENCE,
     BINNING,
     ABSTRACTION,

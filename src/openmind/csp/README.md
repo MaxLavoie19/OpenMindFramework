@@ -31,7 +31,7 @@ RBS hands the solver fewer constraint rules.
 | `service/all_different_propagator.py` | `AllDifferentPropagator`: Régin's matching-based filtering for all-different |
 | `service/backtracking_search.py` | `BacktrackingSearch`: backtracking with maintained propagation and ordering heuristics |
 | `repository/solution_cache.py` | `SolutionCache`: the solutions found so far, built once and given to the solver, which keeps nothing itself; the memory guard evicts the oldest |
-| `service/solver.py` | `Solver(..., solution_cache)`: `solve(state, action, values, constraints=(), definitions=None, limit=None, player=None)` solves one action over its rules: gives each constraint its strongest form, searches, then orders and caches the solutions; `solve_with_statistics` also gives what the search did |
+| `service/solver.py` | `Solver(..., solution_cache)`: `allows(state, action, values, constraints=(), definitions=None, player=None)` checks one action, which is how an optimizer's computed action is checked; `solve(state, action, values, constraints=(), definitions=None, limit=None, player=None)` solves one action over its rules: gives each constraint its strongest form, searches, then orders and caches the solutions; `solve_with_statistics` also gives what the search did |
 
 ## Usage
 

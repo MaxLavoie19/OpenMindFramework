@@ -45,11 +45,12 @@ approved, then its code is approved.
       (`doc/interfaces/heuristic-model.md`)
 - [x] heuristic + model — code approved: models are records measured as they run; a heuristic reads a node whose
       features are extracted once and shared
-- [ ] tactic + optimizer + utility (default tactic; the CSP gives valid values; optimizers from cheap to costly: a random
-      picker, listing candidates, proposing solutions as for NLP or coding agents; a tactic value heuristic; a tactic
-      takes its move's utility; a move's utility is the expectation over outcomes, binned when continuous, by a binning
-      model; several goals weighed together; soft goals valued by the judge's opinion) — interfaces approved
-- [ ] tactic + optimizer + utility — code approved
+- [ ] policy + optimizer + utility (a policy is tuned to a subset of the actions; the default policy; the CSP gives
+      valid values; optimizers from cheap to costly: a random picker, listing candidates, proposing solutions as for
+      NLP or coding agents; a policy value heuristic; a policy takes its move's utility; a move's utility is the
+      expectation over outcomes, binned when continuous, by a binning model; several goals weighed together; soft goals
+      valued by the judge's opinion) — interfaces approved (`doc/interfaces/policy.md`)
+- [ ] policy + optimizer + utility — code approved
 - [ ] agent_model + search (SDMCTS, PUCT prior only, hypotheses from KB beliefs, the minimizer as one opponent model among others,
       simultaneous + chance) — interfaces approved
 - [ ] agent_model + search — code approved

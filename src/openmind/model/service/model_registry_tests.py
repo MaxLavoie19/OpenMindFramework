@@ -25,7 +25,7 @@ def network(knowledge: KnowledgeBase, name: str, task: str = POSITION_VALUE, con
         knowledge,
         ModelRecord(
             name,
-            task,
+            (task,),
             knowledge.ensure_context(context).id,
             NETWORK,
             knowledge.ensure_mechanism(name).id,
@@ -40,7 +40,7 @@ def test_a_model_is_kept_with_its_task_its_family_and_where_its_data_lives(tmp_p
     kept = network(knowledge, "the 2026-09 network")
 
     assert kept.id.startswith("model-")
-    assert (kept.task, kept.family, kept.location) == (POSITION_VALUE, NETWORK, "data/model/the 2026-09 network.pt")
+    assert (kept.tasks, kept.family, kept.location) == ((POSITION_VALUE,), NETWORK, "data/model/the 2026-09 network.pt")
     assert knowledge.model_by_id(kept.id) == kept
     assert create_knowledge_base("models", tmp_path).model_by_id(kept.id) == kept
 
@@ -64,7 +64,7 @@ def test_a_ruleset_is_registered_as_a_model_of_its_task_found_again_by_its_id(tm
 
     model = create_model_registry().register_ruleset(knowledge, ruleset)
 
-    assert (model.family, model.task, model.location) == (RULES, SIMULATION, ruleset.id)
+    assert (model.family, model.tasks, model.location) == (RULES, (SIMULATION,), ruleset.id)
 
 
 def test_the_models_of_a_task_come_from_the_context_or_from_the_one_it_inherits(tmp_path: Path) -> None:
@@ -102,3 +102,25 @@ def test_a_model_of_no_task_here_has_no_best(tmp_path: Path) -> None:
     knowledge = base(tmp_path)
 
     assert create_model_registry().best(knowledge, knowledge.ensure_context("chess").id, POSITION_VALUE) is None
+
+
+def test_one_model_can_perform_several_tasks(tmp_path: Path) -> None:
+    from openmind.knowledge.constant.task_constant import MOVE_VALUE
+
+    knowledge = base(tmp_path)
+    registry = create_model_registry()
+    context = knowledge.ensure_context("chess").id
+    two_heads = registry.register(
+        knowledge,
+        ModelRecord(
+            "the two-headed network",
+            (POSITION_VALUE, MOVE_VALUE),
+            context,
+            NETWORK,
+            knowledge.ensure_mechanism("the two-headed network").id,
+            "data/model/two heads.pt",
+        ),
+    )
+
+    assert registry.of_task(knowledge, context, POSITION_VALUE) == (two_heads,)
+    assert registry.of_task(knowledge, context, MOVE_VALUE) == (two_heads,)

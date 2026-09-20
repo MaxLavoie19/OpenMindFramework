@@ -181,7 +181,7 @@ def test_everything_kept_is_still_there_for_a_base_opened_again_and_ids_carry_on
     assert opened.contexts() == (variant,)
     assert any(
         "Knowledge of cheat: 1 direct experiences, 1 beliefs, 1 opinions, 1 tasks, 1 contexts, 0 mechanisms, 0 rules, "
-        "0 rulesets, 0 models"
+        "0 rulesets, 0 models, 0 policies"
         == message
         for message in caplog.messages
     )
@@ -387,3 +387,47 @@ def test_an_undeclared_rule_is_retrieved_no_more_here_or_in_the_base_opened_agai
 
     assert [rule.name for rule, _ in base.ruleset_rules(ruleset.id)] == [kept.name]
     assert [rule.name for rule, _ in new_base(tmp_path).ruleset_rules(ruleset.id)] == [kept.name]
+
+
+def test_a_policy_is_kept_with_its_sub_goal_and_the_models_performing_its_two_tasks(tmp_path: Path) -> None:
+    from openmind.knowledge.model.policy import Policy
+
+    base = new_base(tmp_path)
+    context = base.ensure_context("soldier").id
+
+    flee = base.policy(Policy("flee", context, "stay alive", position_value="model-safe", move_value="model-away"))
+
+    assert flee.id.startswith("policy-")
+    assert base.policy_named(context, "flee") == flee
+    assert base.policies(context) == (flee,)
+    assert new_base(tmp_path).policy_by_id(flee.id) == flee
+
+
+def test_the_default_policy_has_no_name_and_reads_as_such_in_the_logs(tmp_path: Path) -> None:
+    from openmind.knowledge.model.policy import Policy
+
+    base = new_base(tmp_path)
+
+    default = base.policy(Policy("", base.ensure_context("soldier").id))
+
+    assert base.readable_policy(default.id).startswith("the default policy (policy-")
+
+
+def test_a_preference_is_what_a_goal_weighs_for_its_holder_and_is_updated_under_its_id(tmp_path: Path) -> None:
+    from openmind.knowledge.model.goal import Goal
+    from openmind.knowledge.model.preference import Preference
+
+    base = new_base(tmp_path)
+    context = base.ensure_context("cheat").id
+    winning = base.goal(Goal("win", context))
+
+    held = base.prefer(Preference(winning.id, 1.0))
+    again = base.prefer(Preference(winning.id, 0.4))
+    as_coach = base.prefer(Preference(winning.id, 0.1, role="coach"))
+    black_s = base.prefer(Preference(winning.id, 0.9, holder=("black",)))
+
+    assert again.id == held.id and base.preference(winning.id).weight == 0.4
+    assert base.preference(winning.id, role="coach") == as_coach
+    assert base.preference(winning.id, holder=("black",)) == black_s
+    assert base.preference(winning.id, role="player").weight == 0.4  # type: ignore[union-attr]
+    assert new_base(tmp_path).preferences(holder=("black",)) == (black_s,)

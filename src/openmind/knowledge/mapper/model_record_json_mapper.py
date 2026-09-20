@@ -12,7 +12,7 @@ class ModelRecordJsonMapper:
         return {
             "id": model.id,
             "name": model.name,
-            "task": model.task,
+            "tasks": list(model.tasks),
             "context": model.context,
             "family": model.family,
             "mechanism": model.mechanism,
@@ -23,7 +23,7 @@ class ModelRecordJsonMapper:
     def from_data(self, data: dict[str, object]) -> ModelRecord:
         return ModelRecord(
             str(data["name"]),
-            str(data["task"]),
+            tuple(str(task) for task in data["tasks"]),  # type: ignore[union-attr]
             str(data["context"]),
             str(data["family"]),
             str(data["mechanism"]),

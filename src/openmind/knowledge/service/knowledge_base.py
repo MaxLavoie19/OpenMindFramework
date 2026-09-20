@@ -8,8 +8,11 @@ from openmind.knowledge.constant.knowledge_constant import (
     COPY,
     DECLARATION,
     EXPERIENCE,
+    GOAL,
     MECHANISM,
     MODEL,
+    POLICY,
+    PREFERENCE,
     OPINION,
     RULE,
     RULESET,
@@ -17,6 +20,7 @@ from openmind.knowledge.constant.knowledge_constant import (
 )
 from openmind.knowledge.mapper.knowledge_json_mapper import KnowledgeJsonMapper
 from openmind.knowledge.mapper.model_record_json_mapper import ModelRecordJsonMapper
+from openmind.knowledge.mapper.policy_json_mapper import PolicyJsonMapper
 from openmind.knowledge.mapper.rule_record_json_mapper import RuleRecordJsonMapper
 from openmind.knowledge.mapper.ruleset_json_mapper import RulesetJsonMapper
 from openmind.knowledge.model.belief import Belief
@@ -24,7 +28,10 @@ from openmind.knowledge.model.context import Context
 from openmind.knowledge.model.direct_experience import DirectExperience
 from openmind.knowledge.model.identifier import new_identifier
 from openmind.knowledge.model.mechanism import Mechanism
+from openmind.knowledge.model.goal import Goal
 from openmind.knowledge.model.model_record import ModelRecord
+from openmind.knowledge.model.policy import Policy
+from openmind.knowledge.model.preference import Preference
 from openmind.knowledge.model.opinion import Opinion
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.knowledge.model.ruleset import Ruleset
@@ -41,7 +48,7 @@ class KnowledgeBase:
     """Everything the agent knows about a domain: its direct experiences, kept word for word; its beliefs, each a
     variable with a value, a certainty and optional evidence, including what it believes others believe; its own
     opinions; its tasks; its contexts; the mechanisms its evidence comes from; the rules it knows, the rulesets
-    listing them, and the models that perform its tasks. Everything
+    listing them, the models that perform its tasks, and the policies, goals and preferences it plays by. Everything
     carries tags it can be retrieved by, and a GUID every link uses; contexts and mechanisms also have names, which
     people and applications use and which the knowledge base resolves to their ids.
 
@@ -61,10 +68,14 @@ class KnowledgeBase:
         rules: Store,
         rulesets: Store,
         models: Store,
+        policies: Store,
+        goals: Store,
+        preferences: Store,
         knowledge_json_mapper: KnowledgeJsonMapper | None = None,
         rule_record_json_mapper: RuleRecordJsonMapper | None = None,
         ruleset_json_mapper: RulesetJsonMapper | None = None,
         model_record_json_mapper: ModelRecordJsonMapper | None = None,
+        policy_json_mapper: PolicyJsonMapper | None = None,
     ) -> None:
         self._domain = domain
         self._experience_store = experiences
@@ -76,10 +87,14 @@ class KnowledgeBase:
         self._rule_store = rules
         self._ruleset_store = rulesets
         self._model_store = models
+        self._policy_store = policies
+        self._goal_store = goals
+        self._preference_store = preferences
         self._mapper = KnowledgeJsonMapper() if knowledge_json_mapper is None else knowledge_json_mapper
         self._rule_mapper = RuleRecordJsonMapper(self._mapper) if rule_record_json_mapper is None else rule_record_json_mapper
         self._ruleset_mapper = RulesetJsonMapper(self._mapper) if ruleset_json_mapper is None else ruleset_json_mapper
         self._model_mapper = ModelRecordJsonMapper(self._mapper) if model_record_json_mapper is None else model_record_json_mapper
+        self._policy_mapper = PolicyJsonMapper(self._mapper) if policy_json_mapper is None else policy_json_mapper
         self._experiences: dict[str, DirectExperience] = {}
         self._beliefs: dict[str, Belief] = {}
         self._belief_ids: dict[tuple[str, str, tuple[str, ...]], str] = {}
@@ -93,6 +108,9 @@ class KnowledgeBase:
         self._rules: dict[str, RuleRecord] = {}
         self._rulesets: dict[str, Ruleset] = {}
         self._models: dict[str, ModelRecord] = {}
+        self._policies: dict[str, Policy] = {}
+        self._goals: dict[str, Goal] = {}
+        self._preferences: dict[str, Preference] = {}
         self._load()
 
     @property
@@ -496,7 +514,7 @@ class KnowledgeBase:
         logger.debug(
             "Model %s of %s in %s, a %s",
             self.readable_model(kept.id),
-            kept.task,
+            ", ".join(kept.tasks),
             self.readable_context(kept.context),
             kept.family,
         )
@@ -512,12 +530,13 @@ class KnowledgeBase:
         return None
 
     def models(self, context_id: str | None = None, task: str | None = None, tags: Tags = ()) -> tuple[ModelRecord, ...]:
-        """Every model of that context (an id), performing that task, carrying all the tags, in the order first kept."""
+        """Every model of that context (an id), performing that task among its own, carrying all the tags, in the order
+        first kept."""
         return tuple(
             model
             for model in self._models.values()
             if (context_id is None or model.context == context_id)
-            and (task is None or model.task == task)
+            and (task is None or task in model.tasks)
             and carries(model.tags, tags)
         )
 
@@ -525,6 +544,108 @@ class KnowledgeBase:
         """A model as logs show it: its name and its id."""
         model = self._models.get(model_id)
         return f"{model.name} ({model.id})" if model is not None else model_id
+
+    # policies, goals and preferences
+
+    def policy(self, policy: Policy) -> Policy:
+        """Keeps the policy, or writes it anew under its id, and gives it back with its id."""
+        kept = replace(policy, id=policy.id or new_identifier(POLICY))
+        self._policies[kept.id] = kept
+        self._policy_store.append(self._policy_mapper.policy_to_data(kept))
+        logger.debug(
+            "Policy %s in %s%s",
+            self.readable_policy(kept.id),
+            self.readable_context(kept.context),
+            f", after {kept.sub_goal}" if kept.sub_goal else "",
+        )
+        return kept
+
+    def policy_by_id(self, policy_id: str) -> Policy | None:
+        return self._policies.get(policy_id)
+
+    def policy_named(self, context_id: str, name: str) -> Policy | None:
+        for policy in self._policies.values():
+            if policy.context == context_id and policy.name == name:
+                return policy
+        return None
+
+    def policies(self, context_id: str | None = None, tags: Tags = ()) -> tuple[Policy, ...]:
+        """Every policy of that context (an id), carrying all the tags, in the order first kept."""
+        return tuple(
+            policy
+            for policy in self._policies.values()
+            if (context_id is None or policy.context == context_id) and carries(policy.tags, tags)
+        )
+
+    def readable_policy(self, policy_id: str) -> str:
+        """A policy as logs show it: its name and its id; the default policy has no name."""
+        policy = self._policies.get(policy_id)
+        if policy is None:
+            return policy_id
+        return f"{policy.name} ({policy.id})" if policy.name else f"the default policy ({policy.id})"
+
+    def goal(self, goal: Goal) -> Goal:
+        """Keeps the goal, or writes it anew under its id, and gives it back with its id."""
+        kept = replace(goal, id=goal.id or new_identifier(GOAL))
+        self._goals[kept.id] = kept
+        self._goal_store.append(self._policy_mapper.goal_to_data(kept))
+        logger.debug("Goal %s in %s", self.readable_goal(kept.id), self.readable_context(kept.context))
+        return kept
+
+    def goal_by_id(self, goal_id: str) -> Goal | None:
+        return self._goals.get(goal_id)
+
+    def goal_named(self, context_id: str, name: str) -> Goal | None:
+        for goal in self._goals.values():
+            if goal.context == context_id and goal.name == name:
+                return goal
+        return None
+
+    def goals(self, context_id: str | None = None, tags: Tags = ()) -> tuple[Goal, ...]:
+        return tuple(
+            goal
+            for goal in self._goals.values()
+            if (context_id is None or goal.context == context_id) and carries(goal.tags, tags)
+        )
+
+    def readable_goal(self, goal_id: str) -> str:
+        goal = self._goals.get(goal_id)
+        return f"{goal.name} ({goal.id})" if goal is not None else goal_id
+
+    def prefer(self, preference: Preference) -> Preference:
+        """Sets what the goal weighs for its holder in that role, or updates the preference already held for them."""
+        key = (preference.goal, preference.holder, preference.role)
+        held = next((held for held in self._preferences.values() if self._key(held) == key), None)
+        kept = replace(preference, id=preference.id or ("" if held is None else held.id) or new_identifier(PREFERENCE))
+        self._preferences[kept.id] = kept
+        self._preference_store.append(self._policy_mapper.preference_to_data(kept))
+        logger.debug(
+            "Prefers %s at %g%s%s",
+            self.readable_goal(kept.goal),
+            kept.weight,
+            f" as held by {' > '.join(kept.holder)}" if kept.holder else "",
+            f" in the role of {kept.role}" if kept.role else "",
+        )
+        return kept
+
+    def preference(self, goal_id: str, holder: tuple[str, ...] = (), role: str = "") -> Preference | None:
+        """What that goal weighs for the holder in that role; the holder's preference for any role where it has none
+        in this one."""
+        for wanted in ((goal_id, holder, role), (goal_id, holder, "")):
+            found = next((held for held in self._preferences.values() if self._key(held) == wanted), None)
+            if found is not None:
+                return found
+        return None
+
+    def preferences(self, holder: tuple[str, ...] | None = None, role: str | None = None) -> tuple[Preference, ...]:
+        return tuple(
+            preference
+            for preference in self._preferences.values()
+            if (holder is None or preference.holder == holder) and (role is None or preference.role == role)
+        )
+
+    def _key(self, preference: Preference) -> tuple[str, tuple[str, ...], str]:
+        return (preference.goal, preference.holder, preference.role)
 
     def _load(self) -> None:
         """Takes in what the stores already hold."""
@@ -559,10 +680,19 @@ class KnowledgeBase:
         for data in self._model_store.load():
             model = self._model_mapper.from_data(data)
             self._models[model.id] = model
+        for data in self._policy_store.load():
+            policy = self._policy_mapper.policy_from_data(data)
+            self._policies[policy.id] = policy
+        for data in self._goal_store.load():
+            goal = self._policy_mapper.goal_from_data(data)
+            self._goals[goal.id] = goal
+        for data in self._preference_store.load():
+            preference = self._policy_mapper.preference_from_data(data)
+            self._preferences[preference.id] = preference
         if self._experiences or self._beliefs or self._rules or self._contexts:
             logger.info(
                 "Knowledge of %s: %d direct experiences, %d beliefs, %d opinions, %d tasks, %d contexts, %d mechanisms, "
-                "%d rules, %d rulesets, %d models",
+                "%d rules, %d rulesets, %d models, %d policies",
                 self._domain,
                 len(self._experiences),
                 len(self._beliefs),
@@ -573,4 +703,5 @@ class KnowledgeBase:
                 len(self._rules),
                 len(self._rulesets),
                 len(self._models),
+                len(self._policies),
             )

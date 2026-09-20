@@ -99,6 +99,9 @@ class RuleBasedGame:
     ) -> tuple[tuple[Action, ...], SolveStatistics]:
         return self._simulation.actions_with_statistics(self.simulation_rbs, state, limit, player)
 
+    def allows(self, state: State, action: Action, player: str | None = None) -> bool:
+        return self._simulation.allows(self.simulation_rbs, state, action, player)
+
     def acting(self, state: State) -> tuple[int, ...]:
         return self._simulation.acting(self.simulation_rbs, state)
 

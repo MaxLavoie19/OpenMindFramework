@@ -62,6 +62,40 @@ class Solver:
         acting at once, the rules also read it as `player`."""
         return self.solve_with_statistics(state, action, values, constraints, definitions, limit, player)[0]
 
+    def allows(
+        self,
+        state: State,
+        action: Action,
+        values: Mapping[str, Rule],
+        constraints: Sequence[Rule] = (),
+        definitions: PythonRule | None = None,
+        player: str | None = None,
+    ) -> bool:
+        """Whether that one action is legal in the state: its constraints run against the values it already carries,
+        rather than searched for. An action a model computed isn't legal by construction, so whatever computes one —
+        equations, a controller, a model proposing a solution — has what it gives checked here.
+
+        A parameter the action doesn't carry, or a value its rule doesn't allow, makes it illegal."""
+        if player is not None:
+            if state.has(PLAYER):
+                raise ValueError(f"A state model is named {PLAYER!r}, the name rules read the player solved for by")
+            state = state.with_model(PLAYER, player)
+        carried = dict(action.parameters)
+        if set(carried) != set(values):
+            logger.debug("%s carries %s, not %s", action.name, sorted(carried), sorted(values))
+            return False
+        for name, rule in values.items():
+            if carried[name] not in self._values(rule, state, definitions):
+                logger.debug("%s is not a value %s can take in %s", carried[name], name, action.name)
+                return False
+        names = tuple(values)
+        for constraint in constraints:
+            prepared = self._rule_caller.prepare(constraint, names, definitions)
+            if not self._constraint_checker.holds(prepared, state, action.name, carried):
+                logger.debug("%s is refused by %s", action.name, prepared.source)
+                return False
+        return True
+
     def solve_with_statistics(
         self,
         state: State,

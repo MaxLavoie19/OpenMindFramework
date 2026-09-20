@@ -81,6 +81,18 @@ class Simulation:
             raise ValueError(f"{', '.join(name for name, _ in acting)} act at once: their actions are joint (see joint_actions)")
         return acting[0][1] if acting else ()
 
+    def allows(self, rbs: RuleBasedSystem, state: State, action: Action, player: str | None = None) -> bool:
+        """Whether that one action is legal in the state, its constraints run against the values it carries: what an
+        optimizer's action is checked with, since a computed action isn't legal by construction."""
+        return self._solver.allows(
+            state,
+            action,
+            rbs.values(action.name),
+            rbs.constraints(action.name),
+            rbs.definitions(RULES_DEFINITIONS),
+            player,
+        )
+
     def acting(self, rbs: RuleBasedSystem, state: State) -> tuple[int, ...]:
         """The players acting in the state, by index in the players' names: those with at least one legal action."""
         names = self.players(rbs).names

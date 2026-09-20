@@ -293,3 +293,38 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
         extracts a feature on demand, a possibly memoized call, and shares it with every model after. The search builds
         nodes for its tree; anything else valuing a position, training included, builds one too.
       - A win always carries the payoff value, whatever the heuristic.
+
+18. **The policy and optimizer step.**
+    - **Decided (Maxime):**
+      - "Tactic" was the wrong word for it: it is a **policy**, in the spirit of proximal policy optimization. The
+        actions are too many to weigh one by one, so the agent first picks a policy tuned to a subset of them —
+        nonsensical, fleeing, attacking — and then picks the action that serves it best. Chess's own tactics (a fork,
+        a pin) keep the word; rhetoric's tactics are policies too, each narrowing the messages to those negotiating
+        one distance, on one axis, in one direction. A message carries several policies at once, since several
+        questions are usually negotiated together.
+      - Values are quantitative in some domains and qualitative in others: centipawns in chess, "sounds selfish" in
+        rhetoric. The words are not a stage every value passes through.
+      - Preferences live in the knowledge base, so that the agent can know and understand its own choices.
+      - All three optimizers. The random picker is a policy of its own, the one that saves time when time is short;
+        with time to spare, an agent follows several complementary policies and learns when each one pays.
+      - A policy is a combination of specialised heuristics: a position value heuristic valuing the states it is
+        after, and a move value heuristic valuing the moves that serve it. A fleeing policy values safe states and
+        moves that put distance between the soldier and the enemy.
+      - The time management policy keeps its name.
+      - A policy is manufactured (an agent is told to learn freeze, fight and flight) or learned by policy
+        optimization.
+      - A policy isn't necessarily one model: it performs two tasks, which one network with two heads or two rulesets
+        can perform.
+      - A policy picker is a port of its own: it says which policies are worth expanding and which aren't worth
+        considering. Random is rarely worth expanding; when it is, nothing else is worth considering.
+      - One model record can name several tasks, such as a network with a head for each of a policy's two.
+      - Control systems belong here: multi-input multi-output systems, model predictive control and model reference
+        adaptive control are optimizer models. An optimizer gives the next best step from the current position; model
+        predictive control's plan is the series of steps the optimizers give as the search explores, and an adaptive
+        one keeps what it adapted as its own data.
+      - An optimizer can be a special kind of CSP: equations computing the perfect value, a PID holding a variable on
+        target, or a constraint solver working the values out one at a time. What an optimizer gives is checked
+        against the constraints unless it is the solver itself.
+      - The optimizer is an alternative to expanding: rather than listing every action and sorting them, it produces
+        the one action that serves the goal, as an artillery piece calculates its firing solution instead of
+        enumerating every ballistic one.

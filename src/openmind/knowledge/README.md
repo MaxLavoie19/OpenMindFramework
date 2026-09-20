@@ -22,6 +22,8 @@ Everything the agent knows about a domain, in one knowledge base:
   developer.
 - **Models**: the ways a task can be performed in a context, each a record of its own — a ruleset, a lookup table, a
   network — with what it is measured at kept as beliefs about it (see `model/README.md`).
+- **Policies, goals and preferences**: how the agent plays, what it wants, and what each goal weighs for whoever holds
+  it (see `policy/README.md` and `utility/README.md`).
 - **Rulesets**: parts of a context holding the rules for one purpose — the game's simulation, the position value
   heuristic, the move value heuristic, a tactic's, a known agent's play style — each one model of its task. A ruleset
   lists its rules by id, each with its weight there; a rule can be in several rulesets. A frozen ruleset lists only
@@ -55,6 +57,10 @@ Certainty is only as rigorous as its caller makes it. `epistemology` will make i
 | `model/context.py` | `Context(id, name, parent=None, inherits=(), tags=())`, `parent` and `inherits` holding ids |
 | `model/rule_record.py` | `RuleRecord(name, kind, rule, source, action=None, parameter=None, probability=1.0, open=False, tags=(), id="")`: a rule belongs to a context only through the rulesets listing it |
 | `model/ruleset.py` | `Ruleset(name, context, task, source, links=(), open=False, tags=(), id="")`: a part of a context holding the rules for one purpose, one model of its task; `rule_ids`, `weight(rule_id)` |
+| `model/policy.py` | `Policy(name, context, sub_goal="", position_value="", move_value="", tags=(), id="")`: a way of playing tuned to a subset of the actions, naming the models performing its two tasks; the default policy has no name |
+| `model/goal.py` | `Goal(name, context, tags=(), id="")`: something an agent wants in a context |
+| `model/preference.py` | `Preference(goal, weight, holder=(), role="", tags=(), id="")`: what a goal weighs for whoever holds it, in a role |
+| `mapper/policy_json_mapper.py` | `PolicyJsonMapper`: policies, goals and preferences to JSON and back |
 | `model/model_record.py` | `ModelRecord(name, task, context, family, mechanism, location="", tags=(), id="")`: one way to perform a task — a ruleset, a lookup table, a network — sourced by the mechanism its readings are scored through, and found again by `location` |
 | `mapper/model_record_json_mapper.py` | `ModelRecordJsonMapper`: a model record to JSON and back |
 | `constant/task_constant.py` | The tasks OMF knows, each with a port of its own: simulation, prediction, position value, move value, tactic value, inference, binning, abstraction, agent model, planning, time management |
@@ -67,7 +73,7 @@ Certainty is only as rigorous as its caller makes it. `epistemology` will make i
 | `mapper/knowledge_json_mapper.py` | `KnowledgeJsonMapper`: experiences, beliefs, opinions, tasks, contexts and sources to JSON-ready dicts and back |
 | `mapper/rule_record_json_mapper.py` | `RuleRecordJsonMapper`: a rule to JSON and back; a rule given as a function is found again by its module and name |
 | `service/file_store.py` | `FileStore(path)`: the default `Store`, JSON lines appended to one file; the last line of an id wins |
-| `service/knowledge_base.py` | `KnowledgeBase`: `experience`, `experienced`, `experiences`; `believe`, `belief`, `belief_by_id`, `beliefs`; `hold`, `opinion`, `opinions`; `task`, `tasks`; `context`, `ensure_context`, `context_named`, `context_by_id`, `contexts`, `readable_context`; `mechanism`, `ensure_mechanism`, `mechanism_named`, `mechanism_by_id`, `mechanisms`, `readable_mechanism`; `model`, `model_by_id`, `model_named`, `models`, `readable_model`; `declare`, `revise`, `frozen`, `rule`, `undeclare`; `ruleset`, `ruleset_by_id`, `ruleset_named`, `rulesets`, `ruleset_rules`, `link`, `unlink`, `frozen_ruleset`, `copy_ruleset`, `revise_in`, `readable_ruleset`. Contexts are passed as ids |
+| `service/knowledge_base.py` | `KnowledgeBase`: `experience`, `experienced`, `experiences`; `believe`, `belief`, `belief_by_id`, `beliefs`; `hold`, `opinion`, `opinions`; `task`, `tasks`; `context`, `ensure_context`, `context_named`, `context_by_id`, `contexts`, `readable_context`; `mechanism`, `ensure_mechanism`, `mechanism_named`, `mechanism_by_id`, `mechanisms`, `readable_mechanism`; `model`, `model_by_id`, `model_named`, `models`, `readable_model`; `policy`, `policy_by_id`, `policy_named`, `policies`, `readable_policy`; `goal`, `goal_by_id`, `goal_named`, `goals`, `readable_goal`; `prefer`, `preference`, `preferences`; `declare`, `revise`, `frozen`, `rule`, `undeclare`; `ruleset`, `ruleset_by_id`, `ruleset_named`, `rulesets`, `ruleset_rules`, `link`, `unlink`, `frozen_ruleset`, `copy_ruleset`, `revise_in`, `readable_ruleset`. Contexts are passed as ids |
 | `builder/knowledge_base_builder.py` | `KnowledgeBaseBuilder`: `with_directory`, `with_store(kind, store)` |
 | `factory/knowledge_base_factory.py` | `create_knowledge_base(domain, directory=None, stores=None)` |
 
@@ -99,13 +105,13 @@ knowledge.beliefs(tags=(("topic", "bluffs"),))
 ```
 
 A domain's knowledge is kept under `data/knowledge/<domain>/`, one JSON-lines file per kind: `experiences.jsonl`,
-`beliefs.jsonl`, `opinions.jsonl`, `tasks.jsonl`, `contexts.jsonl`, `mechanisms.jsonl`, `rules.jsonl`, `rulesets.jsonl` and `models.jsonl`. An integrator gives their own
+`beliefs.jsonl`, `opinions.jsonl`, `tasks.jsonl`, `contexts.jsonl`, `mechanisms.jsonl`, `rules.jsonl`, `rulesets.jsonl`, `models.jsonl`, `policies.jsonl`, `goals.jsonl` and `preferences.jsonl`. An integrator gives their own
 storage with `with_store(kind, store)` and owns the data's lifecycle.
 
 ## Logs
 
 - `openmind.knowledge.service.knowledge_base`:
-  - `INFO Knowledge of <domain>: <n> direct experiences, <n> beliefs, <n> opinions, <n> tasks, <n> contexts, <n> mechanisms, <n> rules, <n> rulesets, <n> models`
+  - `INFO Knowledge of <domain>: <n> direct experiences, <n> beliefs, <n> opinions, <n> tasks, <n> contexts, <n> mechanisms, <n> rules, <n> rulesets, <n> models, <n> policies`
     when a base opens with knowledge already kept.
   - `WARNING Rule <name> (<id>) is frozen: …` when a revision of a frozen rule is refused; `WARNING Ruleset <name> (<id>)
     is frozen …` when a frozen ruleset would list an open rule, or is asked to revise one.

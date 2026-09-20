@@ -9,7 +9,7 @@ def create_knowledge_base(
     domain: str, directory: Path | str | None = None, stores: dict[str, Store] | None = None
 ) -> KnowledgeBase:
     """A knowledge base for a domain, its knowledge kept as JSON lines under the knowledge directory, or in the stores
-    given instead, by kind: experiences, beliefs, opinions, tasks, contexts, mechanisms, rules, rulesets or models."""
+    given instead, by kind: experiences, beliefs, opinions, tasks, contexts, mechanisms, rules, rulesets, models, policies, goals or preferences."""
     builder = KnowledgeBaseBuilder()
     if directory is not None:
         builder.with_directory(directory)
