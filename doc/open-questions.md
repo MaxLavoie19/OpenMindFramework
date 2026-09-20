@@ -424,3 +424,22 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
       game already spells it that way, `Grid.filled(shape, None)` is the idiom, and `moved` and `removed` default to
       it. A game that spells nothing its own way — 0 on a numeric board — passes its own marker where one is asked
       for. Nothing is declared and nothing is inferred for what every game already agrees on.
+
+24. **Where a player's own direction comes from.** (found while giving the deduction a better vocabulary)
+    Rules about a piece that moves one way for one player and the other way for the other cannot be said once. A
+    white pawn's step is one row up, a black pawn's is one row down, so every pawn rule is learned twice and carries
+    `color at source == 'white'` inside a rule that is not about colour. The double step and promotion are worse:
+    both are about a rank belonging to the player rather than to the board, so neither can be said at all. The
+    reading that would fix it is how far the target lies *toward or away from the player acting* — but nothing in a
+    position says which way a player faces, and OMF cannot read it off a grid.
+    - **Options:**
+      - Take it from the order of the players: the first faces one way, the second the other. It merges the rules
+        and is not about chess, but it assumes players on a grid face one another, which is false of a game where
+        they play the same way up.
+      - Let the game declare which way each player faces, as it declares its players. Honest and explicit, but it
+        is one more thing an integrator must say, and the point of the deduction is that they withheld the rules.
+      - Deduce it: the direction a player's pieces move is a fact about the game like any other, learned from the
+        legal actions before the movement rules are learned, and then read. Nothing is assumed and nothing is
+        declared, at the cost of a pass that has to come first.
+      - Leave it. Rules stay split by colour, and the rules that need a player's own rank are never found.
+    - **Undecided.**
