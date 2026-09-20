@@ -1,7 +1,8 @@
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from openmind.inference.service.condition_masks import ConditionMasks
 from openmind.inference.service.rule_deducer import Condition
 from openmind.structure.model.value import Value
 
@@ -14,15 +15,32 @@ class Covering:
 
     `covers` is how many legal actions it accounts for and `wrongly` how many illegal ones it lets through — zero
     where it was learned to the end. A rule of a game is a way of being legal, not a filter: a knight's move and a
-    bishop's move are two rules, and a move is legal where any of them covers it."""
+    bishop's move are two rules, and a move is legal where any of them covers it.
+
+    `excluding` is what this rule lists that the game refuses anyway, stated as rules of its own. A game is written
+    down that way — how a piece moves, and separately what forbids the move — and the exclusions belong to the rule
+    they were learned under rather than to the set, so what forbids a pawn's move can never reach a rook's.
+
+    `under` is what specializes it: the rule is a principle, and an action it covers is covered where one of these
+    covers it too. A set of rules that each repeat what they have in common says the common part once for every
+    rule it appears in and nowhere as itself, so what is true of the game is never stated and cannot be reasoned
+    with. Said once, with the ways it is specialized under it, it is a principle — and what forbids it is learned
+    against everything it covers rather than against one specialization at a time."""
 
     conditions: tuple[Condition, ...]
     covers: int
     wrongly: int
+    excluding: tuple["Covering", ...] = ()
+    under: tuple["Covering", ...] = ()
 
     @property
     def readable(self) -> str:
-        return " and ".join(f"{reading} {relation} {value!r}" for reading, relation, value in self.conditions) or "anything"
+        said = " and ".join(f"{reading} {relation} {value!r}" for reading, relation, value in self.conditions) or "anything"
+        if self.under:
+            said += ", in particular " + " or ".join(f"({one.readable})" for one in self.under)
+        if self.excluding:
+            said += ", except where " + " or where ".join(one.readable for one in self.excluding)
+        return said
 
 
 class CoveringLearner:
@@ -40,13 +58,21 @@ class CoveringLearner:
     def learn(
         self,
         examples: Sequence[tuple[Mapping[str, Value], bool]],
-        most: int = 20,
         least: int = 1,
         grow: float = 0.67,
         within: Sequence[object] = (),
         positions: int = 2,
+        loosely: float = 0.0,
+        overlapping: bool = False,
     ) -> tuple[Covering, ...]:
-        """The ways of being legal it found: at most `most` of them, each covering at least `least` legal actions.
+        """The ways of being legal it found, each covering at least `least` legal actions.
+
+        It stops when every legal action is covered, or when no rule can be found that covers one nothing covers
+        yet. There is no limit on how many rules it may take: how many a game needs is a fact about the game, not
+        a number to be guessed beforehand, and a limit guessed too low truncates the game — the rules that would
+        have said how a piece moves are never reached, and what is missing looks like something the learner could
+        not learn. Every rule covers at least one action no other covers, so there are never more of them than
+        there are legal actions to cover.
 
         A rule that cannot be made to let nothing illegal through is kept all the same, with what it lets through
         counted: the readings may not be able to say what the game is doing, and saying so is better than saying
@@ -57,17 +83,34 @@ class CoveringLearner:
         the game's own history — because dropping it would, on those very actions, let something illegal through.
         Only actions the rule was not grown on can tell an accident from a reason.
 
-        `within` says which position each action was read in. A reading that never changes within a position — the
-        clock, the castling rights, the positions seen so far — can be compared to another reading and mean
-        something, but compared to a value of its own it can only ever name the position it was read in. Such a
-        comparison explains every action there and nothing anywhere else, so it is not offered.
+        `within` says which position each action was read in, which is what `positions` counts support across.
+
+        No reading is held back for fear of what it might be used to memorize. A reading that names the position it
+        was read in is a reading a rule can be wrong with, and what answers that is evidence: a condition must hold
+        across positions to be asked at all, a rule is pruned against actions it was not grown from, and what it is
+        worth is measured on positions it has never seen. A filter that forbids a whole reading instead forbids
+        every rule that needed it — the castling rights, whose turn it is — and hides the memorizing it was meant
+        to prevent rather than showing it.
+
+        `loosely` is how much of what it covers a rule may wrongly cover. A rule that must cover nothing illegal
+        is driven narrow — every exception the game has becomes another condition, and what is left covers little.
+        A loose rule is a draft: it says how a piece moves and leaves what forbids it to be said separately, which
+        is how a game is written down in the first place. The drafts are sharpened by what rejects afterwards.
 
         `positions` is how many positions a condition must hold in to be part of a rule. No rule of a game is true
         in one position only, so a condition supported by one is an accident however well it separates what it was
         found in — the square a pawn just passed, the clock reading forty. This is what the filter above was reaching
         for and missed: what matters is not whether a reading is fixed within a position, but whether a condition has
-        support across them."""
-        self._identifying = self._position_constant(examples, within)
+        support across them.
+
+        `overlapping` lets several rules cover the same action. Taking an action away once a rule covers it leaves
+        every later rule to be grown from a residue, and a residue of a handful is separated by anything at all: the
+        column a rook happened to move along becomes a condition and never comes out again, because there is nothing
+        left to contradict it. Covered actions are weighed down instead — one an existing rule covers counts for
+        1/(1 + how many cover it) — so what nothing covers still pulls hardest while a new rule may be grown right
+        across the ones its predecessors have. Rules then overlap, which costs nothing to a set that is legal where
+        any of them covers, and the rules that cover a family from several angles are the evidence a principle can
+        be distilled from."""
         self._supported = self._support(examples, within, positions)
         growing = examples[: int(len(examples) * grow)] or list(examples)
         pruning = examples[int(len(examples) * grow) :] or list(examples)
@@ -75,26 +118,328 @@ class CoveringLearner:
         left = [readings for readings, legal in growing if legal]
         others = [readings for readings, legal in pruning if not legal]
         keeping = [readings for readings, legal in pruning if legal]
+        masks = ConditionMasks([*illegal, *others])
+        growing_wrongly = (1 << len(illegal)) - 1
         found: list[Covering] = []
-        while left and len(found) < most:
-            rule = self._pruned(self._covering(left, illegal), [*left, *keeping], [*illegal, *others])
-            covered = [readings for readings in left if self._matches(rule, readings)]
-            if len(covered) < least:
+        covered_by = [0] * len(left)
+        while True:
+            uncovered = [one for one, times in enumerate(covered_by) if not times]
+            if not uncovered:
                 break
-            wrongly = sum(1 for readings in illegal if self._matches(rule, readings))
-            found.append(Covering(rule, len(covered), wrongly))
-            left = [readings for readings in left if not self._matches(rule, readings)]
+            chosen = list(range(len(left))) if overlapping else uncovered
+            covering = [left[one] for one in chosen]
+            weights = [1.0 / (1.0 + covered_by[one]) for one in chosen]
+
+            def grown(
+                seed: Mapping[str, Value] | None = None,
+                covering: Sequence[Mapping[str, Value]] = covering,
+                weights: Sequence[float] = weights,
+                chosen: Sequence[int] = chosen,
+            ) -> tuple[tuple[Condition, ...], list[int]]:
+                made = self._pruned(
+                    self._covering(covering, masks, growing_wrongly, loosely, weights, seed),
+                    [*covering, *keeping],
+                    masks,
+                    loosely,
+                )
+                return made, [one for one in chosen if self._matches(made, left[one])]
+
+            rule, matched = grown()
+            if overlapping and not any(not covered_by[one] for one in matched):
+                rule, matched = grown(left[uncovered[0]])
+            if sum(1 for one in matched if not covered_by[one]) < least:
+                break
+            wrongly = self._wrongly(rule, masks, growing_wrongly)
+            found.append(Covering(rule, len(matched), wrongly))
+            for one in matched:
+                covered_by[one] += 1
         logger.info(
-            "Learned %d ways of being legal, covering %d of %d legal actions",
+            "Learned %d ways of being legal, covering %d of %d legal actions, %d left uncovered",
             len(found),
-            sum(one.covers for one in found),
+            sum(1 for readings, legal in examples if legal and self.covers(tuple(found), readings)),
             sum(1 for _, legal in examples if legal),
+            sum(1 for readings, legal in examples if legal and not self.covers(tuple(found), readings)),
         )
         return tuple(found)
 
-    def covers(self, rules: Sequence[Covering], readings: Mapping[str, Value]) -> bool:
-        """Whether any rule covers that action, which is what makes it legal."""
-        return any(self._matches(rule.conditions, readings) for rule in rules)
+    def distilled(
+        self,
+        rules: Sequence[Covering],
+        examples: Sequence[tuple[Mapping[str, Value], bool]] = (),
+        least: int = 2,
+    ) -> tuple[Covering, ...]:
+        """The rules restated as principles, with what specializes each one under it.
+
+        Rules learned one at a time each carry the whole of what they need, so what the game is doing is spread
+        across them and never said: that a piece must be the player's own appears in every rule and is a rule of
+        none, and that a rook, a bishop and a queen all need an unobstructed way is stated three times as three
+        unrelated facts. The conditions a family of rules shares are that family's principle, and what is left of
+        each rule is how the principle is specialized. Distilled again under the principle, a family of families
+        gives the levels a game is actually written in.
+
+        A principle is only drawn where `least` rules share it — a core of one rule is that rule under another
+        name. Where a rule holds nothing but the principle, the principle covers everything the family does on its
+        own, and nothing is left to specialize.
+
+        `examples` are what the principles are counted against, since what each one covers is no longer what the
+        rules it was drawn from covered."""
+        found = self._distilled(rules, least)
+        return tuple(self._recounted(rule, examples) for rule in found) if examples else found
+
+    def _distilled(self, rules: Sequence[Covering], least: int) -> tuple[Covering, ...]:
+        left = list(rules)
+        found: list[Covering] = []
+        while left:
+            shared: dict[Condition, int] = {}
+            for rule in left:
+                for condition in dict.fromkeys(rule.conditions):
+                    shared[condition] = shared.get(condition, 0) + 1
+            common = max(shared.values(), default=0)
+            if common < least or common < 2:
+                found.extend(left)
+                break
+            seed = next(condition for condition, times in shared.items() if times == common)
+            family = [rule for rule in left if seed in rule.conditions]
+            core = tuple(
+                condition for condition in family[0].conditions if all(condition in rule.conditions for rule in family)
+            )
+            rest = [tuple(one for one in rule.conditions if one not in core) for rule in family]
+            excluding = tuple(one for rule in family for one in rule.excluding)
+            if any(not one for one in rest):
+                found.append(Covering(core, 0, 0, excluding))
+            else:
+                under = self._distilled(
+                    [
+                        Covering(one, rule.covers, rule.wrongly, rule.excluding, rule.under)
+                        for one, rule in zip(rest, family, strict=True)
+                    ],
+                    least,
+                )
+                found.append(Covering(core, 0, 0, (), under))
+            left = [rule for rule in left if seed not in rule.conditions]
+        return tuple(found)
+
+    def _recounted(
+        self,
+        rule: Covering,
+        examples: Sequence[tuple[Mapping[str, Value], bool]],
+        inherited: tuple[Condition, ...] = (),
+    ) -> Covering:
+        """The rule with what it covers counted again, itself and everything under it.
+
+        A specialization is counted with the conditions it inherits, since those are the only actions it is ever
+        asked about: counted on its own it answers for actions its principle already turned away, and says it is
+        wrong about thousands of them."""
+        whole = (*inherited, *rule.conditions)
+        stated = replace(rule, under=tuple(self._recounted(one, examples, whole) for one in rule.under))
+        counting = replace(stated, conditions=whole)
+        covers = sum(1 for readings, legal in examples if legal and self._covered(counting, readings, None))
+        wrongly = sum(1 for readings, legal in examples if not legal and self._covered(counting, readings, None))
+        return replace(stated, covers=covers, wrongly=wrongly)
+
+    def excluding(
+        self,
+        rules: Sequence[Covering],
+        examples: Sequence[tuple[Mapping[str, Value], bool]],
+        within: Sequence[object] = (),
+        positions: int = 2,
+        grow: float = 0.67,
+    ) -> tuple[Covering, ...]:
+        """The rules again, each carrying what excludes the illegal actions it covers.
+
+        A rule that lists how a piece moves lists moves the game refuses anyway, and what refuses them is a rule in
+        its own right — the way is blocked, the king is left attacked. It is learned from the actions that rule
+        covers and from no others: a rule's exclusions answer for the actions it is responsible for, so the reasons
+        offered are the reasons that apply, and there are few enough of them to have something in common. Learning
+        what forbids across the whole set instead puts a pawn's exceptions and a rook's in one pile, where what
+        separates them is a coincidence.
+
+        They are learned to the end, never loosely. A rule that lists too much is answered by an exclusion, but an
+        exclusion that rejects too much loses a legal action and nothing gives it back.
+
+        Where a rule is a principle, what forbids is learned at the principle first, against everything it covers,
+        and only what is still wrongly covered goes to the specializations under it. A prohibition of the game holds
+        of every piece it applies to, so it belongs where it can be seen — learned once at the level that covers
+        them all, on all the evidence there is for it, rather than found again under each piece from a few actions
+        each and stated as several unrelated exceptions.
+
+        `examples` are read with what each action leads to, since that is what an exclusion speaks of."""
+        mine = list(zip(examples, within or [None] * len(examples), strict=True))
+        return tuple(self._excluding(rule, mine, bool(within), positions, grow) for rule in rules)
+
+    def _excluding(
+        self,
+        rule: Covering,
+        examples: Sequence[tuple[tuple[Mapping[str, Value], bool], object]],
+        placed: bool,
+        positions: int,
+        grow: float,
+        allowing: bool = True,
+    ) -> Covering:
+        """The rule with what answers its mistakes hung under it, and what answers those in turn.
+
+        `allowing` says what this rule does to the actions it covers. A rule that allows is mistaken about the
+        illegal ones it covers, and what answers that is a rule that rejects them. A rule that rejects is mistaken
+        about the legal ones it covers, and what answers that is a rule that allows them again — an exception to
+        the prohibition, which is how a game says en passant. So the same learning runs at every level with the
+        sides swapped, and it keeps going while each level still has something to answer for and can find fewer
+        actions to say it about than the level above."""
+        covered = [one for one in examples if self._matches(rule.conditions, one[0][0])]
+        mistaken = [(readings, legal != allowing) for (readings, legal), _ in covered]
+        found: tuple[Covering, ...] = ()
+        if any(wrong for _, wrong in mistaken):
+            found = self.learn(
+                mistaken,
+                within=[where for _, where in covered] if placed else (),
+                positions=positions,
+                grow=grow,
+            )
+            logger.info(
+                "A rule %s %d actions is wrong about %d of them, answered by %d rules",
+                "allowing" if allowing else "rejecting",
+                len(covered),
+                sum(1 for _, wrong in mistaken if wrong),
+                len(found),
+            )
+        wrong = sum(1 for _, one in mistaken if one)
+        answering = tuple(self._answering(one, covered, placed, positions, grow, allowing, wrong) for one in found)
+        left = [one for one in covered if not any(self._covered(each, one[0][0], None) for each in answering)]
+        under = tuple(self._excluding(one, left, placed, positions, grow, allowing) for one in rule.under)
+        return replace(rule, excluding=answering, under=under)
+
+    def _answering(
+        self,
+        rule: Covering,
+        examples: Sequence[tuple[tuple[Mapping[str, Value], bool], object]],
+        placed: bool,
+        positions: int,
+        grow: float,
+        allowing: bool,
+        above: int,
+    ) -> Covering:
+        """That rule taken further, where taking it further is progress.
+
+        A level is answered only where it is wrong about fewer actions than the level above it was. What is left to
+        answer for then strictly falls and cannot fall below nothing, so the alternation always ends — where asking
+        it to go on until it is right could never end on evidence the readings are unable to separate. A level that
+        is wrong about as much as its parent has said nothing new, and saying it again in another form will not
+        help."""
+        wrong = sum(
+            1 for (readings, legal), _ in examples if self._matches(rule.conditions, readings) and legal == allowing
+        )
+        if not wrong or wrong >= above:
+            return rule
+        return self._excluding(rule, examples, placed, positions, grow, not allowing)
+
+    def challenging(self, rules: Sequence[Covering]) -> tuple[tuple[Covering, Condition], ...]:
+        """Every rule paired with each of its own conditions: what to look for an exception to.
+
+        A condition is only worth what the actions it turns away are worth. One that turns away nothing the game
+        allows is a reason; one that turns away something is a rule stated too narrowly, and the action it turned
+        away is the edge case that says so. What the pairs ask for is an action meeting every other condition of
+        the rule and failing this one — so the rule that comes back carries the conditions it inherits from the
+        principles above it, since a specialization is only ever asked about actions those already cover.
+
+        Conditions inherited from a principle are challenged at the principle, where everything they apply to can
+        be seen, and exclusions are not challenged here: they answer for what a rule wrongly covers, and what
+        refutes one is that the game allowed the action after all, which is the same question asked of the rule
+        above it."""
+        return self._challenging(rules, ())
+
+    def _challenging(
+        self, rules: Sequence[Covering], inherited: tuple[Condition, ...]
+    ) -> tuple[tuple[Covering, Condition], ...]:
+        asking: list[tuple[Covering, Condition]] = []
+        for rule in rules:
+            whole = replace(rule, conditions=(*inherited, *rule.conditions))
+            asking.extend((whole, condition) for condition in rule.conditions)
+            asking.extend(self._challenging(rule.under, whole.conditions))
+        return tuple(asking)
+
+    def challenged(
+        self, rules: Sequence[Covering], examples: Sequence[tuple[Mapping[str, Value], bool]]
+    ) -> dict[tuple[Condition, bool], int]:
+        """What each condition of each rule costs, counted over the actions it was asked about.
+
+        Against a condition, `(condition, False)`: the legal actions that meet every other condition of its rule
+        and fail this one. Each is a way of being legal the rule cannot state, and where there are any, the
+        condition is wrong as it stands — it is either to be dropped, or to be split into the cases it was standing
+        in for.
+
+        For it, `(condition, True)`: the illegal actions its rule covers with that condition held. Those are what
+        the condition failed to turn away, and they say the rule is loose somewhere else."""
+        counted: dict[tuple[Condition, bool], int] = {}
+        for rule, condition in self.challenging(rules):
+            others = tuple(one for one in rule.conditions if one != condition)
+            for readings, legal in examples:
+                if legal and not self._holds(readings, condition) and self._matches(others, readings):
+                    counted[(condition, False)] = counted.get((condition, False), 0) + 1
+                elif not legal and self._matches(rule.conditions, readings):
+                    counted[(condition, True)] = counted.get((condition, True), 0) + 1
+        return dict(sorted(counted.items(), key=lambda pair: -pair[1]))
+
+    def uncovered(
+        self, rules: Sequence[Covering], examples: Sequence[tuple[Mapping[str, Value], bool]], by: str
+    ) -> dict[Value, int]:
+        """The legal actions no rule covers, counted by what that reading says of them.
+
+        What a learner has not managed to account for says where to look next: where the actions it cannot cover are
+        mostly of one kind, what is missing is evidence of that kind, and the way to get it is to build positions
+        that have it. A learner that only ever sees what a game happens to offer learns what the game happens to
+        offer."""
+        missing: dict[Value, int] = {}
+        for readings, legal in examples:
+            if legal and not self.covers(rules, readings):
+                held = readings.get(by)
+                missing[held] = missing.get(held, 0) + 1
+        return dict(sorted(missing.items(), key=lambda pair: -pair[1]))
+
+    def covers(
+        self,
+        rules: Sequence[Covering],
+        readings: Mapping[str, Value],
+        after: Callable[[], Mapping[str, Value] | None] | None = None,
+    ) -> bool:
+        """Whether any rule covers that action and none of that rule's own exclusions rejects it, which is what
+        makes it legal.
+
+        `after` gives what the action leads to, read as readings, and is asked for only once a rule has covered the
+        action and that rule has something to exclude. An outcome is what a prediction costs, and a candidate no
+        rule covers needs none. Where it cannot be told what the action leads to, the exclusions go unchecked and
+        the rule covers: what forbids the move is a claim about a position, and there is no position to look at."""
+        asked: list[Mapping[str, Value] | None] = []
+
+        def outcome() -> Mapping[str, Value] | None:
+            if after is None:
+                return readings
+            if not asked:
+                asked.append(after())
+            return asked[0]
+
+        return any(self._covered(rule, readings, outcome) for rule in rules)
+
+    def _covered(
+        self,
+        rule: Covering,
+        readings: Mapping[str, Value],
+        outcome: Callable[[], Mapping[str, Value] | None] | None,
+    ) -> bool:
+        """Whether that rule covers the action: its conditions hold, something under it covers the action where it
+        is a principle, and nothing it excludes rejects the action.
+
+        What it excludes is asked last on purpose. A principle covers a great many actions and what excludes it
+        speaks of the position the action leads to, so asking it first has a position predicted and read for very
+        nearly every candidate there is, most of which nothing under the principle covers anyway. Asked after, a
+        prediction is only ever paid for by an action the rules actually allow."""
+        if not self._matches(rule.conditions, readings):
+            return False
+        if rule.under and not any(self._covered(one, readings, outcome) for one in rule.under):
+            return False
+        if rule.excluding:
+            after = readings if outcome is None else outcome()
+            if after is not None and any(self._covered(one, after, outcome) for one in rule.excluding):
+                return False
+        return True
 
     def scored(
         self, rules: Sequence[Covering], examples: Sequence[tuple[Mapping[str, Value], bool]]
@@ -109,11 +454,20 @@ class CoveringLearner:
                 missed += 1
         return found, missed, wrong
 
+    def _wrongly(self, conditions: Sequence[Condition], masks: ConditionMasks, within: int) -> int:
+        """How many of those actions the rule covers."""
+        for condition in conditions:
+            within &= masks.holding(condition)
+            if not within:
+                break
+        return within.bit_count()
+
     def _pruned(
         self,
         conditions: Sequence[Condition],
         left: Sequence[Mapping[str, Value]],
-        illegal: Sequence[Mapping[str, Value]],
+        masks: ConditionMasks,
+        loosely: float = 0.0,
     ) -> tuple[Condition, ...]:
         """The rule with everything dropped that wasn't earning its place.
 
@@ -126,12 +480,12 @@ class CoveringLearner:
         candidates, loosening a rule by anything lets something through. What tells an accident from a reason is
         whether the rule is worth more without it, not whether it is perfect without it."""
         kept = list(conditions)
-        worth = self._worth(kept, left, illegal)
+        worth = self._worth(kept, left, masks)
         for condition in reversed(list(conditions)):
             without = [held for held in kept if held != condition]
             if not without:
                 continue
-            held = self._worth(without, left, illegal)
+            held = self._worth(without, left, masks)
             if held >= worth:
                 kept, worth = without, held
         return tuple(kept)
@@ -140,40 +494,71 @@ class CoveringLearner:
         self,
         conditions: Sequence[Condition],
         left: Sequence[Mapping[str, Value]],
-        illegal: Sequence[Mapping[str, Value]],
+        masks: ConditionMasks,
     ) -> float:
         """What a rule is worth: how much of what it covers is legal against how much isn't, from -1 where it covers
         only what the game refuses to 1 where it covers only what the game allows."""
         covers = sum(1 for readings in left if self._matches(conditions, readings))
-        wrongly = sum(1 for readings in illegal if self._matches(conditions, readings))
+        wrongly = self._wrongly(conditions, masks, masks.everything)
         return (covers - wrongly) / (covers + wrongly) if covers or wrongly else -1.0
 
     def _covering(
-        self, left: Sequence[Mapping[str, Value]], illegal: Sequence[Mapping[str, Value]]
+        self,
+        left: Sequence[Mapping[str, Value]],
+        masks: ConditionMasks,
+        wrongly: int,
+        loosely: float = 0.0,
+        weights: Sequence[float] = (),
+        seed: Mapping[str, Value] | None = None,
     ) -> tuple[Condition, ...]:
-        """One rule: conditions added until no illegal action is covered, each chosen for how much of what it still
-        wrongly covers it rules out while giving up as few legal actions as it can."""
+        """One rule: conditions added until it covers little enough of what the game refuses, each chosen for how
+        much of what it still wrongly covers it rules out while giving up as few legal actions as it can.
+
+        `weights` is how much each legal action is still worth covering — one already covered is worth less, so the
+        rule is drawn towards what nothing accounts for yet without being forbidden what is already accounted for.
+        Weighing them all the same is sequential covering, which is what the residue gave.
+
+        `seed` is one action the rule must cover, and only conditions that hold of it are offered. Weighing alone
+        does not get a rule to an action nothing accounts for: a family of three already covered still outweighs a
+        single one that is not, so the search returns the rule it already has and the odd action is never reached.
+        Growing from an action outwards settles it — the rule is guaranteed to cover its seed, so there is always
+        progress, and it is scored against every legal action rather than the residue, so it grows as wide as the
+        evidence allows. An action left over stops forcing a rule of its own and becomes one more case of a rule
+        that already accounts for others.
+
+        It is asked for only once growing without it has covered nothing new. Seeding every rule spends the rules
+        there are on whichever family the leftover action belongs to, in the order the actions happen to come in,
+        and the large families that no rule has reached yet are never asked about at all."""
         conditions: tuple[Condition, ...] = ()
-        covering, wrongly = list(left), list(illegal)
-        while wrongly:
-            best, worth = None, 0.0
-            for condition in self._questions(covering):
+        weighed = list(zip(left, weights or [1.0] * len(left), strict=True))
+        worth_covering = sum(weight for _, weight in weighed)
+        standing = wrongly.bit_count()
+        while standing and standing > loosely * max(worth_covering, 1.0):
+            best, worth, narrowed = None, 0.0, wrongly
+            for condition in self._questions([readings for readings, _ in weighed]):
                 if not self._worth_asking(condition):
                     continue
-                kept = sum(1 for readings in covering if self._holds(readings, condition))
+                if seed is not None and not self._holds(seed, condition):
+                    continue
+                kept = sum(weight for readings, weight in weighed if self._holds(readings, condition))
                 if not kept:
                     continue
-                ruled_out = sum(1 for readings in wrongly if not self._holds(readings, condition))
+                holding = wrongly & masks.holding(condition)
+                ruled_out = standing - holding.bit_count()
                 if not ruled_out:
                     continue
-                held = ruled_out * kept / len(covering)
+                held = ruled_out * kept / worth_covering
                 if held > worth:
-                    best, worth = condition, held
+                    best, worth, narrowed = condition, held, holding
             if best is None:
                 break
             conditions = (*conditions, best)
-            covering = [readings for readings in covering if self._holds(readings, best)]
-            wrongly = [readings for readings in wrongly if self._holds(readings, best)]
+            weighed = [(readings, weight) for readings, weight in weighed if self._holds(readings, best)]
+            wrongly = narrowed
+            standing = wrongly.bit_count()
+            worth_covering = sum(weight for _, weight in weighed)
+            if not worth_covering:
+                break
         return conditions
 
     def _support(
@@ -199,25 +584,6 @@ class CoveringLearner:
 
         return supported
 
-    def _position_constant(
-        self, examples: Sequence[tuple[Mapping[str, Value], bool]], within: Sequence[object]
-    ) -> frozenset[str]:
-        """The readings that never change within a position: what can name a position rather than describe an
-        action."""
-        if len(within) != len(examples):
-            return frozenset()
-        seen: dict[object, dict[str, set[Value]]] = {}
-        for (readings, _), where in zip(examples, within, strict=True):
-            held = seen.setdefault(where, {})
-            for reading, value in readings.items():
-                held.setdefault(reading, set()).add(value)
-        names = set(examples[0][0]) if examples else set()
-        return frozenset(
-            reading
-            for reading in names
-            if all(len(held.get(reading, ())) <= 1 for held in seen.values()) and len(seen) > 1
-        )
-
     def _questions(self, covering: Sequence[Mapping[str, Value]]) -> list[Condition]:
         """What can be asked of the actions this rule still covers: what each reading is, where each number stands,
         and which readings are the same as one another or never are."""
@@ -226,8 +592,6 @@ class CoveringLearner:
         names = sorted(covering[0])
         questions: list[Condition] = []
         for reading in names:
-            if reading in getattr(self, "_identifying", frozenset()):
-                continue
             values = {readings.get(reading) for readings in covering}
             questions.extend((reading, "==", value) for value in sorted(values, key=repr))
             numbers = sorted(
