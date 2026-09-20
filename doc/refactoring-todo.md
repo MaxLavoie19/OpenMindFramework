@@ -45,7 +45,7 @@ approved, then its code is approved.
       (`doc/interfaces/heuristic-model.md`)
 - [x] heuristic + model — code approved: models are records measured as they run; a heuristic reads a node whose
       features are extracted once and shared
-- [ ] policy + optimizer + utility (a policy is tuned to a subset of the actions; the default policy; the CSP gives
+- [x] policy + optimizer + utility (a policy is tuned to a subset of the actions; the default policy; the CSP gives
       valid values; optimizers from cheap to costly: a random picker, listing candidates, proposing solutions as for
       NLP or coding agents; a policy value heuristic; a policy takes its move's utility; a move's utility is the
       expectation over outcomes, binned when continuous, by a binning model; several goals weighed together; soft goals
@@ -55,11 +55,13 @@ approved, then its code is approved.
 - [x] search + agent models + hypotheses (planning is a task and searches are its models; a strategy is a move
       distribution per state; an agent model is the heuristics trained for that agent; hypotheses are a distribution,
       over policies where the possibilities can't be counted) — interfaces approved (`doc/interfaces/search.md`)
-- [ ] search + agent models + hypotheses — code approved; MCTS and SDMCTS as later models of the planning task
+- [x] search + agent models + hypotheses — code approved; MCTS and SDMCTS still to come as models of the planning
+      task
 - [x] budget + agent loop (perceive, plan, act under one budget; the time management policy choosing the set of models
       and how much to explore; a thread dispatching what a strategy calls for while the planner strategizes) —
       interfaces approved (`doc/interfaces/budget-agent.md`)
-- [ ] budget + agent loop — code approved; `openmind-play tictactoe --agent X` plays
+- [x] budget + agent loop — code approved; `openmind-play tictactoe --agent X` plays, the terminal being the
+      integrator
 - [ ] the context hierarchy: one loop per level, a parent delegating to a child with its goal and budget, each level
       seeing an abstraction of the state and fetching specifics on demand, its own planning model per level —
       interfaces approved
