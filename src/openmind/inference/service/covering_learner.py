@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from openmind.inference.service.rule_deducer import Condition
@@ -43,6 +43,8 @@ class CoveringLearner:
         most: int = 20,
         least: int = 1,
         grow: float = 0.67,
+        within: Sequence[object] = (),
+        positions: int = 2,
     ) -> tuple[Covering, ...]:
         """The ways of being legal it found: at most `most` of them, each covering at least `least` legal actions.
 
@@ -53,7 +55,20 @@ class CoveringLearner:
         `grow` is the share of the evidence a rule is grown from; the rest is what it is pruned against. Growing and
         pruning on the same actions leaves a rule holding whatever happened to separate them — the clock at forty,
         the game's own history — because dropping it would, on those very actions, let something illegal through.
-        Only actions the rule was not grown on can tell an accident from a reason."""
+        Only actions the rule was not grown on can tell an accident from a reason.
+
+        `within` says which position each action was read in. A reading that never changes within a position — the
+        clock, the castling rights, the positions seen so far — can be compared to another reading and mean
+        something, but compared to a value of its own it can only ever name the position it was read in. Such a
+        comparison explains every action there and nothing anywhere else, so it is not offered.
+
+        `positions` is how many positions a condition must hold in to be part of a rule. No rule of a game is true
+        in one position only, so a condition supported by one is an accident however well it separates what it was
+        found in — the square a pawn just passed, the clock reading forty. This is what the filter above was reaching
+        for and missed: what matters is not whether a reading is fixed within a position, but whether a condition has
+        support across them."""
+        self._identifying = self._position_constant(examples, within)
+        self._supported = self._support(examples, within, positions)
         growing = examples[: int(len(examples) * grow)] or list(examples)
         pruning = examples[int(len(examples) * grow) :] or list(examples)
         illegal = [readings for readings, legal in growing if not legal]
@@ -100,21 +115,38 @@ class CoveringLearner:
         left: Sequence[Mapping[str, Value]],
         illegal: Sequence[Mapping[str, Value]],
     ) -> tuple[Condition, ...]:
-        """The rule with everything dropped that wasn't doing anything.
+        """The rule with everything dropped that wasn't earning its place.
 
         A rule is grown by adding whatever separates, and what separates is as often an accident as a reason: the
-        clock reading forty, the castling rights being gone, the position's own history. Each condition is taken out
-        in turn and put back only where taking it out let an illegal action through. What is left is what the rule
-        was really saying, and it is what carries to a position nothing here has seen."""
+        clock reading forty, the castling rights being gone, the position's own history. Conditions are dropped from
+        the end while dropping one leaves the rule no worse — worth being how much of what it covers is legal
+        against how much isn't, counted on actions it wasn't grown from.
+
+        Insisting that dropping a condition let nothing illegal through drops nothing at all: against forty thousand
+        candidates, loosening a rule by anything lets something through. What tells an accident from a reason is
+        whether the rule is worth more without it, not whether it is perfect without it."""
         kept = list(conditions)
-        for condition in reversed(list(kept)):
+        worth = self._worth(kept, left, illegal)
+        for condition in reversed(list(conditions)):
             without = [held for held in kept if held != condition]
-            if any(self._matches(without, readings) for readings in illegal):
+            if not without:
                 continue
-            if not any(self._matches(without, readings) for readings in left):
-                continue
-            kept = without
+            held = self._worth(without, left, illegal)
+            if held >= worth:
+                kept, worth = without, held
         return tuple(kept)
+
+    def _worth(
+        self,
+        conditions: Sequence[Condition],
+        left: Sequence[Mapping[str, Value]],
+        illegal: Sequence[Mapping[str, Value]],
+    ) -> float:
+        """What a rule is worth: how much of what it covers is legal against how much isn't, from -1 where it covers
+        only what the game refuses to 1 where it covers only what the game allows."""
+        covers = sum(1 for readings in left if self._matches(conditions, readings))
+        wrongly = sum(1 for readings in illegal if self._matches(conditions, readings))
+        return (covers - wrongly) / (covers + wrongly) if covers or wrongly else -1.0
 
     def _covering(
         self, left: Sequence[Mapping[str, Value]], illegal: Sequence[Mapping[str, Value]]
@@ -126,6 +158,8 @@ class CoveringLearner:
         while wrongly:
             best, worth = None, 0.0
             for condition in self._questions(covering):
+                if not self._worth_asking(condition):
+                    continue
                 kept = sum(1 for readings in covering if self._holds(readings, condition))
                 if not kept:
                     continue
@@ -142,6 +176,48 @@ class CoveringLearner:
             wrongly = [readings for readings in wrongly if self._holds(readings, best)]
         return conditions
 
+    def _support(
+        self,
+        examples: Sequence[tuple[Mapping[str, Value], bool]],
+        within: Sequence[object],
+        least: int,
+    ) -> Callable[[Condition], bool] | None:
+        """A test for whether a condition holds of legal actions in enough positions to be a rule rather than an
+        accident. None where nothing says which position an action was read in."""
+        if len(within) != len(examples) or least < 2:
+            return None
+        legal = [(readings, where) for (readings, allowed), where in zip(examples, within, strict=True) if allowed]
+
+        def supported(condition: Condition) -> bool:
+            seen: set[object] = set()
+            for readings, where in legal:
+                if where not in seen and self._holds(readings, condition):
+                    seen.add(where)
+                    if len(seen) >= least:
+                        return True
+            return False
+
+        return supported
+
+    def _position_constant(
+        self, examples: Sequence[tuple[Mapping[str, Value], bool]], within: Sequence[object]
+    ) -> frozenset[str]:
+        """The readings that never change within a position: what can name a position rather than describe an
+        action."""
+        if len(within) != len(examples):
+            return frozenset()
+        seen: dict[object, dict[str, set[Value]]] = {}
+        for (readings, _), where in zip(examples, within, strict=True):
+            held = seen.setdefault(where, {})
+            for reading, value in readings.items():
+                held.setdefault(reading, set()).add(value)
+        names = set(examples[0][0]) if examples else set()
+        return frozenset(
+            reading
+            for reading in names
+            if all(len(held.get(reading, ())) <= 1 for held in seen.values()) and len(seen) > 1
+        )
+
     def _questions(self, covering: Sequence[Mapping[str, Value]]) -> list[Condition]:
         """What can be asked of the actions this rule still covers: what each reading is, where each number stands,
         and which readings are the same as one another or never are."""
@@ -150,6 +226,8 @@ class CoveringLearner:
         names = sorted(covering[0])
         questions: list[Condition] = []
         for reading in names:
+            if reading in getattr(self, "_identifying", frozenset()):
+                continue
             values = {readings.get(reading) for readings in covering}
             questions.extend((reading, "==", value) for value in sorted(values, key=repr))
             numbers = sorted(
@@ -169,6 +247,11 @@ class CoveringLearner:
                 elif not any(same):
                     questions.append((first, "!= reading", second))
         return questions
+
+    def _worth_asking(self, condition: Condition) -> bool:
+        """Whether a condition has enough behind it to be part of a rule."""
+        supported = getattr(self, "_supported", None)
+        return supported is None or supported(condition)
 
     def _matches(self, conditions: Sequence[Condition], readings: Mapping[str, Value]) -> bool:
         return all(self._holds(readings, condition) for condition in conditions)

@@ -6,11 +6,18 @@ from openmind.structure.model.scalar import Scalar
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
+from openmind.inference.model.reaching import Reaching
 
 logger = logging.getLogger(__name__)
 
 #: How a reading of one parameter is named: what a model holds where that parameter points.
 AT = "{model} at {parameter}"
+
+#: How a reading of the position the action leads to is named.
+AFTER = "after it, {reading}"
+
+#: What a player can reach in the position the action leads to, where something of a kind stands.
+REACHED = "after it, {player} can reach {model} {value!r}"
 
 #: How a reading of two parameters is named: how the second stands to the first.
 ROWS = "rows from {first} to {second}"
@@ -36,8 +43,15 @@ class ActionReadings:
     The position's own scalars are read alongside, since what makes an action legal is often how it stands to one of
     them — whose turn it is, what phase the game is in."""
 
-    def of(self, state: State, action: Action) -> dict[str, Value]:
-        """Every reading of that action in that position, by name."""
+    def of(
+        self, state: State, action: Action, outcome: State | None = None, reach: Reaching | None = None
+    ) -> dict[str, Value]:
+        """Every reading of that action in that position, by name.
+
+        Given the position the action leads to, what that position holds is read as well — and, given something that
+        says what a player can reach there, what each player could do next. A rule that forbids an action for what
+        it leads to, rather than for what it is, cannot be said any other way: leaving a king where it can be taken
+        is not a property of the move."""
         parameters = dict(action.parameters)
         grids = self._grids(state)
         readings_of_state = {name: model.value for name, model in state.models if isinstance(model, Scalar)}
@@ -52,6 +66,25 @@ class ActionReadings:
                 readings[AT.format(model=model, parameter=name)] = grid.at(at) if grid.inside(at) else None
         for first, second in self._pairs(cells):
             readings.update(self._between(grids, first, second, cells[first], cells[second]))  # type: ignore[arg-type]
+        if outcome is not None:
+            readings.update(self._after(outcome, reach))
+        return readings
+
+    def _after(self, outcome: State, reach: "Reaching | None") -> dict[str, Value]:
+        """What the position the action leads to holds, and what each player can reach in it."""
+        readings: dict[str, Value] = {
+            AFTER.format(reading=name): model.value for name, model in outcome.models if isinstance(model, Scalar)
+        }
+        if reach is None:
+            return readings
+        grids = self._grids(outcome)
+        for player in reach.players(outcome):
+            reached = reach.cells(outcome, player)
+            for model, grid in grids.items():
+                for value in {grid.at(cell) for cell in grid.coordinates() if grid.at(cell) is not None}:
+                    readings[REACHED.format(player=player, model=model, value=value)] = any(
+                        grid.at(cell) == value for cell in reached
+                    )
         return readings
 
     def _pairs(self, cells: Mapping[str, tuple[int, ...] | None]) -> list[tuple[str, str]]:

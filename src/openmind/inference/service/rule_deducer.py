@@ -262,10 +262,25 @@ class RuleDeducer:
         return (action.name, tuple(sorted((name, value) for name, value in action.parameters)))
 
     def examples(
-        self, state: State, candidates: Sequence[Action], legal: Callable[[Action], bool]
+        self,
+        state: State,
+        candidates: Sequence[Action],
+        legal: Callable[[Action], bool],
+        leads_to: Callable[[Action], State | None] | None = None,
+        reach: object | None = None,
     ) -> tuple[tuple[dict[str, Value], bool], ...]:
-        """Every candidate read, with whether it was legal."""
-        return tuple((self._readings.of(state, candidate), legal(candidate)) for candidate in candidates)
+        """Every candidate read, with whether it was legal.
+
+        Given what an action leads to, the position it leads to is read as well: a rule can then be about what an
+        action brings about rather than about the action, which is the only way to say that a move leaving your own
+        king where it can be taken is no move at all."""
+        return tuple(
+            (
+                self._readings.of(state, candidate, leads_to(candidate) if leads_to else None, reach),  # type: ignore[arg-type]
+                legal(candidate),
+            )
+            for candidate in candidates
+        )
 
     def learn(
         self,
