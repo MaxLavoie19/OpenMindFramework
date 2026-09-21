@@ -23,7 +23,17 @@ def walking(source, target):
 
 
 def watched(before, action, after, acting="white"):
-    return (before, action, acting, Changer().between(before, after), {"piece at source": before.model("piece").at(dict(action.parameters)["source"])})
+    """What was seen: the position, the action, whose it was, what changed, and how the action reads.
+
+    The readings are what the conditions can be made of, so they must hold what actually tells one case from
+    another — here, what stands where the move lands."""
+    parameters = dict(action.parameters)
+    standing = before.model("color").at(parameters["target"])
+    readings = {
+        "piece at source": before.model("piece").at(parameters["source"]),
+        "color at target is another player": standing is not None and standing != acting,
+    }
+    return (before, action, acting, Changer().between(before, after), readings)
 
 
 def test_what_an_action_always_does_is_learned_without_conditions():
@@ -72,6 +82,11 @@ def test_what_happens_only_sometimes_is_learned_with_the_conditions_it_happens_u
 
     assert removals, [one.readable for one in found]
     assert all(one.when for one in removals), [one.readable for one in removals]
+    assert all(
+        ("color at target is another player", "==", True) in rule.conditions
+        for one in removals
+        for rule in one.when
+    ), [one.readable for one in removals]
 
 
 def _with(held):

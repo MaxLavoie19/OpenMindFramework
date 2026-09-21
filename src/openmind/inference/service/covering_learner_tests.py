@@ -323,3 +323,44 @@ def test_a_rule_reads_with_what_it_excludes():
     rule = Covering((("kind", "==", "rook"),), 2, 0, (Covering((("blocked", "==", True),), 1, 0),))
 
     assert rule.readable == "kind == 'rook', except where blocked == True"
+
+
+def test_a_condition_that_turns_away_legal_actions_is_dropped():
+    """The half of the diagonals the bishops happened to go along: it rules nothing out and turns much away."""
+    learner = CoveringLearner()
+    rules = (Covering((("kind", "==", "bishop"), ("columns from source to target", "<=", 0)), 2, 0),)
+    examples = [
+        ({"kind": "bishop", "columns from source to target": -1}, True),
+        ({"kind": "bishop", "columns from source to target": 1}, True),
+        ({"kind": "bishop", "columns from source to target": 2}, True),
+        ({"kind": "pawn", "columns from source to target": 1}, False),
+    ]
+
+    relaxed = learner.relaxed(rules, examples)
+
+    assert relaxed[0].conditions == (("kind", "==", "bishop"),)
+
+
+def test_a_condition_that_rules_out_what_the_game_refuses_is_kept():
+    learner = CoveringLearner()
+    rules = (Covering((("kind", "==", "bishop"),), 2, 0),)
+    examples = [
+        ({"kind": "bishop"}, True),
+        ({"kind": "pawn"}, False),
+    ]
+
+    assert learner.relaxed(rules, examples)[0].conditions == (("kind", "==", "bishop"),)
+
+
+def test_dropping_goes_on_while_it_can():
+    """Widening a rule exposes the next condition to actions it was never asked about."""
+    learner = CoveringLearner()
+    rules = (Covering((("kind", "==", "rook"), ("rows from source to target", ">=", 1), ("column of source", "==", 4)), 1, 0),)
+    examples = [
+        ({"kind": "rook", "rows from source to target": 1, "column of source": 4}, True),
+        ({"kind": "rook", "rows from source to target": -1, "column of source": 4}, True),
+        ({"kind": "rook", "rows from source to target": -1, "column of source": 7}, True),
+        ({"kind": "pawn", "rows from source to target": 1, "column of source": 4}, False),
+    ]
+
+    assert learner.relaxed(rules, examples)[0].conditions == (("kind", "==", "rook"),)

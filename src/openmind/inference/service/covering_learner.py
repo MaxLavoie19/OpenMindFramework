@@ -76,7 +76,9 @@ class CoveringLearner:
 
         A rule that cannot be made to let nothing illegal through is kept all the same, with what it lets through
         counted: the readings may not be able to say what the game is doing, and saying so is better than saying
-        nothing.
+        nothing. A rule with no conditions at all is another matter and is never kept: it says everything is
+        allowed, which makes every other rule beside it pointless, and as an exclusion it forbids everything. Where
+        nothing separates what is left, the honest answer is that nothing was learned about it.
 
         `grow` is the share of the evidence a rule is grown from; the rest is what it is pruned against. Growing and
         pruning on the same actions leaves a rule holding whatever happened to separate them — the clock at forty,
@@ -110,7 +112,14 @@ class CoveringLearner:
         1/(1 + how many cover it) — so what nothing covers still pulls hardest while a new rule may be grown right
         across the ones its predecessors have. Rules then overlap, which costs nothing to a set that is legal where
         any of them covers, and the rules that cover a family from several angles are the evidence a principle can
-        be distilled from."""
+        be distilled from.
+
+        Nothing here refutes the rules afterwards. Dropping a condition because it turns away actions the game
+        allows was tried and is either destructive or inert: at a draft's looseness a rule covering a knight's two
+        step shapes finds that asking for either turns the other away, drops both and comes out saying a knight may
+        move anywhere; held to letting nothing illegal through, it never drops anything at all. What a refutation
+        actually shows is that some legal actions want a rule of their own, which is a different thing to do with
+        it, and `relaxed` and `challenged` are left for whoever does it."""
         self._supported = self._support(examples, within, positions)
         growing = examples[: int(len(examples) * grow)] or list(examples)
         pruning = examples[int(len(examples) * grow) :] or list(examples)
@@ -147,12 +156,23 @@ class CoveringLearner:
             rule, matched = grown()
             if overlapping and not any(not covered_by[one] for one in matched):
                 rule, matched = grown(left[uncovered[0]])
+            if not rule:
+                logger.info("Nothing separates what is left from what the game refuses, so no rule is made of it")
+                break
             if sum(1 for one in matched if not covered_by[one]) < least:
                 break
             wrongly = self._wrongly(rule, masks, growing_wrongly)
             found.append(Covering(rule, len(matched), wrongly))
             for one in matched:
                 covered_by[one] += 1
+            logger.info(
+                "Learned rule %d covering %d actions, %d wrongly, %d of %d left uncovered",
+                len(found),
+                len(matched),
+                wrongly,
+                sum(1 for times in covered_by if not times),
+                len(left),
+            )
         logger.info(
             "Learned %d ways of being legal, covering %d of %d legal actions, %d left uncovered",
             len(found),
@@ -262,6 +282,11 @@ class CoveringLearner:
         of every piece it applies to, so it belongs where it can be seen — learned once at the level that covers
         them all, on all the evidence there is for it, rather than found again under each piece from a few actions
         each and stated as several unrelated exceptions.
+
+        Every reading is offered at once, readings of the move and of what it leads to alike. Learning what a
+        reading of the move can say first, and only then letting the rest be used, was tried and is worse: it finds
+        fewer legal actions and uses no reading of the outcome at all. The two kinds of mistake do not compete for
+        the learner's attention in the way that reasoning supposed.
 
         `examples` are read with what each action leads to, since that is what an exclusion speaks of."""
         mine = list(zip(examples, within or [None] * len(examples), strict=True))
@@ -377,6 +402,71 @@ class CoveringLearner:
                 elif not legal and self._matches(rule.conditions, readings):
                     counted[(condition, True)] = counted.get((condition, True), 0) + 1
         return dict(sorted(counted.items(), key=lambda pair: -pair[1]))
+
+    def relaxed(
+        self,
+        rules: Sequence[Covering],
+        examples: Sequence[tuple[Mapping[str, Value], bool]],
+        loosely: float = 0.0,
+    ) -> tuple[Covering, ...]:
+        """The rules with every condition dropped that turns away actions the game allows.
+
+        A condition earns its place by ruling something out. One that also rules *in* nothing — that turns away
+        legal actions meeting every other condition of its rule — is not a reason, it is the shape of the evidence
+        the rule happened to be grown from: the half of the diagonals the bishops in those positions went along,
+        the direction the rooks happened to move. Sequential covering puts such conditions in and nothing ever takes
+        them out, because on the actions the rule was grown from they were never contradicted.
+
+        A condition is dropped where doing so recovers legal actions and lets through no more than `loosely` of
+        what the rule covers. Dropping is repeated until nothing more can be: widening a rule exposes the next
+        condition to actions it was never asked about.
+
+        `loosely` is nothing to do with how loosely the rule was grown, and defaults to letting nothing illegal
+        through. Looseness belongs to growing — stop adding conditions before the rule is perfect — and a rule
+        refuted as loosely as it was grown destroys itself: one covering a knight's two step shapes finds that
+        asking for either turns the other away, drops both, and comes out saying a knight may move anywhere."""
+        legal = [readings for readings, one in examples if one]
+        masks = ConditionMasks([readings for readings, one in examples if not one])
+        found: list[Covering] = []
+        for number, rule in enumerate(rules):
+            kept, dropped = list(rule.conditions), 0
+            while True:
+                letting = self._droppable(kept, legal, masks, loosely)
+                if letting is None:
+                    break
+                kept.remove(letting)
+                dropped += 1
+                logger.info("Dropped %r: it turns away actions the game allows", letting)
+            logger.info(
+                "Refuted rule %d of %d, dropping %d of %d conditions",
+                number + 1,
+                len(rules),
+                dropped,
+                len(rule.conditions),
+            )
+            found.append(replace(rule, conditions=tuple(kept)))
+        return tuple(found)
+
+    def _droppable(
+        self,
+        conditions: Sequence[Condition],
+        legal: Sequence[Mapping[str, Value]],
+        masks: ConditionMasks,
+        loosely: float,
+    ) -> Condition | None:
+        """The condition worth dropping first: the one turning away the most the game allows."""
+        best, worth = None, 0
+        for condition in conditions:
+            others = tuple(one for one in conditions if one != condition)
+            covered = [readings for readings in legal if self._matches(others, readings)]
+            turned = sum(1 for readings in covered if not self._holds(readings, condition))
+            if turned <= worth:
+                continue
+            covers = len(covered)
+            wrongly = self._wrongly(others, masks, masks.everything)
+            if wrongly <= loosely * max(covers, 1):
+                best, worth = condition, turned
+        return best
 
     def uncovered(
         self, rules: Sequence[Covering], examples: Sequence[tuple[Mapping[str, Value], bool]], by: str
