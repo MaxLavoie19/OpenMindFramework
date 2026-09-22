@@ -385,9 +385,17 @@ class ClauseLearner:
         happened to go. Growing a clause puts such literals in and nothing ever takes them out, because on the
         cases it was grown from they were never contradicted.
 
-        Dropping goes on while it can, since a literal may only become droppable once another has gone."""
+        Dropping goes on while it can, since a literal may only become droppable once another has gone.
+
+        **What it needs is cases from more than one position.** A literal is only shown to be accidental where the
+        cases disagree about it, and within one position most of them cannot: everything read of the position as a
+        whole — whose turn it is, how many moves since a capture — is the same for every case in it, so a clause
+        that picked such a reading up is never contradicted there and the literal never looks droppable. Given
+        cases from several positions it does, which is the whole reason for asking this away from where a clause
+        was grown."""
         holding = [one for one in examples if one.holds]
-        against = [one for one in examples if not one.holds]
+        index = CaseIndex(tuple(one for one in examples if not one.holds))
+        allowed = loosely * max(len(index.cases), 1)
         found: list[Clause] = []
         for clause in clauses:
             dropping = True
@@ -397,8 +405,7 @@ class ClauseLearner:
                     without = Clause(tuple(one for one in clause.literals if one != literal.denied))
                     if not without.body:
                         continue
-                    wrongly = sum(1 for one in against if self.covers(without, one))
-                    if wrongly > loosely * max(len(against), 1):
+                    if self._slips(without, index, allowed):
                         continue
                     if sum(1 for one in holding if self.covers(without, one)) <= sum(
                         1 for one in holding if self.covers(clause, one)
