@@ -10,6 +10,10 @@ from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)
 
+#: How long a rule had to have stood for its breaking to count as meeting a rare rule of the game. The stand-in's
+#: own number, kept only until the stand-in goes.
+RARE_STANDING = 100
+
 #: What a condition reads as: a reading, how it is compared, and to what.
 type Condition = tuple[str, str, Value]
 
@@ -295,7 +299,7 @@ class RuleDeducer:
         deduced from a position where no bishop can move. So every position both refutes what it contradicts and
         proposes what it shows, and a rule proposed now is tested by everything that comes after."""
         kept, surprises = self.refuted(standing, examples, state)
-        self.surprises = (*getattr(self, "surprises", ()), *(one for one in surprises if one.rare))
+        self.surprises = (*getattr(self, "surprises", ()), *(one for one in surprises if one.stood_longer_than(RARE_STANDING)))
         known = {(rule.given, rule.condition) for rule in kept}
         found = [rule for rule in self.deduce(examples, given) if (rule.given, rule.condition) not in known]
         return tuple(sorted((*kept, *found), key=lambda one: (-one.excluded, one.readable)))
@@ -423,7 +427,7 @@ class RuleDeducer:
             if counted:
                 surprise = Surprise(rule.readable, rule.covered, state or State(()), None, tuple(sorted(counted[0].items())))
                 surprises.append(surprise)
-                if surprise.rare:
+                if surprise.stood_longer_than(RARE_STANDING):
                     logger.warning(
                         "Surprised: %s stood for %d actions and this position broke it", rule.readable, rule.covered
                     )

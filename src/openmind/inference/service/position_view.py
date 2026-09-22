@@ -62,6 +62,17 @@ class PositionView:
         except KeyError:
             raise AttributeError(f"The position has no model {name!r}") from None
 
+    def __getitem__(self, name: str) -> object:
+        """A model read by name rather than as an attribute, for a name that is not a Python identifier.
+
+        A game names its models to be read by people — "black may castle king side", "times this position has come
+        up" — and those names are readings, offered to whatever composes expressions. An expression is Python, so a
+        name with spaces in it cannot be an attribute there, and subscripting is how it is reached instead."""
+        try:
+            return getattr(self, name) if name.isidentifier() else (self._variables or self._namespace())[name]
+        except KeyError:
+            raise KeyError(f"The position has no model {name!r}") from None
+
     def _namespace(self) -> dict[str, object]:
         """The position's models as rules read them, worked out once; a view a move led to builds them from the position
         it came from."""

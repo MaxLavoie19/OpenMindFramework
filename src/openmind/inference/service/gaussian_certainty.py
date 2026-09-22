@@ -1,7 +1,7 @@
 import math
 from dataclasses import replace
 
-from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
+from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.model.evidence import Evidence
 from openmind.knowledge.service.knowledge_base import KnowledgeBase

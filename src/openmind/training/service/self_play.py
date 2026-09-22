@@ -1,5 +1,6 @@
 import logging
 import random
+import time
 from collections.abc import Mapping
 from dataclasses import replace
 
@@ -12,6 +13,7 @@ from openmind.budget.model.budget import Budget
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.search.model.guidance import Guidance
+from openmind.timing.mapper.duration_text_mapper import DurationTextMapper
 from openmind.training.model.played_game import PlayedGame
 from openmind.training.model.self_play_settings import SelfPlaySettings
 from openmind.world.model.joint_action import JointAction
@@ -53,9 +55,18 @@ class SelfPlay:
         memory = GameMemory(knowledge_base)
         played = []
         for number in range(settings.games):
+            started = time.monotonic()
             one = self.play_game(knowledge_base, game, guidance, replace(settings, seed=settings.seed + number))
             self._remembered(memory, game, one)
             played.append(one)
+            logger.info(
+                "Played game %d of %d: %d steps in %s, %s",
+                number + 1,
+                settings.games,
+                one.steps,
+                DurationTextMapper().to_text(time.monotonic() - started),
+                "decisive" if one.decisive else "drawn or cut short",
+            )
         played = tuple(played)
         decisive = sum(1 for one in played if one.decisive)
         logger.info(

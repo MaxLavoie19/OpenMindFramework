@@ -1,10 +1,10 @@
 import logging
 from collections.abc import Mapping
 
-from openmind.epistemology.model.conflict import Conflict
-from openmind.epistemology.service.certainty_assessor import CertaintyAssessor
-from openmind.epistemology.service.coherence_checker import CoherenceChecker
-from openmind.epistemology.service.justifier import Justifier
+from openmind.inference.model.conflict import Conflict
+from openmind.inference.service.certainty_assessor import CertaintyAssessor
+from openmind.inference.service.coherence_checker import CoherenceChecker
+from openmind.inference.service.justifier import Justifier
 from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.model.task import Task
 from openmind.knowledge.service.knowledge_base import KnowledgeBase

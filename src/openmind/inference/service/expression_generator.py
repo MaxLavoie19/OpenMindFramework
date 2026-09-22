@@ -369,11 +369,21 @@ class ExpressionGenerator:
         """How an expression reads a variable: absolutely, and with each index that is a player's name as `me` or
         `other`. A cell of a grid of one dimension is read with its coordinates as a tuple: `{view}.cell[3,]`."""
         base, index = variable
+        named = self._named(base)
         if not index:
-            return (f"{VIEW}.{base}",)
+            return (named,)
         options = [(repr(part), *((ME, OTHER) if part in vocabulary.players else ())) for part in index]
         trailing = "," if base in vocabulary.grids and len(index) == 1 else ""
-        return tuple(f"{VIEW}.{base}[{', '.join(choice)}{trailing}]" for choice in itertools.product(*options))
+        return tuple(f"{named}[{', '.join(choice)}{trailing}]" for choice in itertools.product(*options))
+
+    def _named(self, base: str) -> str:
+        """How an expression names that model: as an attribute where the name is one Python allows, and subscripted
+        where it is not.
+
+        A game is free to name what it holds so that a person can read it — "black may castle king side" — and those
+        names are offered as readings. An expression is Python source, so a name with a space in it has to be reached
+        by subscript or the whole expression fails to compile."""
+        return f"{VIEW}.{base}" if base.isidentifier() else f"{VIEW}[{base!r}]"
 
     def _rendered(self, value: Value, vocabulary: Vocabulary) -> tuple[str, ...]:
         return (ME, OTHER) if value in vocabulary.players else (repr(value),)

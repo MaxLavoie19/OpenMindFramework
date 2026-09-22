@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
+from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.inference.constant.inference_constant import SINGLE_TARGET
 from openmind.knowledge.constant.knowledge_constant import INFERENCE
 from openmind.knowledge.constant.task_constant import POSITION_VALUE

@@ -2,8 +2,8 @@ import logging
 from collections.abc import Sequence
 from dataclasses import replace
 
-from openmind.epistemology.model.certainty_model import CertaintyModel
-from openmind.epistemology.model.justification import Justification
+from openmind.inference.model.certainty_model import CertaintyModel
+from openmind.inference.model.justification import Justification
 from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 

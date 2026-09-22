@@ -85,6 +85,12 @@ approved, then its code is approved.
 - [ ] dashboard to visualize and debug (tasks, time management choices, tactics and SDMCTS tree, beliefs and sources,
       models, games) — interfaces approved
 - [ ] dashboard — code approved
+- [ ] the inference engine: first-order logic replacing the stand-in (clauses with variables, resolution for
+      proving and for chaining rules into rules, rules learned from examples by refinement, probabilities computed
+      over every proof of a conclusion, Z3 as the backend for arithmetic and mathematical induction); `Justifier`,
+      `CoherenceChecker`, `AccuracyScorer` and the certainty models move in from `epistemology`, which keeps the
+      doctrine and builds on the engine — interfaces approved (`doc/interfaces/inference-engine.md`)
+- [ ] the inference engine — code approved
 - [ ] inference bootstrap (relaxed problems, guiding principles into heuristics; a trainable bootstrapper learning
       which bootstrapping pays off) — interfaces approved
 - [ ] inference bootstrap — code approved

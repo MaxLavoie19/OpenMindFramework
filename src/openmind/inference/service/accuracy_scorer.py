@@ -1,7 +1,7 @@
 import logging
 import math
 
-from openmind.epistemology.constant.epistemology_constant import ACCURACY, RIGHT, SCORED, SPREAD, SQUARED_ERROR
+from openmind.inference.constant.certainty_constant import ACCURACY, RIGHT, SCORED, SPREAD, SQUARED_ERROR
 from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.structure.model.value import Value

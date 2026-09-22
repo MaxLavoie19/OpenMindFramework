@@ -2,10 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from openmind.epistemology.constant.epistemology_constant import AGAINST_AN_ANCHOR, VALUES_DISAGREE
+from openmind.inference.constant.certainty_constant import AGAINST_AN_ANCHOR, VALUES_DISAGREE
 from openmind.epistemology.factory.epistemology_factory import create_epistemology
-from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
-from openmind.epistemology.service.justifier import Justifier
+from openmind.epistemology.service.foundherentism import Foundherentism
+from openmind.inference.service.accuracy_scorer import AccuracyScorer
+from openmind.inference.service.justifier import Justifier
 from openmind.knowledge.constant.knowledge_constant import DECLARATION
 from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
@@ -41,7 +42,7 @@ def test_support_traced_back_reaches_direct_experiences_and_frozen_rules_through
     counting = knowledge.ensure_mechanism("counting").id
     bluff = Belief("black is bluffing", cheat, True, evidence=(Evidence(True, 0.7, Source(counting, rests_on=(kings.id, rule.id))),))
 
-    justification = Justifier().justify(knowledge, knowledge.believe(bluff))
+    justification = Justifier(Foundherentism()).justify(knowledge, knowledge.believe(bluff))
 
     assert set(justification.anchors) == {claim, rule.id} and justification.justified == (0,)
 
@@ -53,7 +54,7 @@ def test_a_circle_of_beliefs_resting_on_each_other_reaches_no_anchor(tmp_path: P
     second = knowledge.believe(Belief("b", cheat, True, evidence=(Evidence(True, 0.9, Source(guessing, rests_on=(first.id,))),)))
     first = knowledge.believe(Belief("a", cheat, True, evidence=(Evidence(True, 0.9, Source(guessing, rests_on=(second.id,))),)))
 
-    justification = Justifier().justify(knowledge, first)
+    justification = Justifier(Foundherentism()).justify(knowledge, first)
 
     assert (justification.anchors, justification.justified) == ((), ())
     assert first.id in justification.circular

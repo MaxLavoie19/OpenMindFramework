@@ -2,7 +2,7 @@ import logging
 from collections.abc import Collection
 from dataclasses import replace
 
-from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
+from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.knowledge.constant.knowledge_constant import DECLARATION
 from openmind.knowledge.constant.task_constant import SIMULATION
 from openmind.knowledge.constant.rule_kind_constant import (
@@ -13,6 +13,7 @@ from openmind.knowledge.constant.rule_kind_constant import (
     EFFECTS,
     ENDING,
     INITIAL,
+    LISTING,
     PICTURE,
     PLAYERS,
     RECORD,
@@ -170,6 +171,17 @@ class GameDeclarer:
         """What the players' actions, taken at once, lead to together, after each one's own effects."""
         name = "what the players' actions together lead to"
         return self.rule(name if number is None else f"{name}, {number}", EFFECTS, rule, probability=probability)
+
+    def listing(self, rule: Rule) -> RuleRecord:
+        """Every legal action of a player in a state, listed outright, for a game that can say so faster than its
+        constraints can be solved.
+
+        The constraints stay the truth of what is legal, and this must agree with them. Where it is declared, it is
+        what play and search use — a search asks for the legal actions at every node it opens, and solving for them
+        is the slowest thing OMF does. The constraints are still what checks one computed action, what a relaxation
+        takes a rule away from, and what rules are deduced from, so nothing that reasons about the game loses
+        anything by it. The rule reads the state and `player`, the player whose actions are wanted."""
+        return self.rule("the legal actions", LISTING, rule)
 
     def ending(self, rule: Rule) -> RuleRecord:
         """Whether the game is over, and why: a reason, or None while it goes on."""

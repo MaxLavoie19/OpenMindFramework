@@ -1,7 +1,7 @@
 import logging
 from dataclasses import replace
 
-from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
+from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.knowledge.model.model_record import ModelRecord
 from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.service.knowledge_base import KnowledgeBase

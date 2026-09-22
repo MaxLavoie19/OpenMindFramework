@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterable, Sequence
 from typing import Protocol
 
+from openmind.rule.model.clause_rule import ClauseRule
 from openmind.rule.model.python_rule import PythonRule
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -37,6 +38,7 @@ class RecordRule(Protocol):
     def __call__(self, state: State, actions: Sequence[Action]) -> str | None: ...
 
 
-#: A game's rule: Python source OMF compiles, or a function the project wrote and gives OMF, of one of the shapes
-#: above. A function takes the state first and the parameters it needs by name; an effects function gives the next state.
-type Rule = PythonRule | Callable[..., object]
+#: A game's rule: Python source OMF compiles, a clause OMF can also reason with, or a function the project wrote and
+#: gives OMF, of one of the shapes above. A function takes the state first and the parameters it needs by name; an
+#: effects function gives the next state. A clause is compiled to source when it has to be run.
+type Rule = PythonRule | ClauseRule | Callable[..., object]

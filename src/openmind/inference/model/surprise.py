@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from openmind.inference.model.example import Example
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -18,11 +19,17 @@ class Surprise:
 
     rule: str
     stood: int
-    state: State
+    state: State | None = None
     action: Action | None = None
     readings: tuple[tuple[str, Value], ...] = ()
 
-    @property
-    def rare(self) -> bool:
-        """Whether it is the kind of break worth going back to: one that took a long time to find."""
-        return self.stood >= 100
+    #: The case that broke it, where one clause was broken by one case.
+    broken_by: Example | None = None
+
+    def stood_longer_than(self, standing: int) -> bool:
+        """Whether it is the kind of break worth going back to: one that took long enough to find.
+
+        How long is long enough is the caller's to say and is not a number kept here. What counts as a long
+        standing depends on how much has been looked at and on how often the game offers the rare thing, and a
+        number chosen here would be a guess about both."""
+        return self.stood >= standing

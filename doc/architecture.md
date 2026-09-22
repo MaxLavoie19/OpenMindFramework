@@ -873,7 +873,8 @@ in dependency order.
 | `world` | states made of named data models, actions, joint actions, players |
 | `rule` | rules as data (Python source or a project's function), the shapes a game's rules take, and running a rule on a state |
 | `knowledge` | the knowledge base, the doxastic system: direct experience (raw data, word for word), rules, rulesets, facts, beliefs with their sources, opinions, tasks, contexts, models |
-| `epistemology` | justification of beliefs by foundherentism: anchors, coherence, no self-support, confidence from method and data |
+| `inference` | first-order logic: clauses, resolution, proving and chaining, rules learned from examples, probabilities over every proof of a conclusion; the tracing of support, the finding of conflicts and the certainty models that judge what is concluded; relaxations, guiding principles, the bootstrapper |
+| `epistemology` | foundherentism itself: what counts as an anchor, coherence between observations, models and rules, no self-support, a belief no model fits lived with, and conflicts becoming tasks. It builds on `inference` |
 | `game` | the programmer's API to define a game, the registry of games; the integrator runs the game, OMF only simulates it |
 | `csp` | valid values of an action's parameters |
 | `predictor` | the predictor port and its rule-based model |
@@ -888,7 +889,6 @@ in dependency order.
 | `budget` | time, clocks, deadlines, the time management policy |
 | `codec` | encoders and decoders |
 | `rhetoric` | Meyer's model, rhetorical policies, message composition, the validation gate |
-| `inference` | relaxations, guiding principles, deduction, the bootstrapper |
 | `training` | self-play, reviewing games, studying literature, training models |
 | `agent` | the agent loop, one loop per level of the hierarchy with delegation between them, the continuous next-best-task loop, roles such as player and coach |
 | `debug` | logging with per-session verbosity, warnings (conflicting rules, observations a frozen rule can't explain), a debugger (interrupts, stack, conditional breakpoints); the dashboard is its viewer |

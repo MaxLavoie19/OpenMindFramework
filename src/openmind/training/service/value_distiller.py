@@ -8,6 +8,7 @@ from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.service.value_generator import ValueGenerator
 from openmind.search.model.guidance import Guidance
+from openmind.timing.mapper.duration_text_mapper import DurationTextMapper
 from openmind.training.mapper.position_row_mapper import PositionRowMapper
 from openmind.training.model.distillation import Distillation
 from openmind.training.model.self_play_settings import SelfPlaySettings
@@ -56,6 +57,14 @@ class ValueDistiller:
         )
         training = self._rows.to_rows(game, played)
         kept_back = self._rows.to_rows(game, held_out)
+        logger.info(
+            "Played %d games of %s in %s, giving %d rows to fit and %d held back; fitting now",
+            len(played) + len(held_out),
+            game.context,
+            DurationTextMapper().to_text(time.monotonic() - started),
+            len(training),
+            len(kept_back),
+        )
         decisive = sum(1 for one in (*played, *held_out) if one.decisive)
         if not training:
             logger.info("Nothing to learn from %d games of %s: none of them paid anyone", len(played), game.context)

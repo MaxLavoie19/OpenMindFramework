@@ -2,10 +2,10 @@ import logging
 from collections.abc import Mapping
 from dataclasses import replace
 
-from openmind.epistemology.constant.epistemology_constant import ANYTHING_ELSE
-from openmind.epistemology.model.error_model import ErrorModel
-from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
-from openmind.epistemology.service.even_error_model import EvenErrorModel
+from openmind.inference.constant.certainty_constant import ANYTHING_ELSE
+from openmind.inference.model.error_model import ErrorModel
+from openmind.inference.service.accuracy_scorer import AccuracyScorer
+from openmind.inference.service.even_error_model import EvenErrorModel
 from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.model.evidence import Evidence
 from openmind.knowledge.service.knowledge_base import KnowledgeBase

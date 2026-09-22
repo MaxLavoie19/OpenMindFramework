@@ -7,7 +7,11 @@ from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, POSITION
 from openmind.knowledge.mapper.rule_record_json_mapper import RuleRecordJsonMapper
 from openmind.knowledge.model.source import Source
 from openmind.knowledge.model.rule_record import RuleRecord
+from openmind.rule.model.clause import Clause
+from openmind.rule.model.clause_rule import ClauseRule
+from openmind.rule.model.literal import Literal
 from openmind.rule.model.python_rule import PythonRule
+from openmind.rule.model.term import Number, Variable
 from openmind.world.model.state import State
 
 
@@ -66,3 +70,37 @@ def test_a_heuristic_keeps_which_kind_it_is_and_where_it_came_from() -> None:
     assert back.kind == POSITION
     assert back.source.mechanism == INFERENCE
     assert (back.source.parameter("game"), back.source.parameter("ply")) == ("0031", 12)
+
+
+def test_a_rule_the_engine_reasoned_out_comes_back_as_the_clause_it_was() -> None:
+    mapper = RuleRecordJsonMapper()
+    clause = Clause(
+        (
+            Literal("worth at least", (Variable("Thing"), Number(14))),
+            Literal("reaches", (Variable("Thing"), Number(14)), True),
+        ),
+        0.8,
+        "what a thing affords is what it is worth",
+    )
+    rule = RuleRecord("what a thing affords", POSITION, ClauseRule(clause), Source(INFERENCE), probability=0.8)
+
+    back = mapper.from_line(mapper.to_line(rule))
+
+    assert back == rule
+
+
+def test_a_stored_clause_is_still_a_clause_rather_than_text_to_be_parsed() -> None:
+    mapper = RuleRecordJsonMapper()
+    rule = RuleRecord("acts once", POSITION, ClauseRule(Clause((Literal("acts once", ()),))), Source(INFERENCE))
+
+    back = mapper.from_line(mapper.to_line(rule))
+
+    assert isinstance(back.rule, ClauseRule) and back.rule.clause.head is not None
+
+
+def test_a_rule_with_no_source_no_clause_and_no_function_is_refused() -> None:
+    with pytest.raises(ValueError):
+        RuleRecordJsonMapper().from_data(
+            {"name": "nothing at all", "kind": POSITION, "rule": None, "clause": None,
+             "module": None, "function": None, "source": {"mechanism": INFERENCE}}
+        )

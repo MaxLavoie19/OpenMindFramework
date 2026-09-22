@@ -1,4 +1,4 @@
-from openmind.epistemology.service.accuracy_scorer import AccuracyScorer
+from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.model.service.model_registry import ModelRegistry
 from openmind.model.service.model_timer import ModelTimer
 

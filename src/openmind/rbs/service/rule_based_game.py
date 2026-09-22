@@ -91,13 +91,15 @@ class RuleBasedGame:
             self._players = self._simulation.players(self.simulation_rbs)
         return self._players
 
-    def actions(self, state: State, limit: int | None = None, player: str | None = None) -> tuple[Action, ...]:
-        return self._simulation.actions(self.simulation_rbs, state, limit, player)
+    def actions(
+        self, state: State, limit: int | None = None, player: str | None = None, solving: bool = False
+    ) -> tuple[Action, ...]:
+        return self._simulation.actions(self.simulation_rbs, state, limit, player, solving)
 
     def actions_with_statistics(
-        self, state: State, limit: int | None = None, player: str | None = None
+        self, state: State, limit: int | None = None, player: str | None = None, solving: bool = False
     ) -> tuple[tuple[Action, ...], SolveStatistics]:
-        return self._simulation.actions_with_statistics(self.simulation_rbs, state, limit, player)
+        return self._simulation.actions_with_statistics(self.simulation_rbs, state, limit, player, solving)
 
     def allows(self, state: State, action: Action, player: str | None = None) -> bool:
         return self._simulation.allows(self.simulation_rbs, state, action, player)
@@ -108,8 +110,8 @@ class RuleBasedGame:
     def acting_player(self, state: State) -> str:
         return self._simulation.acting_player(self.simulation_rbs, state)
 
-    def joint_actions(self, state: State) -> tuple[tuple[int, tuple[Action, ...]], ...]:
-        return self._simulation.joint_actions(self.simulation_rbs, state)
+    def joint_actions(self, state: State, solving: bool = False) -> tuple[tuple[int, tuple[Action, ...]], ...]:
+        return self._simulation.joint_actions(self.simulation_rbs, state, solving)
 
     def outcomes(self, state: State, action: Action) -> OutcomeDistribution:
         return self._simulation.outcomes(self.simulation_rbs, state, action)

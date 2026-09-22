@@ -2,7 +2,7 @@ import logging
 
 from openmind.csp.model.solve_statistics import SolveStatistics
 from openmind.csp.service.solver import Solver
-from openmind.knowledge.constant.rule_kind_constant import ENDING, INITIAL, PLAYERS
+from openmind.knowledge.constant.rule_kind_constant import ENDING, INITIAL, LISTING, PLAYERS
 from openmind.predictor.model.outcome_distribution import OutcomeDistribution
 from openmind.predictor.service.rule_predictor import RulePredictor
 from openmind.rbs.model.rule_based_system import RuleBasedSystem
@@ -47,10 +47,24 @@ class Simulation:
         return Players(tuple(names), payoff)
 
     def actions_with_statistics(
-        self, rbs: RuleBasedSystem, state: State, limit: int | None = None, player: str | None = None
+        self,
+        rbs: RuleBasedSystem,
+        state: State,
+        limit: int | None = None,
+        player: str | None = None,
+        solving: bool = False,
     ) -> tuple[tuple[Action, ...], SolveStatistics]:
         """The player's legal actions, at most limit of them, with what the search did, summed over the game's
-        actions."""
+        actions.
+
+        `solving` insists on solving the constraints even where the game lists its actions outright. What is legal
+        is what the constraints say; a listing is a game promising the same answer sooner. Anything measuring
+        whether that promise holds, or reasoning about the constraints themselves, has to be able to ask for
+        them — otherwise a test comparing the two compares the listing with itself."""
+        listed = None if solving else self._listed(rbs, state, player)
+        if listed is not None:
+            found = listed if limit is None else listed[:limit]
+            return found, SolveStatistics(len(found), 0, 0, 0)
         found: list[Action] = []
         assignments = dead_ends = pruned_values = 0
         definitions = rbs.definitions(RULES_DEFINITIONS)
@@ -68,14 +82,22 @@ class Simulation:
         return tuple(found), SolveStatistics(len(found), assignments, dead_ends, pruned_values)
 
     def actions(
-        self, rbs: RuleBasedSystem, state: State, limit: int | None = None, player: str | None = None
+        self,
+        rbs: RuleBasedSystem,
+        state: State,
+        limit: int | None = None,
+        player: str | None = None,
+        solving: bool = False,
     ) -> tuple[Action, ...]:
         """The player's legal actions in the state, at most limit of them. Without a player, those of the one player
         acting: none once no player has an action, and several players acting at once raise ValueError, their actions
         being joint."""
         if player is not None:
-            return self.actions_with_statistics(rbs, state, limit, player)[0]
-        legal = [(name, self.actions_with_statistics(rbs, state, limit, name)[0]) for name in self.players(rbs).names]
+            return self.actions_with_statistics(rbs, state, limit, player, solving)[0]
+        legal = [
+            (name, self.actions_with_statistics(rbs, state, limit, name, solving)[0])
+            for name in self.players(rbs).names
+        ]
         acting = [(name, actions) for name, actions in legal if actions]
         if len(acting) > 1:
             raise ValueError(f"{', '.join(name for name, _ in acting)} act at once: their actions are joint (see joint_actions)")
@@ -106,10 +128,15 @@ class Simulation:
             raise ValueError(f"{', '.join(names[index] for index in acting) or 'No player'} can act, not exactly one player")
         return names[acting[0]]
 
-    def joint_actions(self, rbs: RuleBasedSystem, state: State) -> tuple[tuple[int, tuple[Action, ...]], ...]:
+    def joint_actions(
+        self, rbs: RuleBasedSystem, state: State, solving: bool = False
+    ) -> tuple[tuple[int, tuple[Action, ...]], ...]:
         """Each player with a legal action, by index in the players' names, with its legal actions: what the players
         acting at once choose from. Empty once no player has an action."""
-        legal = ((index, self.actions(rbs, state, player=name)) for index, name in enumerate(self.players(rbs).names))
+        legal = (
+            (index, self.actions(rbs, state, player=name, solving=solving))
+            for index, name in enumerate(self.players(rbs).names)
+        )
         return tuple((index, actions) for index, actions in legal if actions)
 
     def outcomes(self, rbs: RuleBasedSystem, state: State, action: Action) -> OutcomeDistribution:
@@ -136,6 +163,20 @@ class Simulation:
         except Exception:  # noqa: BLE001 - a game's rule is the project's code
             logger.warning("The %s %s rule raised", rbs.context, kind, exc_info=True)
             return None
+
+    def _listed(self, rbs: RuleBasedSystem, state: State, player: str | None) -> tuple[Action, ...] | None:
+        """What a game that lists its own legal actions says they are, or None where it declares no listing.
+
+        Solving the constraints is what makes an action legal and what a relaxation takes apart, and it is also the
+        slowest thing OMF does — a search asks for the legal actions at every node it opens. A game that can say
+        outright what is legal is taken at its word here, and the constraints are left for where they are the
+        point: checking one computed action, reasoning about a game with a rule removed, deducing rules from what
+        is allowed."""
+        rules = rbs.of(LISTING)
+        if not rules:
+            return None
+        found = self._rule_caller.value(rules[0].rule, state, {"player": player})
+        return tuple(found)  # type: ignore[arg-type]
 
     def _read(self, rbs: RuleBasedSystem, kind: str, what: str) -> object:
         """What a rule that reads nothing gives; an RBS without it isn't a game."""
