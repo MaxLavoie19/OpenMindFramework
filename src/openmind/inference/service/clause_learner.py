@@ -393,7 +393,7 @@ class ClauseLearner:
         that picked such a reading up is never contradicted there and the literal never looks droppable. Given
         cases from several positions it does, which is the whole reason for asking this away from where a clause
         was grown."""
-        holding = [one for one in examples if one.holds]
+        holding = CaseIndex(tuple(one for one in examples if one.holds))
         index = CaseIndex(tuple(one for one in examples if not one.holds))
         allowed = loosely * max(len(index.cases), 1)
         found: list[Clause] = []
@@ -407,15 +407,30 @@ class ClauseLearner:
                         continue
                     if self._slips(without, index, allowed):
                         continue
-                    if sum(1 for one in holding if self.covers(without, one)) <= sum(
-                        1 for one in holding if self.covers(clause, one)
-                    ):
+                    if not self._turned_away(clause, without, holding):
                         continue
                     clause, dropping = without, True
                     logger.debug("Dropped %s from a clause: it turned away cases that hold", literal.predicate)
                     break
             found.append(clause)
         return tuple(found)
+
+    def _turned_away(self, clause: Clause, without: Clause, holding: CaseIndex) -> bool:
+        """Whether dropping that literal lets in a case that holds and the clause was turning away.
+
+        Dropping a literal can only widen a clause: every case the clause covered, the clause without it covers
+        too. So the two sets are never crossed, only nested, and asking whether the wider one is wider needs a
+        single case rather than a count of each — the first case that gets in where it did not before settles it,
+        and where the literal was earning its place there is usually no such case and the narrowing finds it.
+
+        It is worth saying why this is not the same question as `_slips`. That one asks what a dropped literal
+        lets through that should stay out; this asks what it was keeping out that should have been let in. A
+        literal has to fail both to be an accident: rule nothing out, and turn something away."""
+        settled = [one for one in without.body if one.ground and not self._evaluable.evaluable(one.predicate)]
+        for one in holding.narrowed(settled):
+            if self.covers(without, one) and not self.covers(clause, one):
+                return True
+        return False
 
     def excluding(
         self, clauses: Sequence[Clause], examples: Sequence[Example], budget: InferenceBudget

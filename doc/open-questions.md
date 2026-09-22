@@ -443,3 +443,31 @@ Claude filled these blanks in `doc/architecture.md` without being asked. For eac
         declared, at the cost of a pass that has to come first.
       - Leave it. Rules stay split by colour, and the rules that need a player's own rank are never found.
     - **Undecided.**
+
+25. **What a finished game has to pay before a value can be selected.** (found while designing the continuous walkers)
+    A heuristic is licensed by a game ending, because an end is the only event that pays anything: before one, there
+    is nothing a valuation could be right or wrong about. That is what makes a value discovered rather than assumed,
+    and it is why a worker that never finishes a game contributes rules and no values.
+    What one end licenses is narrower than it looks. It orients a valuation — it says which side the game paid — but
+    it cannot choose between two readings of value, because one data point fits both. Choosing needs many ends that
+    disagree. So the first end licenses a *bootstrap*: the values the rules already imply, permitted to replace
+    random movement because something finally paid, and not yet fitted to anything.
+    The obstacle is what random play actually reaches. Random games do end, but nearly always drawn — fifty moves,
+    threefold repetition, insufficient material — and a draw pays both sides alike, so it separates no two candidate
+    valuations. Mate from random play is rare enough that the ends arriving would be almost all of the uninformative
+    kind: the trigger fires often and teaches nothing, and the bootstrap it installed is never corrected.
+    - **Options:**
+      - Let the bootstrap stand and wait for decisive ends. Honest, and nothing is assumed, but the correcting
+        evidence may be a very long time coming and the values meanwhile rest on affordance alone.
+      - Once a heuristic is in force, movement stops being random, and games guided even by a poor valuation end
+        decisively far more often than random ones do. The bootstrap is what buys the evidence to replace it. The
+        risk is that the first bootstrap steers which ends are ever seen, and so confirms itself.
+      - Take a drawn game as evidence too, of the valuation that predicted a draw. It discriminates weakly rather
+        than not at all, but it is the same measurement and needs nothing new.
+      - Score what a position was worth at the end rather than only what the game paid. Plentiful evidence, and
+        it is leading it: what a position is worth at the end is the thing being asked about.
+    - **Decided (Maxime):** the bootstrap buys the evidence that replaces it. The first end installs the values the
+      rules imply, movement stops being random, and games guided even by a poor valuation end decisively far more
+      often than random ones do — which is where the evidence to correct it comes from. That the first bootstrap
+      steers which ends are ever seen is accepted, and is the thing to watch: a valuation that only ever meets the
+      ends it caused has confirmed nothing.
