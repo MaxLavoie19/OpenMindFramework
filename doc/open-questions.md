@@ -248,6 +248,37 @@ questions by number.
     - **Undecided**, postponed.
 
 
+35. **A term is priced for what it costs and nothing says what its accuracy is worth.** (found on checking the
+    literature after pricing terms by what they take to read)
+    `ExpressionSearch.cost` now multiplies a term's clause count by `TermEvaluator.dearness`, so a term that
+    reads a hundred times slower than the cheapest here is penalised a hundredfold in the L1 price. That
+    mechanism has a name — **cost-sensitive feature selection**, in its *embedded* form, a per-feature cost
+    folded into the penalty — and `SparseFitter` already took a `costs` array per column, so what changed is
+    only what goes into it. Two things the literature says I did not account for:
+    - **Cost there is given, not measured.** An acquisition cost is money, minutes, a medical procedure,
+      supplied by whoever knows the domain. Timing the reading is the right move for a learner that knows
+      nothing about its game, and it is why `dearness` is relative rather than in seconds — but it is noisy and
+      machine-dependent in a way a given cost is not.
+    - **Misclassification cost is the other half, and there is none.** The framing is cost *against what a
+      mistake costs*. Here a mistake is a worse heuristic, priced only through held-out loss, on a scale that
+      has no common unit with dearness. So the trade is one-sided: terms were made dearer without anything
+      saying what accuracy is worth.
+    **Game playing has the same trade under another name — knowledge against speed.** Stockfish runs thin
+    nodes, little evaluation and enormous node counts; Leela runs thick ones, far better evaluation at about a
+    thousandth the nodes; they reach comparable strength. **Thick nodes are a real and winning design**, so the
+    four-tenths-of-a-second heuristic that provoked this was not wrong for being expensive. What was wrong is
+    that nothing chose: the fit optimised accuracy alone and the planner was then left four nodes, which is
+    neither thin nor thick. The narrower justification for the change as it stands is therefore not *dear terms
+    are bad* but **the fit and the planner must agree about what a node costs**, and nothing yet makes them.
+    - **Options:** undrafted. What is visible without reasoning it through: whether the planner's budget is the
+      missing unit, since nodes per position is a number both sides could be told; whether accuracy's worth is
+      measurable only by playing, which would make it games rather than held-out loss that settles it; and
+      whether a measured reading time belongs on the model record as a belief, which `ModelRecord`'s own
+      docstring already says it should be — *"its measured accuracy and processing time are beliefs about it"* —
+      and which nothing writes today.
+    - **Undecided.**
+
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
