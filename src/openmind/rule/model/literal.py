@@ -27,6 +27,10 @@ class Literal:
     variables: tuple[Variable, ...] = field(init=False, compare=False, hash=False, repr=False, default=())
     ground: bool = field(init=False, compare=False, hash=False, repr=False, default=True)
 
+    #: Worked out once, for the same reason as a term's: a case is a set of these and a clause asks after them one
+    #: at a time, so the same literal is hashed over and over and can never have changed in between.
+    _hash: int = field(init=False, compare=False, hash=False, repr=False, default=0)
+
     def __post_init__(self) -> None:
         found: dict[Variable, None] = {}
         for argument in self.arguments:
@@ -34,6 +38,7 @@ class Literal:
                 found.setdefault(variable, None)
         object.__setattr__(self, "variables", tuple(found))
         object.__setattr__(self, "ground", not found)
+        object.__setattr__(self, "_hash", hash((self.predicate, self.arguments, self.negated)))
 
     @property
     def arity(self) -> int:
@@ -54,3 +59,12 @@ class Literal:
         if isinstance(term, Functor):
             return tuple(one for argument in term.arguments for one in self._variables(argument))
         return ()
+
+
+def _hashed(held: Literal) -> int:
+    return held._hash
+
+
+# The dataclass writes a hash of its own for a frozen class, so the cached one is put in afterwards rather than in
+# the body, where it would be overwritten.
+Literal.__hash__ = _hashed  # type: ignore[assignment,method-assign]

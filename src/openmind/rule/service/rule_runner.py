@@ -10,6 +10,7 @@ from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.list import List
 from openmind.structure.model.map import Map
+from openmind.structure.model.record import Record
 from openmind.structure.model.scalar import Scalar
 from openmind.world.model.state import State
 from openmind.structure.model.value import Value
@@ -105,7 +106,11 @@ class RuleRunner:
     def _definitions_namespace(self, definitions: CompiledRule | None) -> dict[str, object]:
         namespace = self._definitions.get(definitions)
         if namespace is None:
-            namespace = {ALL_DIFFERENT: _all_different, **STRUCTURES}
+            # The structures OMF has, and every kind of record a game has declared. A rule saying where a
+            # game starts says it as the position written out, so it names the classes that position holds —
+            # and for a game of parts those include its own. They are here rather than declared because a
+            # record registers itself: it is one of OMF's formats, so OMF knows it without being told.
+            namespace = {ALL_DIFFERENT: _all_different, **STRUCTURES, **Record.kinds()}
             if definitions is not None:
                 exec(definitions.code, namespace)
             self._definitions[definitions] = namespace

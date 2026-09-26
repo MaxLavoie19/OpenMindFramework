@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from openmind.structure.model.value import Value
 
@@ -42,6 +42,26 @@ class Functor:
 
     name: str
     arguments: tuple["Term", ...]
+
+    #: Worked out once when the term is made, and never part of what makes two terms the same.
+    #:
+    #: A term of terms hashes by hashing everything inside it, and these are looked up constantly — every reading
+    #: asked of a case, every pair of terms a generalisation considers. On a game whose squares hold a thing that
+    #: holds a thing, the same tree was being walked tens of millions of times over a single position. A term
+    #: cannot change, so neither can its hash.
+    _hash: int = field(init=False, compare=False, repr=False, default=0)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_hash", hash((self.name, self.arguments)))
+
+
+def _hashed(held: Functor) -> int:
+    return held._hash
+
+
+# The dataclass writes a hash of its own for a frozen class, so the cached one is put in afterwards rather than
+# in the body, where it would be overwritten.
+Functor.__hash__ = _hashed  # type: ignore[assignment,method-assign]
 
 
 #: What something is said of: a variable, a particular thing, a number, or a function of those.

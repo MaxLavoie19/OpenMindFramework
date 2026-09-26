@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from openmind.rule.model.literal import Literal
 from openmind.rule.model.term import Constant, Number, Variable
@@ -25,6 +25,17 @@ class Clause:
     probability: float = 1.0
     name: str = ""
 
+    #: Its conditions as the conditions they read as, worked out once when the clause is made, and never part of
+    #: what makes two clauses the same.
+    #:
+    #: Asking whether a clause holds of something walks its conditions, and building each of them anew every time
+    #: means rebuilding the same literals millions of times over a single run — on a clause carrying a whole
+    #: position, seventy of them per question. A clause cannot change, so neither can its conditions.
+    _body: tuple[Literal, ...] = field(init=False, compare=False, hash=False, repr=False, default=())
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_body", tuple(one.denied for one in self.literals if one.negated))
+
     @property
     def positive(self) -> tuple[Literal, ...]:
         return tuple(one for one in self.literals if not one.negated)
@@ -50,7 +61,7 @@ class Clause:
     @property
     def body(self) -> tuple[Literal, ...]:
         """What has to hold for it to conclude, as the conditions they read as rather than as denials."""
-        return tuple(one.denied for one in self.negative)
+        return self._body
 
     @property
     def empty(self) -> bool:
