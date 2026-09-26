@@ -34,25 +34,6 @@ def test_one_reading_telling_the_cases_apart_is_learned_as_one_clause() -> None:
     assert len(found) == 1 and Literal("step", (Constant(1),)) in found[0].body
 
 
-def test_a_clause_generalised_from_cases_keeps_what_they_all_agreed_on_until_it_is_relaxed() -> None:
-    """Generalising gives the least general clause covering the cases, which keeps readings they happen to share
-    whether or not those readings rule anything out. Taking the surplus back out is what relaxing is for, and it
-    needs cases that hold and are turned away to see which readings are surplus."""
-    learner = ClauseLearner()
-    examples = [
-        case(True, kind="walker", step=1),
-        case(True, kind="walker", step=1),
-        case(False, kind="walker", step=5),
-    ]
-    grown = learner.learn(examples, LEGAL, InferenceBudget(10.0))
-
-    wider = [*examples, case(True, kind="flyer", step=1)]
-    relaxed = learner.relaxed(grown, wider)
-
-    assert Literal("kind", (Constant("walker"),)) in grown[0].body
-    assert Literal("kind", (Constant("walker"),)) not in relaxed[0].body
-
-
 def test_what_is_learned_covers_the_cases_it_was_learned_from() -> None:
     examples = [
         case(True, kind="walker", step=1),
@@ -176,28 +157,6 @@ def test_a_clause_is_never_kept_with_no_conditions_at_all() -> None:
     assert all(one.body for one in found)
 
 
-def test_a_condition_that_turns_away_cases_which_hold_is_dropped_as_an_artefact() -> None:
-    learner = ClauseLearner()
-    grown = learner.learn(
-        [case(True, kind="walker", step=1), case(False, kind="flyer", step=1)], LEGAL, InferenceBudget(10.0)
-    )
-    wider = [case(True, kind="walker", step=1), case(True, kind="walker", step=2), case(False, kind="flyer", step=1)]
-
-    relaxed = learner.relaxed(grown, wider)
-
-    assert all(learner.covers(relaxed[0], one) for one in wider if one.holds)
-
-
-def test_a_condition_that_rules_something_out_is_kept_when_relaxing() -> None:
-    learner = ClauseLearner()
-    examples = [case(True, kind="walker"), case(False, kind="flyer")]
-    grown = learner.learn(examples, LEGAL, InferenceBudget(10.0))
-
-    relaxed = learner.relaxed(grown, examples)
-
-    assert relaxed[0].body and not learner.covers(relaxed[0], examples[1])
-
-
 def test_what_a_clause_wrongly_covers_is_answered_for_by_an_exclusion_of_its_own() -> None:
     learner = ClauseLearner()
     examples = [
@@ -280,13 +239,25 @@ def test_a_reading_of_one_thing_is_never_generalised_with_a_reading_of_another()
 
 
 def test_a_reading_of_the_same_thing_is_generalised_on_what_was_read_of_it() -> None:
+    """What the two cases disagree about is opened up; what the reading is *of* is not. Two readings are used so
+    that the variable is shared between them and the generalised clause still says something — a clause whose one
+    reading has become "the target has some row" says nothing at all, and is dropped rather than kept."""
     learner = ClauseLearner()
-    clause = Clause((LEGAL, Literal("row", (Constant("target"), Constant(2))).denied))
-    about_the_same = Example((Literal("row", (Constant("target"), Constant(5))),), True)
+    clause = Clause((
+        LEGAL,
+        Literal("row", (Constant("target"), Constant(2))).denied,
+        Literal("column", (Constant("target"), Constant(2))).denied,
+    ))
+    about_the_same = Example(
+        (Literal("row", (Constant("target"), Constant(5))), Literal("column", (Constant("target"), Constant(5)))),
+        True,
+    )
 
     wider = learner.generalised(clause, about_the_same)
 
-    assert wider is not None and wider.body[0].arguments[0] == Constant("target")
+    assert wider is not None
+    assert all(one.arguments[0] == Constant("target") for one in wider.body)
+    assert wider.body[0].arguments[-1] == wider.body[1].arguments[-1]
 
 
 def test_a_reading_saying_nothing_at_all_is_dropped_rather_than_carried() -> None:
@@ -303,3 +274,200 @@ def test_a_reading_saying_nothing_at_all_is_dropped_rather_than_carried() -> Non
 
     assert wider is not None
     assert [one.predicate for one in wider.body] == ["kind"]
+
+
+def rule(*body: Literal) -> Clause:
+    return Clause((LEGAL, *(one.denied for one in body)))
+
+
+def reading(name: str, *values: object) -> Literal:
+    return Literal(name, tuple(Constant(one) for one in values))
+
+
+def test_two_rules_that_are_one_rule_are_made_one() -> None:
+    """Two kinds of thing moving one step each are one rule about moving one step, and saying it once is cheaper
+    than saying it twice."""
+    examples = [case(True, kind="walker", step=1), case(True, kind="runner", step=1)]
+    clauses = (
+        rule(reading("kind", "walker"), reading("step", 1)),
+        rule(reading("kind", "runner"), reading("step", 1)),
+    )
+
+    found = ClauseLearner().distilled(clauses, examples)
+
+    assert len(found) == 1
+    assert reading("step", 1) in found[0].body
+
+
+def test_two_rules_are_not_made_one_where_what_they_accounted_for_stops_being_accounted_for() -> None:
+    """The case merging always got wrong. A step and a double step share that something moves up its column, and
+    a rule saying only that accounts for neither distance in particular — so the pair stands, however much two
+    rules cost. What may not be given up is not up for sale."""
+    examples = [
+        case(True, kind="pawn", row=2, step=2),
+        case(True, kind="pawn", row=5, step=1),
+        case(False, kind="pawn", row=5, step=2),
+    ]
+    clauses = (
+        rule(reading("kind", "pawn"), reading("row", 2), reading("step", 2)),
+        rule(reading("kind", "pawn"), reading("step", 1)),
+    )
+
+    found = ClauseLearner().distilled(clauses, examples)
+
+    assert len(found) == 2
+
+
+def test_four_rules_that_are_one_rule_are_made_one_even_where_no_two_of_them_pay_on_their_own() -> None:
+    """Four ways of moving that are one way of moving. Folded two at a time, the rule covering a pair can cost as
+    much as the pair it replaced and the folding stops there; the rule covering all four is a quarter of the
+    price. What has to be offered is the whole fold, not only the pairs."""
+    kinds = ("walker", "runner", "rider", "flyer")
+    examples = [case(True, kind=one, step=1) for one in kinds] + [case(False, kind="walker", step=9)]
+    clauses = tuple(rule(reading("kind", one), reading("step", 1)) for one in kinds)
+
+    found = ClauseLearner().distilled(clauses, examples)
+
+    assert len(found) == 1
+    assert reading("step", 1) in found[0].body
+    assert all(ClauseLearner().covered(found, one) for one in examples if one.holds)
+
+
+def test_constraints_learned_in_different_positions_are_said_as_the_one_constraint_they_are() -> None:
+    """Each arrives carrying what its own position happened to read, so neither says what the other says and
+    nothing can see they were one constraint. The readings that never varied go first, and then they are one."""
+    examples = [
+        case(False, kind="rider", blocked=True, turn="white", where="one"),
+        case(True, kind="rider", blocked=False, turn="white", where="one"),
+        case(False, kind="rider", blocked=True, turn="black", where="two"),
+        case(True, kind="rider", blocked=False, turn="black", where="two"),
+    ]
+    generator = rule(reading("kind", "rider"))
+    pairs = (
+        (
+            generator,
+            (
+                Clause((Literal("refused anyway", ()), reading("blocked", True).denied, reading("turn", "white").denied)),
+                Clause((Literal("refused anyway", ()), reading("blocked", True).denied, reading("turn", "black").denied)),
+            ),
+        ),
+    )
+
+    found = ClauseLearner().allowing(pairs, examples)
+
+    assert len(found[0][1]) == 1
+    assert found[0][1][0].body == (reading("blocked", True),)
+
+
+def test_what_the_pair_allows_is_unchanged_by_saying_it_more_simply() -> None:
+    learner = ClauseLearner()
+    examples = [
+        case(False, kind="rider", blocked=True, turn="white", where="one"),
+        case(True, kind="rider", blocked=False, turn="white", where="one"),
+        case(False, kind="rider", blocked=True, turn="black", where="two"),
+        case(True, kind="rider", blocked=False, turn="black", where="two"),
+    ]
+    generator = rule(reading("kind", "rider"))
+    pairs = (
+        (
+            generator,
+            (
+                Clause((Literal("refused anyway", ()), reading("blocked", True).denied, reading("turn", "white").denied)),
+                Clause((Literal("refused anyway", ()), reading("blocked", True).denied, reading("turn", "black").denied)),
+            ),
+        ),
+    )
+
+    found = learner.allowing(pairs, examples)
+
+    assert [learner.allows(found, one) for one in examples] == [learner.allows(pairs, one) for one in examples]
+
+
+def test_a_rule_with_nothing_refusing_it_is_left_as_it_is() -> None:
+    examples = [case(True, kind="rider", blocked=False)]
+    pairs = ((rule(reading("kind", "rider")), ()),)
+
+    assert ClauseLearner().allowing(pairs, examples) == pairs
+
+
+def test_a_condition_that_held_of_every_case_is_gone_because_the_rule_without_it_is_the_same_rule() -> None:
+    """Castling rights that never varied are a condition true of every case. The rule without it covers exactly
+    what the rule with it covered, and being shorter it wins. Of two rules that answer alike, the simplest."""
+    learner = ClauseLearner()
+    examples = [
+        case(True, kind="walker", castling="KQkq", where="one"),
+        case(False, kind="runner", castling="KQkq", where="two"),
+    ]
+    clauses = (rule(reading("kind", "walker"), reading("castling", "KQkq")),)
+
+    found = learner.distilled(clauses, examples)
+
+    assert found[0].body == (reading("kind", "walker"),)
+    assert [learner.covered(found, one) for one in examples] == [True, False]
+
+
+def test_a_condition_that_did_not_hold_of_every_case_stays() -> None:
+    learner = ClauseLearner()
+    examples = [
+        case(True, kind="walker", castling="KQkq", where="one"),
+        case(False, kind="walker", castling="Kkq", where="two"),
+        case(False, kind="runner", castling="KQkq", where="three"),
+    ]
+    clauses = (rule(reading("kind", "walker"), reading("castling", "KQkq")),)
+
+    found = learner.distilled(clauses, examples)
+
+    assert len(found[0].body) == 2
+
+
+def test_a_rule_is_never_grown_with_a_condition_that_held_of_every_case() -> None:
+    """Castling rights that never varied are true of every case, so they cannot be part of why some moves are
+    legal and others are not. A rule grown here never picks them up, so nothing has to take them out again."""
+    examples = [
+        case(True, kind="walker", step=1, castling="KQkq"),
+        case(False, kind="walker", step=9, castling="KQkq"),
+    ]
+
+    found = learned(examples)
+
+    assert found and all(reading("castling", "KQkq") not in one.body for one in found)
+
+
+def test_the_cheapest_way_of_saying_the_rules_is_taken_and_not_the_first_found() -> None:
+    """Dropping a condition two rules share is a saving, and it is also the last thing showing they were one
+    rule — which was the larger saving. Taking the first improvement found loses it."""
+    examples = [case(True, kind="walker", step=1), case(True, kind="runner", step=1)]
+    clauses = (
+        rule(reading("kind", "walker"), reading("step", 1)),
+        rule(reading("kind", "runner"), reading("step", 1)),
+    )
+
+    found = ClauseLearner().distilled(clauses, examples)
+
+    assert len(found) == 1 and found[0].body == (reading("step", 1),)
+
+
+def test_a_rule_is_narrowed_with_another_condition_rather_than_thrown_away() -> None:
+    """A constraint that refused a move the game allows is wrong as it stands, not worthless. Saying more makes
+    it cover less, and what it must go on covering is what it may say it from."""
+    learner = ClauseLearner()
+    clause = rule(reading("kind", "rider"))
+    keeping = [case(False, kind="rider", blocked=True), case(False, kind="rider", blocked=True)]
+    without = [case(True, kind="rider", blocked=False)]
+
+    found = learner.narrowed(clause, keeping, without)
+
+    assert found is not None
+    assert reading("kind", "rider") in found.body and reading("blocked", True) in found.body
+    assert all(learner.covers(found, one) for one in keeping)
+    assert not learner.covers(found, without[0])
+
+
+def test_nothing_comes_back_where_no_reading_tells_the_two_apart() -> None:
+    """Not a failure of the rule but of what could be read of the cases."""
+    learner = ClauseLearner()
+    clause = rule(reading("kind", "rider"))
+    keeping = [case(False, kind="rider", blocked=True)]
+    without = [case(True, kind="rider", blocked=True)]
+
+    assert learner.narrowed(clause, keeping, without) is None

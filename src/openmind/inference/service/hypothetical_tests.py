@@ -1,0 +1,188 @@
+from dataclasses import dataclass
+
+from openmind.inference.model.example import Example
+from openmind.inference.service.candidate_readings import CandidateReadings
+from openmind.inference.service.hypothetical import ALLOWED, TAKEN_AFTER, Hypothetical
+from openmind.inference.service.refusal_learner import REFUSED, RefusalLearner
+from openmind.rule.model.clause import Clause
+from openmind.rule.model.literal import Literal
+from openmind.rule.model.term import Constant, Functor, Number, Variable
+from openmind.structure.model.grid import Grid
+from openmind.structure.model.kind import Kind
+from openmind.structure.model.record import Record
+from openmind.structure.model.schema import ActionKind
+from openmind.world.model.action import Action
+from openmind.world.model.state import State
+
+
+@dataclass(frozen=True, slots=True)
+class Cell(Record):
+    row: int
+    column: int
+
+
+ROWS = Kind("row", values=(1, 2))
+CELL = Kind("cell", parts=(("row", ROWS), ("column", ROWS)), builds=Cell)
+MOVE = ActionKind("move", (("origin", CELL), ("destination", CELL)))
+
+
+def a_position():
+    """Two rows of two. Something stands at row 2, column 2, and nowhere else."""
+    return State.of(grid=Grid.of([[None, None], [None, "a thing"]]))
+
+
+def learner():
+    readings = CandidateReadings()
+    return RefusalLearner(readings, hypothetical=Hypothetical(readings, MOVE))
+
+
+def refused_when(*literals):
+    return Clause((Literal(REFUSED, ()), *(one.denied for one in literals)))
+
+
+def landing_on_something():
+    """A rule of the lower layer: it asks no hypothetical, so it is what a hypothetical is put to."""
+    return refused_when(
+        Literal("destination", (Variable("R"), Variable("C"))),
+        Literal("grid", (Variable("R"), Variable("C"), Constant("a thing"))),
+    )
+
+
+def refused_where_somebody_could_land_on_two_two():
+    """A rule of the upper layer: it refuses a move where the move from one, one to two, two would be allowed by
+    the rules below. Contrived, and the shape is the shape king safety has."""
+    return refused_when(
+        Literal(ALLOWED, (Number(2), Number(2), Number(1), Number(1))),
+    )
+
+
+def a_case(state, origin, destination):
+    return Example(
+        CandidateReadings().read(state, Action("move", (("destination", destination), ("origin", origin)))),
+        False,
+        state,
+    )
+
+
+def test_a_hypothetical_is_answered_by_the_rules_that_ask_no_hypothetical():
+    """The layer is worked out from the constraints, not declared. The one asking sits above the one answering by
+    the fact of asking, which is what stops the question coming back round to itself."""
+    hypothetical = Hypothetical(CandidateReadings(), MOVE)
+    clauses = (landing_on_something(), refused_where_somebody_could_land_on_two_two())
+
+    assert hypothetical.below(clauses) == (landing_on_something(),)
+
+
+def test_a_question_about_another_action_is_answered_of_this_same_position():
+    """Moving onto the thing at two, two is refused below, so the question comes back no, and the rule asking it
+    does not fire."""
+    held = learner()
+    clauses = (landing_on_something(), refused_where_somebody_could_land_on_two_two())
+
+    assert not held.covers(refused_where_somebody_could_land_on_two_two(), a_case(a_position(), Cell(1, 1), Cell(1, 2)), clauses)
+
+
+def test_the_same_question_comes_back_yes_where_the_rules_below_allow_it():
+    """With nothing standing at two, two, the hypothetical move is allowed below, so the rule above fires — and
+    refuses a move that has nothing wrong with it of its own. That is the shape of every rule about what could
+    happen rather than what is happening."""
+    held = learner()
+    clauses = (landing_on_something(), refused_where_somebody_could_land_on_two_two())
+    empty = State.of(grid=Grid.of([[None, None], [None, None]]))
+
+    assert held.covers(refused_where_somebody_could_land_on_two_two(), a_case(empty, Cell(1, 1), Cell(1, 2)), clauses)
+
+
+def test_a_hypothetical_nobody_can_build_is_not_answered_yes():
+    """A question that cannot be put is not a question answered in the affirmative. Terms standing for nothing
+    settled, or too few of them to make an action, leave the rule not firing rather than firing wrongly."""
+    held = learner()
+    asking = refused_when(Literal(ALLOWED, (Number(2), Number(2), Variable("Unsettled"), Number(1))))
+
+    assert not held.covers(asking, a_case(a_position(), Cell(1, 1), Cell(1, 2)), (asking,))
+
+
+def test_the_rules_that_answer_are_still_there_when_the_question_is_not_asked_first():
+    """**The layer has to survive the walk down the body, and it did not.**
+
+    Every existing rule of this kind asked its hypothetical as its only condition, so the set of rules that may
+    answer it was still in hand when it was asked. Put a plain reading in front — whose turn it is, what stands
+    somewhere — and the walk recursed without carrying that set, so the question was put to *no* rules at all.
+    Nothing below refuses the reply when there is nothing below, so it came back yes.
+
+    Yes is the one answer it must never default to. A question that cannot be put is not a question answered in
+    the affirmative: answered that way, a rule about what could happen fires everywhere, and king safety refused
+    all twenty legal moves of the opening position while looking like a rule that was merely too strong.
+
+    A reading with a variable in it and not a settled one, because a settled reading is answered in `covers`
+    itself and never reaches the walk — so the first attempt at this test passed against the fault."""
+    held = learner()
+    asking = refused_when(
+        Literal("grid", (Number(2), Number(2), Variable("What"))),
+        Literal(ALLOWED, (Number(2), Number(2), Number(1), Number(1))),
+    )
+    clauses = (landing_on_something(), asking)
+
+    assert not held.covers(asking, a_case(a_position(), Cell(1, 1), Cell(1, 2)), clauses)
+
+
+def test_a_rule_asking_what_could_be_taken_is_above_the_rules_that_ask_nothing():
+    """Every kind of asking puts a rule in the layer above, and a rule asking what the other side could then take
+    asks two questions rather than one — what they could do, and whether they are allowed to.
+
+    Pinned because it was left out of the layering while it was the only one of the three no rule was yet written
+    in, so nothing showed. Left out, it answers itself: whether my king is safe after my move would depend on
+    whether theirs is safe after their reply, for ever."""
+    hypothetical = Hypothetical(CandidateReadings(), MOVE)
+    asking = refused_when(Literal(TAKEN_AFTER, (Constant("white"), Constant("king"))))
+
+    assert hypothetical.asked(asking)
+    assert hypothetical.below((landing_on_something(), asking)) == (landing_on_something(),)
+
+
+def test_a_hypothetical_is_asked_after_the_readings_that_settle_what_it_is_about():
+    """**It is answered by asking rather than by looking up, so nothing in the case matches it.** Ordering the
+    conditions by how many readings match each one therefore sorts it to the very front — ahead of the reading
+    that says whose turn it is, which is what its first argument stands for.
+
+    Asked there it answers no, because a term standing for nothing settled names nobody, and it answers no
+    silently. `refused :- turn(Mover), taken(Mover, king)` would simply never fire, and would look like a king
+    who is never in danger rather than like a question asked too early."""
+    held = learner()
+    body = [
+        Literal(TAKEN_AFTER, (Variable("Mover"), Constant("king"))),
+        Literal("turn", (Variable("Mover"),)),
+    ]
+
+    assert [one.predicate for one in held._in_order(body, a_case(a_position(), Cell(1, 1), Cell(1, 2)))] == [  # noqa: SLF001
+        "turn", TAKEN_AFTER,
+    ]
+
+
+def test_what_the_predictor_has_worked_out_is_asked_for_and_not_kept():
+    """**The two halves learn at once, so one cannot hold a copy of the other.** What a move does is still being
+    worked out while what is refused is being worked out, and a constraint reaching past this board reaches it
+    through drawings that have changed since anything was built.
+
+    Pinned because handing the drawings over as a value is the natural way to write it and is wrong in the one
+    way that never shows: a loop building its hypothetical before its first position hands over nothing, every
+    question about the board a move leads to answers "nothing happens", and it does so in silence for the whole
+    run rather than failing."""
+    told: list = []
+    hypothetical = Hypothetical(CandidateReadings(), MOVE, doing=lambda: told)
+
+    assert hypothetical.doing == []
+
+    told.append("a drawing made after this was built")
+
+    assert hypothetical.doing == ["a drawing made after this was built"]
+
+
+def test_without_a_hypothetical_service_the_question_is_simply_not_answered():
+    """A learner built for a game that never asks such a thing carries none of this, and a rule that asks anyway
+    does not fire."""
+    assert not RefusalLearner().covers(
+        refused_where_somebody_could_land_on_two_two(),
+        a_case(a_position(), Cell(1, 1), Cell(1, 2)),
+        (refused_where_somebody_could_land_on_two_two(),),
+    )

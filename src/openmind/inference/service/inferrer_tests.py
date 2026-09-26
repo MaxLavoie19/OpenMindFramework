@@ -89,11 +89,11 @@ def test_what_is_already_known_is_not_concluded_again():
 def taking_consequences():
     """What a move does, as a game would declare it: it removes what stands where it lands, when that is another
     player's."""
-    from openmind.predictor.model.consequence import Consequence
-    from openmind.predictor.model.drawn import Column, Row
+    from openmind.rule.model.consequence import Consequence
+    from openmind.rule.model.drawn import Column, Row
 
     taking = Covering((("color at target is another player", "==", True),), 0, 0)
-    return (Consequence("Removed", "piece", (Row("source"), Column("target")), when=(taking,)),)
+    return (Consequence("Removed", "move", "piece", (Row("source"), Column("target")), when=(taking,)),)
 
 
 def test_what_an_action_brings_about_is_concluded_from_the_rules_that_allow_it():
