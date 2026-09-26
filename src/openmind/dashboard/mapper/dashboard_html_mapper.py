@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from openmind.dashboard.mapper.svg_chart_mapper import SvgChartMapper
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
 from openmind.dashboard.model.game_listing import GameListing
+from openmind.dashboard.model.constraint_learning import ConstraintLearning
 from openmind.dashboard.model.game_view import GameView
 
 GIGABYTE = 1024**3
@@ -13,6 +14,10 @@ STYLE = """
 body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem 1.25rem; background: #f7f7f5; color: #222; }
 h1 { font-size: 1.3rem; margin: 0 0 .25rem; } h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
 .muted { color: #666; font-size: .85rem; }
+nav { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1rem; }
+nav a { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .3rem .7rem;
+        text-decoration: none; color: #222; font-size: .9rem; }
+nav a:hover { border-color: #999; }
 .cards { display: flex; flex-wrap: wrap; gap: .75rem; }
 .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .6rem .9rem; min-width: 9rem; }
 .card b { display: block; font-size: 1.35rem; }
@@ -22,6 +27,9 @@ th, td { border: 1px solid #ddd; padding: .3rem .5rem; text-align: left; white-s
 th { background: #eee; }
 pre { background: #fff; border: 1px solid #ddd; padding: .6rem; overflow-x: auto; font-size: .8rem; }
 .warn { color: #a33; }
+td.agree { background: #e6f4ea; }
+td.mistake { background: #fce8e6; }
+td.count { text-align: right; font-variant-numeric: tabular-nums; }
 .legend { font-size: .85rem; margin: .4rem 0; padding-left: 1.2rem; } .legend b { font-weight: 600; }
 .charts { display: flex; flex-wrap: wrap; gap: .75rem; }
 .chart { margin: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .5rem .6rem; width: 30rem; max-width: 100%; }
@@ -35,6 +43,8 @@ pre { background: #fff; border: 1px solid #ddd; padding: .6rem; overflow-x: auto
 .board { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .6rem; width: 26rem; max-width: 100%; }
 .board svg { width: 100%; height: auto; display: block; }
 .board pre { margin: 0; border: 0; }
+.heuristics { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
+.heuristics > div, .heuristics table { max-width: 40rem; }
 .steps { display: flex; gap: .4rem; align-items: center; margin-top: .5rem; flex-wrap: wrap; }
 .steps button { font-size: 1rem; padding: .2rem .6rem; }
 .record { flex: 1 1 18rem; min-width: 0; white-space: pre-wrap; word-break: break-word; }
@@ -84,6 +94,9 @@ class DashboardHtmlMapper:
             f"<meta http-equiv='refresh' content='{refresh_seconds}'>",
             f"<title>{domain} training</title><style>{STYLE}</style></head><body>",
             f"<h1>{domain} training</h1>",
+            # This page builds its own shell rather than going through `_page`, so it has to be given the
+            # navigation too — which is exactly how it came to be the one page without any.
+            self._nav(),
             f"<div class='muted'>Snapshot {html.escape(snapshot.taken_at)}, reloading every {refresh_seconds} seconds</div>",
             self._progress(snapshot),
             self._machine(snapshot),
@@ -190,18 +203,31 @@ class DashboardHtmlMapper:
             )
         return charts
 
+    #: Every page worth going to, and what to call it. One list, so a page added here is reachable from all of
+    #: them rather than from whichever one happened to link to it.
+    PAGES = (("/", "Training"), ("/constraints", "What it is learning"), ("/games", "Games"))
+
     def _page(self, title: str, refresh_seconds: int, body: str) -> str:
-        """A page of its own, under the title, reloading itself every so many seconds (never at 0)."""
+        """A page of its own, under the title, reloading itself every so many seconds (never at 0).
+
+        Every page carries the same way to every other. Before, a page was reached by whichever other page
+        happened to link to it, so the run's learning could only be found by knowing its address."""
         refresh = f"<meta http-equiv='refresh' content='{refresh_seconds}'>" if refresh_seconds > 0 else ""
         return (
             "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width, initial-scale=1'>"
             f"{refresh}<title>{html.escape(title)}</title><style>{STYLE}</style></head><body>"
-            f"<h1>{html.escape(title)}</h1>{body}</body></html>"
+            f"<h1>{html.escape(title)}</h1>{self._nav()}{body}</body></html>"
         )
 
+    def _nav(self) -> str:
+        """The same way to every page, on every page."""
+        return "<nav>" + " ".join(
+            f"<a href='{where}'>{html.escape(name)}</a>" for where, name in self.PAGES
+        ) + "</nav>"
+
     def games_page(self, domain: str, games: Sequence[GameListing], refresh_seconds: int) -> str:
-        """The page listing every decisive game, newest first, each linking to its own page."""
+        """The page listing every remembered game, newest first, each linking to its own page."""
         rows = [
             (
                 f"<a href='/game/{html.escape(game.id)}'>{html.escape(game.label)}</a>",
@@ -215,22 +241,138 @@ class DashboardHtmlMapper:
         ]
         players = games[0].players if games else ()
         header = ("game", "ended", *(player for player, _ in players), "payoffs", "ending", "plies")
-        body = self._table(header, rows, escaped=True) if rows else "<p>No decisive game yet.</p>"
+        body = self._table(header, rows, escaped=True) if rows else "<p>No game played yet.</p>"
         return self._page(
-            f"{domain} decisive games",
+            f"{domain} games",
             refresh_seconds,
-            f"<div class='muted'><a href='/'>Back to the training</a></div><h2>Decisive games ({len(games)})</h2>{body}",
+            f"<div class='muted'><a href='/'>Back to the training</a></div><h2>Games ({len(games)}, "
+            f"{sum(1 for one in games if len(set(one.payoffs)) > 1)} decisive)</h2>{body}",
         )
 
     def game_page(self, domain: str, game: GameView, refresh_seconds: int) -> str:
-        """The page showing one decisive game, with links to the decisive games just before and after it."""
+        """The page showing one game, with links to the games just before and after it."""
         links = [
-            "<a href='/games'>All decisive games</a>",
-            *(() if game.previous_id is None else (f"<a href='/game/{html.escape(game.previous_id)}'>Previous decisive game</a>",)),
-            *(() if game.next_id is None else (f"<a href='/game/{html.escape(game.next_id)}'>Next decisive game</a>",)),
+            "<a href='/games'>All games</a>",
+            *(() if game.previous_id is None else (f"<a href='/game/{html.escape(game.previous_id)}'>Previous game</a>",)),
+            *(() if game.next_id is None else (f"<a href='/game/{html.escape(game.next_id)}'>Next game</a>",)),
             "<a href='/'>Back to the training</a>",
         ]
         return self._page(f"{domain} {game.label}", refresh_seconds, self._game_section(game, game.label, " · ".join(links)))
+
+    def constraints_page(self, domain: str, learning: ConstraintLearning | None, refresh_seconds: int) -> str:
+        """The page following a run that is working out what a game refuses: the position it is on, how the
+        constraints it now holds stand against that position, and the constraints themselves."""
+        if learning is None:
+            return self._page(
+                f"{domain} constraints",
+                refresh_seconds,
+                "<p class='muted'>No run has said anything yet. One writes here after each position it learns "
+                "from.</p>",
+            )
+        cards = "".join(
+            f"<div class='card'><span class='muted'>{html.escape(name)}</span><b>{html.escape(value)}</b></div>"
+            for name, value in (
+                ("position", str(learning.position)),
+                ("constraints", str(len(learning.rules))),
+                ("readings", str(learning.readings)),
+                ("moves the game allows", str(learning.legal)),
+                ("candidates", str(learning.candidates)),
+                ("seconds", f"{learning.seconds:.1f}"),
+                *((("matching the rules", learning.matched),) if learning.matched else ()),
+            )
+        )
+        board = (
+            f"<div class='board'>{learning.picture}</div>"
+            if learning.picture
+            else f"<div class='board'><pre>{html.escape(learning.fen)}</pre></div>"
+        )
+        return self._page(
+            f"{domain} constraints",
+            refresh_seconds,
+            f"<p class='muted'>{html.escape(learning.at)} &middot; {html.escape(learning.fen)}</p>"
+            f"<div class='cards'>{cards}</div>"
+            f"<h2>The position it is on</h2><div class='game'>{board}</div>"
+            f"<h2>How it is doing</h2>{self._matrix(learning)}"
+            f"<h2>What it refuses</h2>{self._rules(learning)}"
+            f"<h2>What a move does</h2>{self._consequences(learning)}"
+            f"<h2>What the notation says</h2>{self._notation(learning)}",
+        )
+
+    def _consequences(self, learning: ConstraintLearning) -> str:
+        """What the predictor has worked out a move does, drawn from the action rather than from the position it
+        left.
+
+        A consequence naming a square outright — rather than the row of where the move started and the column of
+        where it lands — is one the sightings have not yet narrowed, and says the evidence is still thin rather
+        than that the move is about that square."""
+        if not learning.consequences:
+            return "<p class='muted'>Nothing yet. It takes two moves that differ before a drawing narrows.</p>"
+        return "".join(f"<pre>{html.escape(one)}</pre>" for one in learning.consequences)
+
+    def _notation(self, learning: ConstraintLearning) -> str:
+        """What the game's notation is made of and what its pieces say.
+
+        The sorts and the shapes come from the strings alone, knowing nothing of what any move did; the
+        couplings are measured against what happened. Keeping those apart is what lets the two check each other
+        rather than agree by construction.
+
+        A part nothing says anything about is the half the rules have to supply — in chess that is where a move
+        *starts*, left out precisely because the rules make it recoverable."""
+        if not (learning.sorts or learning.shapes or learning.couplings):
+            return (
+                "<p class='muted'>Nothing yet. A piece of notation is measured once it has turned up in enough "
+                "moves to be more than an accident.</p>"
+            )
+        sorts = ", ".join(html.escape(one) for one in learning.sorts) or "none"
+        shapes = "".join(f"<pre>{html.escape(one)}</pre>" for one in learning.shapes[:12])
+        couplings = (
+            "".join(f"<pre>{html.escape(one)}</pre>" for one in learning.couplings[:20])
+            or "<p class='muted'>No piece of it says anything yet.</p>"
+        )
+        return (
+            f"<p><span class='muted'>sorts of character, found by the company they keep &middot; </span>"
+            f"<b>{sorts}</b></p>"
+            f"<details><summary>{len(learning.shapes)} shapes it comes in</summary>{shapes}</details>"
+            f"<p class='muted'>what each place of each shape says, firmest first</p>{couplings}"
+        )
+
+    def _matrix(self, learning: ConstraintLearning) -> str:
+        """Agreement and disagreement, counted over every candidate the solver could propose.
+
+        Agreement is green and the two mistakes are red, so which corner is which is seen before it is read. The
+        two mistakes are still named underneath, because they are not the same mistake and the colour says only
+        that both are wrong. Letting a refused candidate through is a move OMF would offer and
+        the game would reject, and it finds out at once. Refusing a move the game allows is a move OMF will never
+        make, and nothing will ever tell it what it missed."""
+        rows = [
+            ("the game refuses", (learning.rightly_refused, "agree"), (learning.let_through, "mistake")),
+            ("the game allows", (learning.wrongly_refused, "mistake"), (learning.rightly_allowed, "agree")),
+        ]
+        head = "".join(
+            f"<th>{html.escape(one)}</th>"
+            for one in ("", "the constraints refuse", "the constraints allow")
+        )
+        body = "".join(
+            f"<tr><td>{html.escape(said)}</td>"
+            + "".join(f"<td class='count {kind}'>{count}</td>" for count, kind in cells)
+            + "</tr>"
+            for said, *cells in rows
+        )
+        return (
+            f"<div class='scroll'><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
+            + "<ul class='legend'>"
+            f"<li><b>{learning.let_through}</b> let through: a move OMF would offer and the game would reject, "
+            "which it hears about at once.</li>"
+            f"<li class='warn'><b>{learning.wrongly_refused}</b> wrongly refused: a move OMF will never make, "
+            "and nothing will ever tell it what it missed.</li></ul>"
+        )
+
+    def _rules(self, learning: ConstraintLearning) -> str:
+        """Every constraint it now holds, longest first, since a constraint still carrying a whole position is
+        what distilling has not yet got to."""
+        if not learning.rules:
+            return "<p class='muted'>None yet.</p>"
+        return "".join(f"<pre>{html.escape(one)}</pre>" for one in learning.rules)
 
     def missing_page(self, domain: str) -> str:
         return self._page(f"{domain} decisive games", 0, "<p>No such decisive game. <a href='/games'>All decisive games</a></p>")
@@ -239,8 +381,8 @@ class DashboardHtmlMapper:
         game = snapshot.latest_game
         if game is None:
             return ""
-        link = f"<a href='/games'>All decisive games ({snapshot.decisive_games})</a>"
-        return self._game_section(game, "Latest decisive game", link)
+        link = f"<a href='/games'>All games ({snapshot.decisive_games} decisive)</a>"
+        return self._game_section(game, "Latest game", link)
 
     def _game_section(self, game: GameView, heading: str, links: str) -> str:
         players = ", ".join(f"{html.escape(model)} ({html.escape(player)}) {payoff:g}" for (player, model), payoff in zip(game.players, game.payoffs, strict=True))
@@ -254,8 +396,31 @@ class DashboardHtmlMapper:
             "<div class='steps'><button id='first' title='first position'>⏮</button><button id='previous' title='previous move'>◀</button>"
             "<button id='next' title='next move'>▶</button><button id='last' title='last move'>⏭</button>"
             f"<span id='caption' class='muted'>start, {len(game.moves)} moves</span></div></div>{record}</div>"
+            f"{self._heuristics(game)}"
             f"<script id='game-data' type='application/json'>{data.replace('</', '<\\/')}</script><script>{GAME_SCRIPT}</script>"
         )
+
+    def _heuristics(self, game: GameView) -> str:
+        """What each side judged with, rule by rule with its weight.
+
+        A name says which heuristic won and nothing about why. The weight on a rule is what the thing that rule
+        reads is worth to it, so these read as what each side believed a position was made of — which is the
+        thing to argue with when one of them keeps winning."""
+        if not game.heuristics:
+            return ""
+        sections = []
+        for player, named, rules in game.heuristics:
+            heading = f"<h3>{html.escape(player)}: {html.escape(named)}</h3>"
+            if not rules:
+                sections.append(f"{heading}<p class='muted'>No rules to read: it judged with nothing.</p>")
+                continue
+            body = self._table(
+                ("rule", "weight"),
+                [(html.escape(name), f"{weight:+.6g}") for name, weight in rules],
+                escaped=True,
+            )
+            sections.append(f"{heading}<p class='muted'>{len(rules)} rules, heaviest first</p>{body}")
+        return f"<h2>What each side judged with</h2><div class='heuristics'>{''.join(sections)}</div>"
 
     def _models(self, snapshot: DashboardSnapshot) -> str:
         if not snapshot.models:

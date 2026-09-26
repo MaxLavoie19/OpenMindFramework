@@ -1,3 +1,4 @@
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import replace
@@ -21,10 +22,15 @@ logger = logging.getLogger(__name__)
 
 
 class GameBrowser:
-    """Browses the decisive games a domain's knowledge base remembers, those whose payoffs differ: lists them, newest
-    first, without replaying any, and shows one, replayed from its moves and drawn position by position with the domain's
-    picture rule, or laid out as text without one. The game last drawn is kept, so a page reloading doesn't draw it
-    again."""
+    """Browses the games a domain's knowledge base remembers: lists them, newest first, without replaying any, and
+    shows one, replayed from its moves and drawn position by position with the domain's picture rule, or laid out as
+    text without one. The game last drawn is kept, so a page reloading doesn't draw it again.
+
+    **Every game, not only the decisive ones.** It used to list only games whose payoffs differ, on the reasoning
+    that a game everyone was paid the same taught nothing. That holds for distilling a heuristic out of positions
+    and fails for telling two heuristics apart: there a draw pays each side half a point and counts as much as
+    anything else, and two heuristics that mostly draw against each other is the finding. Which games were
+    decisive is still said, since it is worth knowing; it is no longer what may be looked at."""
 
     def __init__(self, game_factory: Callable[[str, object], RuleBasedGame] = create_game) -> None:
         self._game_factory = game_factory
@@ -32,17 +38,17 @@ class GameBrowser:
         self._kept: GameView | None = None
 
     def decisive(self, directory: Path, domain_name: str) -> tuple[GameListing, ...]:
-        """Every decisive game, the newest first; none without a knowledge base."""
+        """Every remembered game, the newest first; none without a knowledge base."""
         knowledge_base = self._knowledge_base(directory, domain_name)
         return () if knowledge_base is None else tuple(reversed([self._listing(record) for record in self._records(knowledge_base)]))
 
     def latest(self, directory: Path, domain_name: str) -> GameView | None:
-        """The newest decisive game, drawn; None without one."""
+        """The newest game, drawn; None without one."""
         listings = self.decisive(directory, domain_name)
         return None if not listings else self.game(directory, domain_name, listings[0].id)
 
     def game(self, directory: Path, domain_name: str, record_id: str) -> GameView | None:
-        """The decisive game remembered under that record id, drawn; None when there's no such decisive game."""
+        """The game remembered under that record id, drawn; None when there's no such game."""
         knowledge_base = self._knowledge_base(directory, domain_name)
         if knowledge_base is None:
             return None
@@ -83,6 +89,7 @@ class GameBrowser:
             record_id,
             previous_id,
             next_id,
+            self._heuristics(summary),
         )
         logger.info("Drew %s: %d positions", summary.label, len(pictures))
         return self._kept
@@ -91,12 +98,45 @@ class GameBrowser:
         return create_knowledge_base(domain_name, directory) if (directory / domain_name).is_dir() else None
 
     def _records(self, knowledge_base: KnowledgeBase) -> list[DirectExperience]:
-        """The decisive games, as the direct experiences they are kept as, oldest first."""
-        return [
-            experience
-            for experience in GameMemory(knowledge_base).experiences()
-            if len({item["payoff"] for item in GameSummaryJsonMapper.players(str(experience.value))}) > 1
+        """Every remembered game, as the direct experiences they are kept as, oldest first."""
+        return list(GameMemory(knowledge_base).experiences())
+
+    def _heuristics(self, summary: object) -> tuple[tuple[str, str, tuple[tuple[str, float], ...]], ...]:
+        """What each side judged with, as its name and its rules with their weights.
+
+        A rule-based model is remembered by what it judges with, which is a description of its rules; anything
+        else is remembered by whatever builds it again, and that is not a list of rules, so it comes back named
+        with nothing under it rather than with something invented."""
+        found = []
+        for player, model in zip(summary.players, summary.models, strict=True):  # type: ignore[attr-defined]
+            found.append((player, model.name, self._rules(model.text)))
+        return tuple(found)
+
+    def _rules(self, text: str) -> tuple[tuple[str, float], ...]:
+        """The rules a model's description lists with their weights, heaviest first; nothing for a description
+        that is not one of rules.
+
+        What a rule reads is shown where it says anything a name does not: a fitted rule is named for its own
+        expression, so saying both would say it twice."""
+        try:
+            described = json.loads(text)
+        except (TypeError, ValueError):
+            return ()
+        if not isinstance(described, dict):
+            return ()
+        listed = [one for kind in ("position", "move") for one in described.get(kind, []) if isinstance(one, list)]
+        rules = [
+            (self._named(str(one[0]), str(one[2]) if len(one) > 2 else ""), float(one[1]))
+            for one in listed
+            if len(one) >= 2
         ]
+        return tuple(sorted(rules, key=lambda one: -abs(one[1])))
+
+    def _named(self, name: str, source: str) -> str:
+        """A rule as a page reads it: what it reads, and what it is called where that is something else."""
+        if not source or source == name:
+            return name
+        return f"{source}    ({name})"
 
     def _listing(self, record: DirectExperience) -> GameListing:
         data = GameSummaryJsonMapper.fields(str(record.value))

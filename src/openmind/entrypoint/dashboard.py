@@ -11,16 +11,20 @@ from openmind.dashboard.constant.dashboard_constant import DEFAULT_PORT, DEFAULT
 from openmind.dashboard.factory.dashboard_factory import create_dashboard_service
 from openmind.dashboard.mapper.dashboard_html_mapper import DashboardHtmlMapper
 from openmind.dashboard.model.dashboard_settings import DashboardSettings
+from openmind.dashboard.service.constraint_learning_reader import ConstraintLearningReader
 
 logger = logging.getLogger(__name__)
 
-#: Where a decisive game's page is served, followed by its record id.
+#: Where a game's page is served, followed by its record id.
 GAME_PATH = "/game/"
+
+#: Where the page following a run working out a game's constraints is served.
+CONSTRAINTS_PATH = "/constraints"
 
 
 def main(argv: list[str] | None = None) -> None:
     """Serves pages following a domain's value training: the training's page (its progress, the machine, every round,
-    the latest rules and the latest decisive game), the list of decisive games at /games, and each decisive game at
+    the latest rules and the latest game), the list of games at /games, and each game at
     /game/<id>, reading afresh for every request."""
     parser = argparse.ArgumentParser(prog="openmind-dashboard", description="Serve a page following a value training.")
     parser.add_argument("domain", help="domain whose training to follow, such as chess")
@@ -69,12 +73,15 @@ def main(argv: list[str] | None = None) -> None:
 
 def page(settings: DashboardSettings, refresh: int, path: str = "/") -> tuple[int, bytes]:
     """A status code and the page a request's path asks for: `/` the training's page, from a snapshot taken now;
-    `/games` the list of decisive games; `/game/<id>` one decisive game, 404 when there's no such game; anything else
+    `/games` the list of games; `/game/<id>` one game, 404 when there's no such game; anything else
     404. A page that fails gives a short error page, logged."""
     mapper = DashboardHtmlMapper()
     try:
         if path in ("/", "/index.html"):
             return 200, mapper.to_html(_SERVICE.snapshot(settings), refresh).encode("utf-8")
+        if path == CONSTRAINTS_PATH:
+            learning = ConstraintLearningReader().latest(settings.log_directory)
+            return 200, mapper.constraints_page(settings.domain, learning, refresh).encode("utf-8")
         browser = _SERVICE.game_browser
         if path == "/games":
             games = browser.decisive(settings.knowledge_directory, settings.domain)
