@@ -32,13 +32,22 @@ class ClauseLearner:
     satisfies cannot say that, which is why asking what they all have in common gives so little. So a clause is
     grown to cover *some* of the cases, what it covers is set aside, and another is grown for the rest.
 
-    **Each clause is grown from the top.** Start from the clause that says nothing and add the literal that best
-    tells the cases where it holds from the cases where it does not, taking the literal's terms from what is
-    already bound. Stop when it lets nothing through that it should not.
+    **Each clause is grown from a case, upward.** One case is said outright — what was read of it, less anything
+    that was read the same way of every other case, since that cannot be part of why this one holds and another
+    does not. The clause then meets further cases and is widened to take each of them in: where two cases agree a
+    term stays, where they differ a variable goes in its place, and the same pair of differing terms always gives
+    the same variable. A widening that would take in a case which does not hold is refused, and another case is
+    tried instead.
 
-    **The literals it may add come from the signature and nowhere else** — the game's own readings, with the terms
-    they were seen holding. So what OMF can learn to say is exactly what the game let it read, and never something
-    somebody thought a game ought to have.
+    So a clause says less the more cases it has met, and what it ends up saying is what those cases had in common
+    — never something proposed and tested. The variables come out by construction rather than by search, which is
+    the whole reason for working this way round: a case whose mover is one side and a case whose mover is the
+    other give the *same* variable wherever either side appeared, in whose turn it is and in whose the thing is
+    alike. That is one clause about whoever is acting, arrived at by widening two cases.
+
+    **It can only ever say what the game let it read.** A clause is built out of the readings of the cases it was
+    grown from and out of nothing else, so what OMF learns to say is exactly what the game offered, and never
+    something somebody thought a game ought to have.
 
     What it gains over conditions on flattened readings is variables. A reading named
     `"rows from source to target"` carries its slots in its name and can only ever be compared to a value; the
@@ -68,7 +77,6 @@ class ClauseLearner:
         examples: Sequence[Example],
         head: Literal,
         budget: InferenceBudget,
-        signature: Signature | None = None,
         least: int = 1,
         loosely: float = 0.0,
         positions: int = 1,
@@ -95,6 +103,8 @@ class ClauseLearner:
         holding = [one for one in examples if one.holds]
         against = [one for one in examples if not one.holds]
         index = CaseIndex(tuple(against))
+        everywhere = self._holding_everywhere(examples)
+        held = self._holding_everywhere(examples)
         found: list[Clause] = list(starting)
         left = [one for one in holding if not self.covered(found, one)]
         given = len(found)
@@ -103,7 +113,7 @@ class ClauseLearner:
             if self._clock() >= deadline:
                 stopped = "the time ran out"
                 break
-            grown, used, replaced = self._widened(left, index, head, deadline, loosely, positions, found)
+            grown, used, replaced = self._widened(left, index, head, deadline, loosely, positions, found, held)
             if replaced is not None:
                 found = [one for one in found if one != replaced]
             if grown is None:
@@ -132,6 +142,7 @@ class ClauseLearner:
         loosely: float,
         positions: int,
         held: Sequence[Clause] = (),
+        everywhere: frozenset[Literal] = frozenset(),
     ) -> tuple[Clause | None, list[Example], Clause | None]:
         """One clause, generalised from a case as far as the cases that do not hold allow.
 
@@ -149,14 +160,18 @@ class ClauseLearner:
             wider, used, replaced = widened
             return wider, used, replaced
         start = next(
-            (number for number, one in enumerate(left) if not self._slips(self._outright(head, one), index, allowed)),
+            (
+                number
+                for number, one in enumerate(left)
+                if not self._slips(self._outright(head, one, everywhere), index, allowed)
+            ),
             None,
         )
         if start is None:
             logger.debug("No case can be said outright without letting through what does not hold")
             return None, [], None
         seed = left[start]
-        clause = self._outright(head, seed)
+        clause = self._outright(head, seed, everywhere)
         used = [seed]
         for example in (*left[:start], *left[start + 1 :]):
             if self._clock() >= deadline:
@@ -212,12 +227,42 @@ class ClauseLearner:
                 return True
         return False
 
-    def _outright(self, head: Literal, example: Example) -> Clause:
-        """That case said as a clause: everything read of it, and nothing else.
+    def _outright(self, head: Literal, example: Example, everywhere: frozenset[Literal] = frozenset()) -> Clause:
+        """That case said as a clause: everything read of it that could bear on it, and nothing else.
 
         The most specific clause there is about it. It covers that case and, unless another case reads exactly the
-        same, nothing else — which is where generalising starts from."""
-        return Clause((head, *(one.denied for one in example.literals if not one.negated)))
+        same, nothing else — which is where generalising starts from.
+
+        What is left out is anything that held of every case there was. Which castlings still stand, how many
+        moves since a capture, whose turn it is — inside the evidence those answer the same for the cases that
+        hold and for the cases that do not, so a rule is no more selective for carrying them. Left in, every rule
+        grown here carries them, something has to take them out again afterwards, and the next surprise grows
+        another rule that carries them. Not putting them in is the half of that which is free."""
+        return Clause(
+            (
+                head,
+                *(
+                    one.denied
+                    for one in example.literals
+                    if not one.negated and one not in everywhere
+                ),
+            )
+        )
+
+    def _holding_everywhere(self, examples: Sequence[Example]) -> frozenset[Literal]:
+        """Those readings that held of every case there was.
+
+        A reading that held of all of them excluded none of them, so it cannot be part of why some hold and
+        others do not. Anything true everywhere is in the first case, so only the first case's readings are
+        candidates and the rest are asked to contradict them."""
+        if not examples:
+            return frozenset()
+        found = {one for one in examples[0].literals if not one.negated}
+        for example in examples[1:]:
+            found &= example.held
+            if not found:
+                break
+        return frozenset(found)
 
     def generalised(self, clause: Clause, example: Example) -> Clause | None:
         """The least general clause covering both what that clause covers and that case.
@@ -268,7 +313,14 @@ class ClauseLearner:
         nothing, and a clause carrying a dozen of them is a dozen times slower to ask about and no more selective.
 
         This is not the same as dropping a reading because the cases suggest it is surplus. It is dropped because it
-        cannot say anything, whatever the cases turn out to be, so nothing is risked by its going."""
+        cannot say anything, whatever the cases turn out to be, so nothing is risked by its going.
+
+        **What is looked at is what was read, not what it was read of.** A reading names the thing it is about and
+        then gives the value: `rows apart(source, target, 3)` is about the source and the target, and what it says
+        of them is three. The naming places hold the action's own parameters and are constants in every case there
+        will ever be, so asking whether *every* place is a lone variable asks something that can never be true, and
+        a clause generalised until it says only "there is some number of rows apart" keeps that reading for ever.
+        Asking it of the value alone is asking the question that was meant."""
         counted: dict[Variable, int] = {}
         for literal in literals:
             for variable in literal.variables:
@@ -277,7 +329,7 @@ class ClauseLearner:
             literal
             for literal in literals
             if not literal.arguments
-            or not all(isinstance(one, Variable) and counted.get(one, 0) < 2 for one in literal.arguments)
+            or not (isinstance(literal.arguments[-1], Variable) and counted.get(literal.arguments[-1], 0) < 2)
         ]
 
     def _about_the_same(self, one: Literal, other: Literal) -> bool:
@@ -374,63 +426,216 @@ class ClauseLearner:
             return None
         return Clause((one.head, *(held.denied for held in kept)), one.probability, one.name)
 
-    def relaxed(
-        self, clauses: Sequence[Clause], examples: Sequence[Example], loosely: float = 0.0
+    def distilled(
+        self,
+        clauses: Sequence[Clause],
+        examples: Sequence[Example],
+        priced: Callable[[Clause], float] | None = None,
+        exponent: float = 2.0,
+        budget: InferenceBudget | None = None,
     ) -> tuple[Clause, ...]:
-        """The clauses with every literal dropped that turns away cases which hold.
+        """The simplest set of rules that still accounts for everything these account for.
 
-        A literal earns its place by ruling something out. One that also rules *in* nothing — that turns away
-        cases which hold and meet every other literal of its clause — is not a reason. It is the shape of the
-        evidence the clause happened to be grown from: the half of the directions the things in those cases
-        happened to go. Growing a clause puts such literals in and nothing ever takes them out, because on the
-        cases it was grown from they were never contradicted.
+        One thing is minimised — what the rules cost — under one thing that may not be given up: every case is
+        answered exactly as it was answered before. The one way of getting cheaper is to say several rules as the
+        one rule they are all instances of, which is what 1+1=2, 1+2=3 and 1+3=4 have to say once they are x+y=z.
 
-        Dropping goes on while it can, since a literal may only become droppable once another has gone.
+        **A rule's cost grows faster than its length**, and that is what asks for simplicity rather than merely
+        permitting it. Priced by the reading, one rule of ten readings and two rules of five cost the same and
+        nothing prefers either; priced by the square, they are a hundred against fifty, and the pair of simple
+        rules wins. It does not therefore break everything into pieces: one rule of three beats three rules of
+        three, nine against twenty-seven. Simple where it can be, few where it can.
 
-        **What it needs is cases from more than one position.** A literal is only shown to be accidental where the
-        cases disagree about it, and within one position most of them cannot: everything read of the position as a
-        whole — whose turn it is, how many moves since a capture — is the same for every case in it, so a clause
-        that picked such a reading up is never contradicted there and the literal never looks droppable. Given
-        cases from several positions it does, which is the whole reason for asking this away from where a clause
-        was grown."""
-        holding = CaseIndex(tuple(one for one in examples if one.holds))
-        index = CaseIndex(tuple(one for one in examples if not one.holds))
-        allowed = loosely * max(len(index.cases), 1)
-        found: list[Clause] = []
-        for clause in clauses:
-            dropping = True
-            while dropping and clause.body:
-                dropping = False
-                for literal in clause.body:
-                    without = Clause(tuple(one for one in clause.literals if one != literal.denied))
-                    if not without.body:
-                        continue
-                    if self._slips(without, index, allowed):
-                        continue
-                    if not self._turned_away(clause, without, holding):
-                        continue
-                    clause, dropping = without, True
-                    logger.debug("Dropped %s from a clause: it turned away cases that hold", literal.predicate)
+        **Nothing is given up and nothing is tried.** What may change is how the rules are said, never what they
+        say: every case is covered after exactly as it was covered before, the ones that hold and the ones that do
+        not alike. No rule is taken away to see whether the others cope and no reading is taken out of a rule to
+        see whether it still works — that is perturbing a set of rules until it breaks, which is a different
+        activity. A rule that proposed more than it did would be a different rule, not a cheaper way of saying the
+        same one.
+
+        That is also why nothing here has to be told what a loose rule costs elsewhere. Asked only to keep every
+        case accounted for and left free to say less, the cheapest answer is the rule that asks nothing and allows
+        everything, and something has to make that expensive. Asked to give the same answers, it is not an answer
+        at all, and the question does not arise.
+
+        **This is what merging should have been.** Anti-unifying two rules because the result lets nothing through
+        replaces two things that were said with one thing that says less than either: a pawn's step and its double
+        step become a pawn moving some distance up its column, which permits three squares from anywhere. Here the
+        same two rules are offered and refused, because the one does not answer as the two did. Merging had nothing
+        to refuse it with."""
+        price = priced if priced is not None else (lambda one: float(len(one.body)) ** exponent)
+        deadline = self._clock() + (budget.seconds if budget is not None else float("inf"))
+        found = list(clauses)
+        # A condition that held of every case excludes nothing, so a rule without it is that same rule. Counted
+        # once, here, rather than asked again of each rule that carries it.
+        wanted = {one for clause in clauses for one in clause.body if one.ground}
+        invariant = frozenset(one for one in wanted if all(one in example.held for example in examples))
+        answers = [self.covered(found, one) for one in examples]
+        cost = sum(price(one) for one in found)
+        started, stopped = cost, "nothing further pays"
+        improving = True
+        while improving:
+            improving = False
+            # The cheapest way of saying them is taken, not the first one found. Cost is quick to work out and
+            # whether a way of saying them answers alike is not, so every way is priced, the dear ones are never
+            # asked about, and the cheapest that answers alike wins. Taking the first instead lets a small saving
+            # spoil a large one: dropping a condition two rules share is a saving, and it is also the last thing
+            # that showed they were one rule, which was the larger saving by far.
+            offered = sorted(
+                ((sum(price(one) for one in candidate), candidate, how)
+                 for candidate, how in self._simpler(found, invariant)),
+                key=lambda held: held[0],
+            )
+            for now, candidate, how in offered:
+                if self._clock() >= deadline:
+                    improving, stopped = False, "the time ran out"
                     break
-            found.append(clause)
+                if now >= cost:
+                    break
+                if not self._answering(candidate, examples, answers):
+                    continue
+                found, cost, improving = candidate, now, True
+                logger.debug("%s, leaving %d rules at a cost of %.0f", how, len(found), cost)
+                break
+        logger.info(
+            "Distilled %d rules costing %.0f into %d costing %.0f, answering %d cases exactly as before: %s",
+            len(clauses), started, len(found), cost, len(examples), stopped,
+        )
         return tuple(found)
 
-    def _turned_away(self, clause: Clause, without: Clause, holding: CaseIndex) -> bool:
-        """Whether dropping that literal lets in a case that holds and the clause was turning away.
+    def allowing(
+        self,
+        clauses: Sequence[tuple[Clause, tuple[Clause, ...]]],
+        examples: Sequence[Example],
+        exponent: float = 2.0,
+        budget: InferenceBudget | None = None,
+    ) -> tuple[tuple[Clause, tuple[Clause, ...]], ...]:
+        """Each rule with its constraints, said as simply as they can be while allowing exactly what they allowed.
 
-        Dropping a literal can only widen a clause: every case the clause covered, the clause without it covers
-        too. So the two sets are never crossed, only nested, and asking whether the wider one is wider needs a
-        single case rather than a count of each — the first case that gets in where it did not before settles it,
-        and where the literal was earning its place there is usually no such case and the narrowing finds it.
+        A rule and what refuses it are one thing and have to be simplified as one thing. What is allowed is what
+        the rule covers and no constraint of its own covers, so it is kept exactly where every case the rule
+        covers is refused after by exactly the constraints that refused it before — and then the two together
+        allow what the two together allowed, case for case.
 
-        It is worth saying why this is not the same question as `_slips`. That one asks what a dropped literal
-        lets through that should stay out; this asks what it was keeping out that should have been let in. A
-        literal has to fail both to be an accident: rule nothing out, and turn something away."""
-        settled = [one for one in without.body if one.ground and not self._evaluable.evaluable(one.predicate)]
-        for one in holding.narrowed(settled):
-            if self.covers(without, one) and not self.covers(clause, one):
-                return True
-        return False
+        Constraints need this more than rules do. Each is learned in the one position that showed it up and keeps
+        everything that position read of itself, so a constraint about a way being blocked arrives saying also
+        that it was white to move, that no capture had happened for three moves, and that this position had come
+        up once. It then refuses nothing anywhere else, because nowhere else are all of those true at once, and
+        the same constraint is learned again in the next position that needs it. Hundreds of them pile up and not
+        one of them is doing anything.
+
+        The readings that never varied go first and the folding follows, in that order and for that reason: while
+        each of two constraints carries a different position's accidents, neither says what the other says, and
+        nothing can see that they were one constraint all along.
+
+        A constraint is asked only of the cases its own rule covers, which is where it was learned and the only
+        place it is ever consulted. Asked of everything, it would be judged on cases that are another rule's
+        business entirely."""
+        found: list[tuple[Clause, tuple[Clause, ...]]] = []
+        was = sum(len(held.body) for _, exclusions in clauses for held in exclusions)
+        for generator, exclusions in clauses:
+            mine = [one for one in examples if self.covers(generator, one)]
+            if not exclusions or not mine:
+                found.append((generator, tuple(exclusions)))
+                continue
+            kept = self.distilled(exclusions, mine, exponent=exponent, budget=budget)
+            found.append((generator, kept))
+        now = sum(len(held.body) for _, exclusions in found for held in exclusions)
+        logger.info(
+            "Said %d rules and their %d constraints with %d readings instead of %d, allowing the same",
+            len(found), sum(len(exclusions) for _, exclusions in found), now, was,
+        )
+        return tuple(found)
+
+    def _answering(
+        self, clauses: Sequence[Clause], examples: Sequence[Example], answers: Sequence[bool]
+    ) -> bool:
+        """Whether those rules answer every case exactly as the answers say — covered where covered, not where not.
+
+        The first case answered differently settles it, and a way of saying the rules that has gone wrong usually
+        goes wrong early, so this rarely walks far."""
+        for one, answered in zip(examples, answers):
+            if self.covered(clauses, one) != answered:
+                return False
+        return True
+
+    def _simpler(self, clauses: Sequence[Clause], invariant: frozenset[Literal]):
+        """Every way of saying those rules that might be cheaper, each of them the same rules said differently.
+
+        Two kinds, and both are the same principle: of rules that answer alike, the simplest wins.
+
+        A condition true of every case there is excludes nothing, so the rule without it is the same rule. It is
+        not taken out to see whether the rule survives — the cases are counted first, and only a condition already
+        known to hold everywhere is offered for removal. That is what keeps this apart from perturbing a rule
+        until it breaks.
+
+        And rules are folded together one more at a time, every stage of the fold being offered rather than only
+        the pairs. Four ways of moving that are one way of moving may not get cheaper two at a time — the rule
+        covering two can cost as much as the two it replaced — while the rule covering all four is a fraction of
+        the price. Offering only pairs stops at the first step that does not pay and leaves the four standing."""
+        for number, clause in enumerate(clauses):
+            for literal in clause.body:
+                if literal not in invariant:
+                    continue
+                without = Clause(
+                    tuple(one for one in clause.literals if one != literal.denied), clause.probability, clause.name
+                )
+                if not without.body:
+                    continue
+                yield (
+                    [*clauses[:number], without, *clauses[number + 1 :]],
+                    f"said a rule without {literal.predicate}, which held of every case",
+                )
+        for first in range(len(clauses)):
+            running, taken = clauses[first], {first}
+            for second in range(len(clauses)):
+                if second in taken:
+                    continue
+                both = self._both(running, clauses[second])
+                if both is None or not both.body:
+                    continue
+                running, taken = both, taken | {second}
+                yield (
+                    [one for place, one in enumerate(clauses) if place not in taken] + [running],
+                    f"said {len(taken)} rules as one",
+                )
+
+    def narrowed(
+        self, clause: Clause, keeping: Sequence[Example], without: Sequence[Example]
+    ) -> Clause | None:
+        """That rule with conditions added until it stops covering what it must not, still covering what it must.
+
+        A constraint that refuses a move the game allows is wrong as it stands, which is not the same as being
+        worth nothing: everything it rightly refused would come back if it were simply dropped, and the next
+        surprise would learn it all again. What it needs is to say more, since a rule that says more covers less,
+        and the cases it must go on covering are what it may say it from.
+
+        A condition is taken from the readings those cases have in common — every one of them holds of all of
+        them, so adding it cannot stop the rule covering any of them — and of those the one ruling out the most of
+        what it must stop covering is taken first. It goes on until nothing it must not cover is covered.
+
+        None comes back where the cases it must keep and the cases it must drop cannot be told apart by any
+        reading they carry. That is not a failure of the rule but of the vocabulary, and it is the caller's to
+        answer: what it usually means is that the rule was wrong rather than merely too broad, and working it out
+        again from scratch is the honest answer."""
+        if not keeping:
+            return None
+        shared = {one for one in keeping[0].literals if not one.negated}
+        for example in keeping[1:]:
+            shared &= example.held
+        offered = [one for one in shared if one not in clause.body]
+        found, left = clause, [one for one in without if self.covers(clause, one)]
+        while left and offered:
+            best = max(offered, key=lambda one: sum(1 for case in left if one not in case.held))
+            if not any(best not in case.held for case in left):
+                return None
+            offered = [one for one in offered if one != best]
+            found = Clause((*found.literals, best.denied), found.probability, found.name)
+            left = [one for one in left if self.covers(found, one)]
+        if left:
+            return None
+        logger.debug("Narrowed a rule with %d more conditions so it stops covering %d cases", len(found.body) - len(clause.body), len(without))
+        return found
 
     def excluding(
         self, clauses: Sequence[Clause], examples: Sequence[Example], budget: InferenceBudget

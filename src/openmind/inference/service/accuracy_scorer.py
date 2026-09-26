@@ -1,6 +1,7 @@
 import logging
 import math
 
+from openmind.inference.service.statistics import Statistics
 from openmind.inference.constant.certainty_constant import ACCURACY, RIGHT, SCORED, SPREAD, SQUARED_ERROR
 from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
@@ -19,6 +20,11 @@ class AccuracyScorer:
     mechanism: right or wrong for a value that isn't a number, how far off for one that is. A mechanism's accuracy is a
     belief about it in that context: the share it got right, starting from its declared accuracy (uninformative, 0.5,
     without one) as if it had been scored twice. Its spread is the root of its mean squared error on numbers."""
+
+    def __init__(self, statistics: Statistics | None = None) -> None:
+        # What it leans on before anything is counted, and by how much. Written out here as arithmetic
+        # until now, in the same shape the chance fitter had written out separately.
+        self._statistics = Statistics() if statistics is None else statistics
 
     def settle(self, knowledge: KnowledgeBase, variable: str, context: str, anchor_id: str) -> tuple[Belief, ...]:
         """Scores every mechanism whose evidence bore on the variable against the anchor's value; gives back the
@@ -72,7 +78,7 @@ class AccuracyScorer:
         right = int(tags.get(RIGHT, 0)) + (1 if said == truth else 0)  # type: ignore[arg-type]
         mechanism = knowledge.mechanism_by_id(mechanism_id)
         declared = 0.5 if mechanism is None or mechanism.declared_accuracy is None else mechanism.declared_accuracy
-        accuracy = (right + declared * PRIOR_CASES) / (scored + PRIOR_CASES)
+        accuracy = self._statistics.leaning(right, scored, toward=declared, weight=PRIOR_CASES)
         logger.info(
             "%s said %r where %r turned out true: %s, accuracy %.3g over %d",
             name,

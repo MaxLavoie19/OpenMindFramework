@@ -63,3 +63,12 @@ DEFAULT_SEARCH_MEMORY = HALF_THE_MEMORY
 #: How many bytes a process holds before the mechanics clear their views, until a search sets its own share: half the
 #: machine's memory shared between its logical CPUs, so that every process of a pool fits together.
 DEFAULT_PROCESS_MEMORY = PROCESS_MEMORY
+
+#: The largest weight a seeded term may start a fit from, on the standardized scale the fit works on.
+#:
+#: A reasoned number is a count of things — fourteen squares a rook reaches — and the fit works on columns that
+#: have been centered and scaled, with its prediction pushed through a logistic. Fourteen means nothing there. So
+#: what the rules imply is put on that scale by the column's own scale and held to this, which is where a weight
+#: on a standardized column sensibly lives: far enough from nothing to say the term matters, near enough that a
+#: single reasoned number cannot swamp the fit it is only meant to start.
+SEEDED_WEIGHT = 2.0

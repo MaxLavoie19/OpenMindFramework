@@ -25,6 +25,24 @@ new model.
 ```python
 DataModel = Scalar | List | Grid | Map
 Coordinates = tuple[int, ...]            # (row, column) in two dimensions, from 1; any number of dimensions
+Value = str | int | float | bool | None | Record
+
+
+@dataclass(frozen=True, slots=True)
+class Record:
+    """A value with named parts: a square holding a white knight holds one thing that has a colour and a type.
+
+    Added 2026-09-22. Without it a game must fuse the parts into a name like "white knight", after which nothing
+    can ask what colour a piece is without knowing every piece there is, or spread one thing across two grids that
+    must then be kept in step — and a bug that moves one and not the other leaves a square holding a white king's
+    colour and a black rook's kind, which is not a piece at all. One value cannot come apart from itself.
+
+    Frozen and slotted, so a grid holding these stays hashable, comparable and picklable. A game declares its own
+    by subclassing; OMF never looks inside one except to read its parts by name, and never assumes what they are.
+    """
+
+    @property
+    def parts(self) -> tuple[tuple[str, Value], ...]: ...   # each part's name and what it holds, as declared
 
 
 @dataclass(frozen=True, slots=True)

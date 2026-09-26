@@ -4,6 +4,7 @@ from openmind.structure.model.data_model import DataModel
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.list import List
 from openmind.structure.model.map import Map
+from openmind.structure.model.machine import Machine
 from openmind.structure.model.scalar import Scalar
 from openmind.structure.model.value import Value
 
@@ -60,4 +61,4 @@ class State:
 
 
 def _model(model: DataModel | Value) -> DataModel:
-    return model if isinstance(model, Scalar | List | Grid | Map) else Scalar(model)
+    return model if isinstance(model, Scalar | List | Grid | Map | Machine) else Scalar(model)

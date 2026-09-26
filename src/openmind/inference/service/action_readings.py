@@ -1,11 +1,16 @@
 import logging
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
+from openmind.rule.model.literal import Literal
+from openmind.rule.model.term import Constant
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.scalar import Scalar
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
+from openmind.inference.model.example import Example
 from openmind.inference.model.reaching import Reaching
 from openmind.inference.model.sides import Sides
 
@@ -61,6 +66,100 @@ DISTANCE = "steps from {first} to {second}"
 BETWEEN = "things between {first} and {second}"
 SAME = "{first} is {second}"
 
+#: A reading of the position the action leads to, as a predicate's prefix rather than as a wrapped name.
+AFTERWARDS = "after it"
+
+#: Each reading, and the predicate it is said as.
+#:
+#: **A template is how a reading is written out for a reader; the predicate is what it is.** The two were once one
+#: thing — a name was made by filling a template, and the filled string was the key — and turning that back into a
+#: literal meant matching the string against every template in order and taking the first that fitted. Three of
+#: these are the same shape once filled: `{player} can reach {parameter}`, `{player} can reach {holding}` and
+#: `{player} can reach {whose} {holding}` are each some text, " can reach ", and more text. Matched in order they
+#: collapsed — of eighty-three readings of one position, fifty-two landed in two predicates, and
+#: `another player can reach source` came out as `can reach holding('another player', 'source', True)`, naming a
+#: square as though it were a thing standing on one. That is the reading whose own comment says it is what being
+#: attacked means.
+#:
+#: Said outright there is nothing to match and nothing to guess: the slots are the terms, in the template's order,
+#: with what was read last. Four reaches, four predicates, four arities.
+SAID: tuple[tuple[str, str], ...] = (
+    (AT, "at"),
+    (BELONGS, "belongs"),
+    (REACHED, "can reach a thing"),
+    (REACHED_HOLDING, "can reach holding"),
+    (REACHED_OWNED, "can reach owned"),
+    (REACHES, "can reach"),
+    (ROW, "row"),
+    (COLUMN, "column"),
+    (ROW_FROM_SIDE, "row from own side"),
+    (FORWARD, "rows forward"),
+    (ROWS, "rows"),
+    (COLUMNS, "columns"),
+    (ROWS_APART, "rows apart"),
+    (COLUMNS_APART, "columns apart"),
+    (STRAIGHT, "share a row or a column"),
+    (DIAGONAL, "on a diagonal"),
+    (DISTANCE, "steps"),
+    (BETWEEN, "things between"),
+    (SAME, "is"),
+)
+
+#: Each template's predicate and the slots it is said of, in the order the template writes them.
+SLOTS: Mapping[str, tuple[str, tuple[str, ...]]] = {
+    template: (predicate, tuple(one.removesuffix("!r") for one in re.findall(r"\{([a-z_]+(?:!r)?)\}", template)))
+    for template, predicate in SAID
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Reading:
+    """One thing read of an action, before it is either said as a literal or written out as a name.
+
+    It carries the slots apart from the template rather than formatted into it, which is the whole point: a name
+    is one presentation of this and a literal is another, and neither is the reading."""
+
+    #: The template this is a reading of, or the whole name where a game says something in its own way — a
+    #: scalar of the position, a parameter of the action. Those have no slots and are one term.
+    template: str
+    #: What the template's slots hold, in the template's own order.
+    said_of: tuple[Value, ...] = ()
+    #: What was read.
+    value: Value = None
+    #: Whether this is read of the position the action leads to rather than of the one it is made in.
+    afterwards: bool = False
+
+    @property
+    def name(self) -> str:
+        """The reading written out, as the engine it was built for knows it."""
+        said = self.template
+        if self.template in SLOTS:
+            said = self.template.format(**dict(zip(SLOTS[self.template][1], self.said_of, strict=True)))
+        return AFTER.format(reading=said) if self.afterwards else said
+
+    @property
+    def literal(self) -> Literal:
+        """The reading said outright, its slots become terms and what was read the last of them."""
+        predicate = SLOTS[self.template][0] if self.template in SLOTS else self.template
+        return Literal(
+            f"{AFTERWARDS}, {predicate}" if self.afterwards else predicate,
+            (*(Constant(one) for one in self.said_of), Constant(self.value)),
+        )
+
+
+def a_reading(template: str, read: Value, /, **said_of: Value) -> Reading:
+    """One reading, its slots given by name and kept in the template's order.
+
+    The template and what was read are positional only, because one of the templates has a slot called `value`
+    and a keyword here would shadow it."""
+    _, slots = SLOTS[template]
+    return Reading(template, tuple(said_of[slot] for slot in slots), read)
+
+
+def afterwards(reading: Reading) -> Reading:
+    """That reading, read of the position the action leads to."""
+    return Reading(reading.template, reading.said_of, reading.value, True)
+
 
 class ActionReadings:
     """What can be read about an action, as opposed to about a position.
@@ -90,7 +189,52 @@ class ActionReadings:
         acting: str | None = None,
         sides: Sides | None = None,
     ) -> dict[str, Value]:
-        """Every reading of that action in that position, by name.
+        """Every reading of that action in that position, by the name the stand-in engine knows it by.
+
+        **One presentation of `read`, kept for the engine this was written before.** `RuleDeducer` and the
+        extraction scripts match a reading by its filled-in name; they go when the engine that replaces them
+        lands, and this goes with them. Nothing new should be written against it — `literals` is the reading
+        said in a way a rule can quantify over."""
+        return {one.name: one.value for one in self.read(state, action, outcome, reach, acting, sides)}
+
+    def literals(
+        self,
+        state: State,
+        action: Action,
+        outcome: State | None = None,
+        reach: Reaching | None = None,
+        acting: str | None = None,
+        sides: Sides | None = None,
+    ) -> tuple[Literal, ...]:
+        """Every reading of that action, said outright: the slots are terms and what was read is the last of them.
+
+        **This is what makes a reading general.** `rows from source to target`, read as 3, is
+        `rows(source, target, 3)` — so a clause may put a variable where the 3 is, or where the source is, or tie
+        one reading's player to another's. One clause says what a pawn does for both players where a name could
+        only ever be compared to a value."""
+        return tuple(one.literal for one in self.read(state, action, outcome, reach, acting, sides))
+
+    def example(self, readings: Sequence[Reading], holds: bool, where: object | None = None) -> Example:
+        """One case to learn from: everything read of it, and whether the thing being learned held."""
+        return Example(tuple(one.literal for one in readings), holds, where)
+
+    def examples(
+        self, seen: Sequence[tuple[Sequence[Reading], bool]], within: Sequence[object] = ()
+    ) -> tuple[Example, ...]:
+        """Cases from readings already gathered, each with the position it was read in where there is one."""
+        places = tuple(within) if len(within) == len(seen) else (None,) * len(seen)
+        return tuple(self.example(readings, holds, place) for (readings, holds), place in zip(seen, places))
+
+    def read(
+        self,
+        state: State,
+        action: Action,
+        outcome: State | None = None,
+        reach: Reaching | None = None,
+        acting: str | None = None,
+        sides: Sides | None = None,
+    ) -> tuple[Reading, ...]:
+        """Every reading of that action in that position, before it is named or said.
 
         Given the position the action leads to, what that position holds is read as well — and, given something that
         says what a player can reach there, what each player could do next. A rule that forbids an action for what
@@ -107,43 +251,53 @@ class ActionReadings:
         colour, and the ranks a pawn starts and promotes on can be spoken of at all."""
         parameters = dict(action.parameters)
         grids = self._grids(state)
-        readings_of_state = {name: model.value for name, model in state.models if isinstance(model, Scalar)}
         cells = {name: self._cell(grids, value) for name, value in parameters.items()}
-        readings: dict[str, Value] = dict(readings_of_state)
+        readings: list[Reading] = [
+            Reading(name, value=model.value) for name, model in state.models if isinstance(model, Scalar)
+        ]
         for name, value in parameters.items():
-            readings[name] = value
+            readings.append(Reading(name, value=value))
             at = cells[name]
             if at is None:
                 continue
             for model, grid in grids.items():
                 held = grid.at(at) if grid.inside(at) else None
-                readings[AT.format(model=model, parameter=name)] = held
+                readings.append(a_reading(AT, held, model=model, parameter=name))
                 if sides is not None and acting is not None:
-                    readings[BELONGS.format(model=model, parameter=name, whose=ACTING)] = (
-                        sides.whose(model, held) == acting
+                    readings.append(
+                        a_reading(BELONGS, sides.whose(model, held) == acting, model=model, parameter=name, whose=ACTING)
                     )
-                    readings[BELONGS.format(model=model, parameter=name, whose=ANOTHER)] = sides.whose(
-                        model, held
-                    ) not in (acting, None)
+                    readings.append(
+                        a_reading(
+                            BELONGS,
+                            sides.whose(model, held) not in (acting, None),
+                            model=model, parameter=name, whose=ANOTHER,
+                        )
+                    )
             if len(at) == 2:
-                readings[ROW.format(parameter=name)] = at[0]
-                readings[COLUMN.format(parameter=name)] = at[1]
+                readings.append(a_reading(ROW, at[0], parameter=name))
+                readings.append(a_reading(COLUMN, at[1], parameter=name))
                 if sides is not None and acting is not None and sides.toward(acting):
                     rows = self._rows_of(grids)
-                    readings[ROW_FROM_SIDE.format(parameter=name)] = (
-                        at[0] if sides.toward(acting) > 0 else rows - 1 - at[0]
+                    readings.append(
+                        a_reading(
+                            ROW_FROM_SIDE, at[0] if sides.toward(acting) > 0 else rows - 1 - at[0], parameter=name
+                        )
                     )
         for first, second in self._pairs(cells):
-            readings.update(self._between(grids, first, second, cells[first], cells[second]))  # type: ignore[arg-type]
+            between = self._between(grids, first, second, cells[first], cells[second])  # type: ignore[arg-type]
+            readings.extend(between)
             if sides is not None and acting is not None and sides.toward(acting):
-                readings[FORWARD.format(first=first, second=second)] = (
-                    readings[ROWS.format(first=first, second=second)] * sides.toward(acting)  # type: ignore[operator]
-                )
+                rows = next((one.value for one in between if one.template == ROWS), None)
+                if rows is not None:
+                    readings.append(
+                        a_reading(FORWARD, rows * sides.toward(acting), first=first, second=second)  # type: ignore[operator]
+                    )
         if reach is not None:
-            readings.update(self._reaching(state, reach, cells, acting, sides))
+            readings.extend(self._reaching(state, reach, cells, acting, sides))
         if outcome is not None:
-            readings.update(self._after(outcome, reach, cells, acting, sides))
-        return readings
+            readings.extend(self._after(outcome, reach, cells, acting, sides))
+        return tuple(readings)
 
     def _after(
         self,
@@ -152,28 +306,35 @@ class ActionReadings:
         cells: Mapping[str, tuple[int, ...] | None],
         acting: str | None,
         sides: "Sides | None" = None,
-    ) -> dict[str, Value]:
+    ) -> list[Reading]:
         """What the position the action leads to holds, and what each player can reach in it."""
-        readings: dict[str, Value] = {
-            AFTER.format(reading=name): model.value for name, model in outcome.models if isinstance(model, Scalar)
-        }
+        readings: list[Reading] = [
+            Reading(name, value=model.value, afterwards=True)
+            for name, model in outcome.models
+            if isinstance(model, Scalar)
+        ]
         grids = self._grids(outcome)
         for name, at in cells.items():
             if at is None:
                 continue
             for model, grid in grids.items():
                 held = grid.at(at) if grid.inside(at) else None
-                readings[AFTER.format(reading=AT.format(model=model, parameter=name))] = held
+                readings.append(afterwards(a_reading(AT, held, model=model, parameter=name)))
                 if sides is not None and acting is not None:
                     for role, whose in ((ACTING, acting), (ANOTHER, None)):
                         owner = sides.whose(model, held)
-                        readings[AFTER.format(reading=BELONGS.format(model=model, parameter=name, whose=role))] = (
-                            owner == whose if whose is not None else owner not in (acting, None)
+                        readings.append(
+                            afterwards(
+                                a_reading(
+                                    BELONGS,
+                                    owner == whose if whose is not None else owner not in (acting, None),
+                                    model=model, parameter=name, whose=role,
+                                )
+                            )
                         )
         if reach is None:
             return readings
-        for name, value in self._reaching(outcome, reach, cells, acting, sides).items():
-            readings[AFTER.format(reading=name)] = value
+        readings.extend(afterwards(one) for one in self._reaching(outcome, reach, cells, acting, sides))
         return readings
 
     def _reaching(
@@ -183,14 +344,19 @@ class ActionReadings:
         cells: Mapping[str, tuple[int, ...] | None],
         acting: str | None,
         sides: "Sides | None",
-    ) -> dict[str, Value]:
+    ) -> list[Reading]:
         """What each player can reach in that position: what kind of thing, whose it is, and whether it is one of
         the action's own squares.
 
         A square holding something is reached by a move that takes what stands there, so a player reaching the
         square an action starts from is a player who could capture the piece being moved — which is what a piece
-        being attacked means, and what makes it worth moving."""
-        readings: dict[str, Value] = {}
+        being attacked means, and what makes it worth moving.
+
+        **The four of them are four predicates and were one.** Reaching a thing of a kind, reaching a whole
+        holding, reaching a holding of somebody's, and reaching a square the action itself names are written
+        alike — some text, " can reach ", more text — so matching a filled name against templates in order put
+        them all under whichever template came first. Said outright they never meet."""
+        readings: list[Reading] = []
         grids = self._grids(state)
         players = list(reach.players(state))
         reached = {player: set(reach.cells(state, player)) for player in players}
@@ -202,19 +368,31 @@ class ActionReadings:
             landing = {cell for player in held for cell in reached[player]}
             for model, grid in grids.items():
                 for value in {grid.at(cell) for cell in grid.coordinates() if grid.at(cell) is not None}:
-                    readings[REACHED.format(player=role, model=model, value=value)] = any(
-                        grid.at(cell) == value for cell in landing
+                    readings.append(
+                        a_reading(
+                            REACHED,
+                            any(grid.at(cell) == value for cell in landing),
+                            player=role, model=model, value=value,
+                        )
                     )
+            # Several holdings answer to one owned reading once whose it is has been taken out of them, so that
+            # one is true where any of them stands — gathered before it is said, since a reading said twice is
+            # two readings where a name written twice was one.
+            owned: dict[tuple[str, str], bool] = {}
             for holding in self._holdings(grids):
                 standing = any(self._holds_at(grids, cell) == holding for cell in landing)
-                readings[REACHED_HOLDING.format(player=role, holding=self._said(holding))] = standing
+                readings.append(a_reading(REACHED_HOLDING, standing, player=role, holding=self._said(holding)))
                 owner = self._owner(holding, acting, sides)
                 if owner is not None:
-                    name = REACHED_OWNED.format(player=role, whose=owner, holding=self._said(self._rest(holding, sides)))
-                    readings[name] = readings.get(name, False) or standing
+                    rest = self._said(self._rest(holding, sides))
+                    owned[(owner, rest)] = owned.get((owner, rest), False) or standing
+            readings.extend(
+                a_reading(REACHED_OWNED, standing, player=role, whose=owner, holding=rest)
+                for (owner, rest), standing in owned.items()
+            )
             for name, at in cells.items():
                 if at is not None:
-                    readings[REACHES.format(player=role, parameter=name)] = at in landing
+                    readings.append(a_reading(REACHES, at in landing, player=role, parameter=name))
         return readings
 
     def _owner(
@@ -257,26 +435,25 @@ class ActionReadings:
 
     def _between(
         self, grids: Mapping[str, Grid], first: str, second: str, one: tuple[int, ...], other: tuple[int, ...]
-    ) -> dict[str, Value]:
+    ) -> list[Reading]:
         """How one cell stands to another: the step between them, whether they line up, and what stands in the way."""
+        said = lambda template, value: a_reading(template, value, first=first, second=second)  # noqa: E731
         if len(one) != len(other) or len(one) != 2:
-            return {SAME.format(first=first, second=second): one == other}
+            return [said(SAME, one == other)]
         rows, columns = other[0] - one[0], other[1] - one[1]
         grid = next(iter(grids.values()))
         crossed = self._crossed(grid, one, other)
-        return {
-            ROWS.format(first=first, second=second): rows,
-            COLUMNS.format(first=first, second=second): columns,
-            ROWS_APART.format(first=first, second=second): abs(rows),
-            COLUMNS_APART.format(first=first, second=second): abs(columns),
-            STRAIGHT.format(first=first, second=second): (rows == 0) != (columns == 0),
-            DIAGONAL.format(first=first, second=second): rows != 0 and abs(rows) == abs(columns),
-            DISTANCE.format(first=first, second=second): max(abs(rows), abs(columns)),
-            SAME.format(first=first, second=second): one == other,
-            BETWEEN.format(first=first, second=second): sum(
-                1 for model in grids.values() for cell in crossed if model.at(cell) is not None
-            ),
-        }
+        return [
+            said(ROWS, rows),
+            said(COLUMNS, columns),
+            said(ROWS_APART, abs(rows)),
+            said(COLUMNS_APART, abs(columns)),
+            said(STRAIGHT, (rows == 0) != (columns == 0)),
+            said(DIAGONAL, rows != 0 and abs(rows) == abs(columns)),
+            said(DISTANCE, max(abs(rows), abs(columns))),
+            said(SAME, one == other),
+            said(BETWEEN, sum(1 for model in grids.values() for cell in crossed if model.at(cell) is not None)),
+        ]
 
     def _crossed(self, grid: Grid, one: tuple[int, ...], other: tuple[int, ...]) -> tuple[tuple[int, ...], ...]:
         """The cells strictly between the two along the line they share; none where they share none."""

@@ -1,0 +1,263 @@
+import logging
+from collections.abc import Callable, Mapping, Sequence
+
+from openmind.inference.model.evidence import Evidence
+from openmind.inference.model.example import Example
+from openmind.inference.service.candidate_readings import CandidateReadings
+from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
+from openmind.world.service.changer import Changer
+from openmind.rule.model.clause import Clause
+from openmind.rule.model.term import Constant, Number, Term
+from openmind.structure.model.record import Record
+from openmind.structure.model.schema import ActionKind
+from openmind.structure.model.value import Value
+from openmind.world.model.action import Action
+from openmind.world.model.change import Removed
+from openmind.world.model.state import State
+
+logger = logging.getLogger(__name__)
+
+#: A condition asking whether some other action would be allowed by the rules below the one asking.
+#:
+#: Its arguments are that action's parameters, in the order the readings say them: each parameter's places in
+#: turn, the parameters taken by name in order. So a game whose move is an origin and a destination asks about
+#: four numbers, and a game whose action is a bet asks about one.
+ALLOWED = "allowed by the rules below"
+
+#: The same question, asked of the position the candidate leads to rather than the one it is played in.
+#:
+#: **The last rule of chess that could not be written.** A king may not be left where it can be taken, and that
+#: is a fact about a board that does not exist yet: every reading is of the board as it stands, so no clause
+#: over them can reach it. What is needed is not another reading but the *other half of the design* — the
+#: predictor says what the candidate does, the changes are made, and the question is put to the board that
+#: results.
+#:
+#: It is the first thing that needs both halves at once. Until now the predictor learned what a move does and
+#: the constraints learned what is refused, and neither used the other.
+ALLOWED_AFTER = "allowed by the rules below, once this is done"
+
+#: Whether, once this candidate is done, the other side has an action allowed by the rules below whose doing
+#: takes away a thing of this kind belonging to this player.
+#:
+#: Its arguments are what the change would befall: whose the thing is, and what it is — said in the values the
+#: game declared, never as a square.
+#:
+#: **Said as what could happen, because "lands on a place" is a chess rule wearing a general coat.** Arriving
+#: somewhere is the danger in chess and in checkers, and it is not the danger in a game where a card is turned,
+#: a score passes a mark, or a piece is flipped. What is general is that something could *happen* next that one
+#: would rather did not, and happenings already have a language here: the changes the predictor learns an action
+#: brings about.
+#:
+#: **It composes three things rather than adding a fourth.** The board this candidate leads to, from the
+#: predictor. Whether an action is allowed there, from the layering that keeps the question from running away.
+#: And what that action would do, which is what the predictor has been learning all along. So the game-specific
+#: part shrinks to naming which change is the bad one, in the game's own declared words.
+TAKEN_AFTER = "taken from that player, once this is done, by something they could then do"
+
+
+class Hypothetical:
+    """A move nobody is making, asked about as though somebody were.
+
+    **Some rules are about what could happen rather than what is happening.** A king may not castle across a
+    square an enemy could reach; a move may not leave the king where it could be taken. Neither is a fact about
+    the position as it stands — both are about an action nobody has proposed, asked of the same position.
+
+    **Which rules answer it is not a free choice.** Asking whether the enemy's move is allowed, by all the rules,
+    means asking whether it would leave *their* king safe, which asks about my moves, for ever. The question has
+    to be put to strictly fewer rules than the rule putting it — and the rules that ask no such question are
+    exactly the ones that can be asked. That is where the layers come from, and nothing declares them: a
+    constraint that asks about a hypothetical is above every constraint that does not, by the fact of asking.
+
+    It keeps nothing: built once, it is given the position and the action on every call."""
+
+    def __init__(
+        self,
+        readings: CandidateReadings,
+        action: ActionKind,
+        drawer: ConsequenceDrawer | None = None,
+        changer: Changer | None = None,
+        doing: Sequence | Callable[[], Sequence] = (),
+        players: Sequence[Value] = (),
+        domains: Mapping[str, Sequence[Value]] | None = None,
+        acting: Callable[[State], Value] | None = None,
+        holds: Callable[[Sequence[Clause], Example], bool] | None = None,
+    ) -> None:
+        self._readings = readings
+        self._action = action
+        self._drawer = drawer
+        self._changer = changer
+        # What the predictor has concluded an action does — or a way of asking for it, which is what a caller
+        # still learning wants. The two halves learn at once: what a move does is being worked out while what
+        # is refused is being worked out, and a constraint reaching past this board reaches it through
+        # drawings that changed since this was built. Handed over as a value, it is the drawings of the
+        # position this was constructed in, which for a loop built before its first position is none at all —
+        # and a question that can never be answered is answered no, silently, in every position.
+        self._doing = doing
+        self._players = players
+        self._domains = domains
+        # Whose turn it is, read from the position by whoever knows which of its structures says so. OMF
+        # cannot know that: a game declares a grid and some scalars, and which scalar is the turn is not a
+        # fact it hands over. Taking the first player given was wrong the moment a consequence depended on
+        # who acted — `Other`, or a value drawn from the actor — and it failed silently, as a drawing that
+        # would not narrow.
+        self._acting = acting
+        # How to ask whether a consequence's conditions hold, handed over rather than held: answering one
+        # means putting a clause to a case, which is the refusal learner's work, and the learner holds
+        # this — so keeping a learner here would close a ring. Given none, every consequence draws, which
+        # is what it did before anything asked.
+        self._holds = holds
+
+    @property
+    def doing(self) -> Sequence:
+        """What the predictor says an action does, as it stands now."""
+        return self._doing() if callable(self._doing) else self._doing
+
+    def after(self, example: Example) -> State | None:
+        """The position that case's candidate leads to, or None where nothing can say.
+
+        **What the predictor is for, used by the constraints for the first time.** A consequence says where its
+        parts come from rather than what they are, so drawing it against this position and this candidate is
+        what turns what a move does in general into what it does here. Where the predictor has concluded
+        nothing, or cannot draw a consequence on this board, there is no position to ask about — and no answer
+        is given rather than a wrong one."""
+        doing = self.doing
+        if self._drawer is None or self._changer is None or not doing:
+            return None
+        action = self.acting(example)
+        if action is None:
+            return None
+        acting = self._acting(example.where) if self._acting else None
+        # Drawn in the order the game made them, and only where their conditions hold — the case to ask about
+        # being this very example, which is what it is. Without asking, every move takes something and clears
+        # every castling right, which is a wrong board rather than a missing one.
+        changes = self._drawer.changes(
+            doing, example.where, action, acting, self._players, example, self._holds
+        )
+        return self._changer.applied(example.where, changes) if changes else None
+
+    def taken(self, example: Example, whose: Value, what: Value, refuses: Callable[[Example], bool]) -> bool:
+        """Whether the other side, once this candidate is done, has an allowed action that takes away a thing of
+        theirs to lose — said as a change and never as a square.
+
+        One ply and no more. The board this leads to is worked out, every candidate is read in it, those the
+        rules below refuse are set aside, and what is left is asked what it would *do*. A removal of the thing
+        named is the answer; anything else is not.
+
+        **The rules below and not all of them**, for the reason the layering exists: asking whether their reply
+        is allowed by every rule would ask whether it leaves *their* king safe, which asks about mine, for ever.
+
+        False where nothing can say — no predictor, no domains, a board that will not draw. A question that
+        cannot be put is not a question answered yes, and here answering yes would refuse a move that is
+        perfectly legal."""
+        if self._domains is None:
+            return False
+        after = self.after(example)
+        if after is None:
+            return False
+        theirs = self._acting(after) if self._acting else next(
+            (one for one in self._players if one != whose), None
+        )
+        for candidate in self._readings.candidates(Evidence(after, self._action.name, ()), self._domains):
+            # What it would do is asked first, and whether it is allowed second. Nearly every candidate takes
+            # nothing of interest, and finding that out is drawing a consequence and looking at a square; asking
+            # whether it is allowed means reading a whole case and putting it to every rule below. Asked the
+            # other way round this is minutes a position rather than moments.
+            if not self._takes(after, candidate, whose, what, theirs):
+                continue
+            if not refuses(Example(self._readings.read(after, candidate), False, after)):
+                return True
+        return False
+
+    def _takes(self, state: State, action: Action, whose: Value, what: Value, theirs: Value) -> bool:
+        """Whether doing that there takes away a thing of that player's, of that kind."""
+        if self._drawer is None:
+            return False
+        for one in self.doing:
+            change = self._drawer.drawn(one, state, action, theirs, self._players)
+            if not isinstance(change, Removed):
+                continue
+            held = state.model(change.model)
+            standing = held.at(change.at) if held.inside(change.at) else None
+            if standing is not None and self._is(standing, whose, what):
+                return True
+        return False
+
+    def _is(self, standing: Value, whose: Value, what: Value) -> bool:
+        """Whether what stands there is that player's and of that kind, whatever the game calls those parts."""
+        parts = [held for _, held in standing.parts] if isinstance(standing, Record) else [standing]
+        return whose in parts and what in parts
+
+    def acting(self, example: Example) -> Action | None:
+        """The candidate that case was read from, gathered back out of its own readings.
+
+        A case does not carry the action it is about, and it does not need to: each parameter is read under its
+        own name, so the action is there to be put back together. Reading it out beats handing it about, which
+        would mean every caller of every method in between carrying something only this one needs."""
+        held = {one.predicate: one.arguments for one in example.literals if not one.negated}
+        gathered: list[tuple[str, Value]] = []
+        for name, kind in sorted(self._action.parameters, key=lambda one: one[0]):
+            arguments = held.get(name)
+            if arguments is None:
+                return None
+            settled = [self._plain(one) for one in arguments]
+            if any(one is None for one in settled):
+                return None
+            parts = len(getattr(kind, "parts", ()) or ())
+            if getattr(kind, "builds", None) is not None and parts:
+                gathered.append((name, kind.builds(*settled)))
+            else:
+                gathered.append((name, settled[0]))
+        return Action(self._action.name, tuple(gathered))
+
+    def case(self, state: State, values: Sequence[Term]) -> Example | None:
+        """That hypothetical action in that position, read as a case, or None where the terms do not make one.
+
+        The terms are the action's parameters laid end to end, in the order the readings say them, and they are
+        gathered back into parameters here. A term standing for nothing settled makes no action, and the question
+        goes unanswered rather than being answered wrongly."""
+        gathered: list[tuple[str, Value]] = []
+        left = list(values)
+        for name, kind in sorted(self._action.parameters, key=lambda held: held[0]):
+            parts = len(kind.parts)
+            taken, left = left[: parts or 1], left[parts or 1 :]
+            if len(taken) < (parts or 1):
+                return None
+            settled = [self._plain(one) for one in taken]
+            if any(one is None for one in settled):
+                return None
+            if kind.builds is not None and parts:
+                gathered.append((name, kind.builds(*settled)))
+            else:
+                gathered.append((name, settled[0]))
+        if left:
+            return None
+        action = Action(self._action.name, tuple(gathered))
+        return Example(self._readings.read(state, action), False, state)
+
+    def asked(self, clause: Clause) -> bool:
+        """Whether that constraint asks about a hypothetical, which is what puts it above those that do not.
+
+        Every kind of asking counts. A rule about the board a move leads to is as much above the plain rules as
+        one about this board, and treating it as though it asked nothing would let it be used to answer itself —
+        whether the king is safe after my move would depend on whether it is safe after theirs, for ever.
+
+        `TAKEN_AFTER` was missing from here while it was the only one of the three no rule had yet been written
+        in, so nothing showed. It asks two questions rather than one — what the other side could do, and whether
+        they are allowed to do it — which makes leaving it out of the layering worse than the others, not
+        better."""
+        return any(one.predicate in (ALLOWED, ALLOWED_AFTER, TAKEN_AFTER) for one in clause.body)
+
+    def below(self, clauses: Sequence[Clause]) -> tuple[Clause, ...]:
+        """Those of them that may answer such a question: the ones that ask none themselves.
+
+        Worked out from the constraints and never declared. A game that says how its pieces travel and a game
+        that also says a king may not be left attacked are the same game to OMF; which of its rules is the
+        further one is a fact about what those rules refer to."""
+        return tuple(one for one in clauses if not self.asked(one))
+
+    def _plain(self, term: Term) -> Value | None:
+        if isinstance(term, Number):
+            return term.value
+        if isinstance(term, Constant) and not isinstance(term.name, Record):
+            return term.name
+        return None

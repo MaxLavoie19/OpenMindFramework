@@ -3,7 +3,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from openmind.inference.model.surprise import Surprise
-from openmind.inference.service.action_readings import ActionReadings
+from openmind.inference.service.action_readings import ActionReadings, Reading
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -273,6 +273,23 @@ class RuleDeducer:
         leads_to: Callable[[Action], State | None] | None = None,
         reach: object | None = None,
     ) -> tuple[tuple[dict[str, Value], bool], ...]:
+        """Every candidate read by name, with whether it was legal.
+
+        One presentation of `read`, for this deducer's own learning, which matches a reading by its filled-in
+        name. Anything learning over literals wants `read`."""
+        return tuple(
+            ({one.name: one.value for one in readings}, holds)
+            for readings, holds in self.read(state, candidates, legal, leads_to, reach)
+        )
+
+    def read(
+        self,
+        state: State,
+        candidates: Sequence[Action],
+        legal: Callable[[Action], bool],
+        leads_to: Callable[[Action], State | None] | None = None,
+        reach: object | None = None,
+    ) -> tuple[tuple[tuple[Reading, ...], bool], ...]:
         """Every candidate read, with whether it was legal.
 
         Given what an action leads to, the position it leads to is read as well: a rule can then be about what an
@@ -280,7 +297,7 @@ class RuleDeducer:
         king where it can be taken is no move at all."""
         return tuple(
             (
-                self._readings.of(state, candidate, leads_to(candidate) if leads_to else None, reach),  # type: ignore[arg-type]
+                self._readings.read(state, candidate, leads_to(candidate) if leads_to else None, reach),  # type: ignore[arg-type]
                 legal(candidate),
             )
             for candidate in candidates

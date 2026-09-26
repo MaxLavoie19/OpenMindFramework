@@ -2,19 +2,12 @@ import logging
 from collections.abc import Sequence
 
 from openmind.inference.model.chance import Chance
+from openmind.inference.service.statistics import BEFORE_HOLDING, BEFORE_NOT, Statistics
 from openmind.inference.model.example import Example
 from openmind.rule.model.clause import Clause
 
 logger = logging.getLogger(__name__)
 
-#: What is assumed before anything has been counted: one case either way.
-#:
-#: Not a guess about the world but a refusal to be certain from nothing. Counting alone says a rule seen once and
-#: held once always holds, and says it with the same face as a rule seen ten thousand times. Starting a case either
-#: way makes the first few observations move the number a lot and later ones move it little, which is how
-#: confidence ought to behave, and it never reaches 0 or 1 by counting — which matters, because a rule believed
-#: impossible is never tried again and so never corrected.
-BEFORE_HOLDING, BEFORE_NOT = 1.0, 1.0
 
 
 class ChanceFitter:
@@ -30,6 +23,11 @@ class ChanceFitter:
 
     It keeps nothing: built once, it is given the cases on every call."""
 
+    def __init__(self, statistics: Statistics | None = None) -> None:
+        # How it counts, given rather than made. Whether a spread narrows with counting is a fact about
+        # counting and not about rules, and it was written out here once already.
+        self._statistics = Statistics() if statistics is None else statistics
+
     def fit(self, clause: Clause, examples: Sequence[Example], covers: object = None) -> Chance:
         """How often that clause held, over the cases it speaks about.
 
@@ -43,13 +41,7 @@ class ChanceFitter:
 
         The middle is what was seen, with one case either way assumed beforehand so that nothing is certain from
         nothing. The spread narrows as the counting grows, which is the whole of what the counting buys."""
-        if of < 0 or held < 0 or held > of:
-            raise ValueError(f"{held} of {of} is not something that can have been counted")
-        holding = held + BEFORE_HOLDING
-        total = of + BEFORE_HOLDING + BEFORE_NOT
-        value = holding / total
-        spread = (value * (1.0 - value) / (total + 1.0)) ** 0.5
-        return Chance(value, spread, of, True)
+        return Chance(self._statistics.share(held, of), self._statistics.spread(held, of), of, True)
 
     def surer(self, one: Chance, other: Chance) -> bool:
         """Whether the first rests on enough more counting to be preferred where the two disagree."""
