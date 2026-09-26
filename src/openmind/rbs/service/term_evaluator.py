@@ -1,4 +1,5 @@
 import math
+import time
 from collections.abc import Sequence
 
 import numpy as np
@@ -36,6 +37,15 @@ class TermEvaluator:
         self._consequence_library = consequence_library
         self._task_runner = task_runner
         self._reading_cache = reading_cache
+        # What each term took to read, in seconds a row, by its source.
+        #
+        # **A term is not only worth what it explains, it costs what it takes to read.** A look-ahead reads
+        # the position after every legal action — in chess, thirty-five of them through the solver — so one
+        # such term costs a hundred times what a count of pieces costs while being priced the same. Measured
+        # against a real fit, the heuristic that came out took nearly four tenths of a second a position, and
+        # a two-second search budget bought four nodes of it. Nothing was wrong with the fit: it was never
+        # told that one of its terms was unaffordable.
+        self._seconds: dict[str, float] = {}
 
     def limit_memory(self, memory_bytes: int) -> None:
         """Every process evaluating terms, this one or a worker, clears its views and its readings once it holds more
@@ -120,6 +130,25 @@ class TermEvaluator:
             return float(max(cells, default=0))
         raise ValueError(f"Unknown aggregate kind {kind!r}")
 
+    def seconds(self, term: PythonRule) -> float:
+        """What that term took to read, in seconds a row; nothing where it has not been read here."""
+        return self._seconds.get(term.source, 0.0)
+
+    def dearness(self, term: PythonRule) -> float:
+        """What that term takes to read against what the cheapest term read here takes: 1 for the cheapest,
+        and a hundred for one costing a hundred times as much.
+
+        **Relative, so that what it says does not depend on the machine.** Seconds on a fast machine and
+        seconds on a slow one are different numbers about the same term, and a price in seconds would mean
+        something different on each. A term is dear compared to the others it is competing with, which is the
+        comparison the fit is making anyway.
+
+        A term nobody timed, or one timed before anything else was, is worth 1 — no reason yet to think it
+        dear, which is what the fit assumed about everything until now."""
+        reading = self._seconds.get(term.source, 0.0)
+        cheapest = min((one for one in self._seconds.values() if one > 0.0), default=0.0)
+        return 1.0 if cheapest <= 0.0 or reading <= 0.0 else reading / cheapest
+
     def column(self, rbs: RuleBasedGame, rows: Sequence[PositionRow], term: PythonRule) -> np.ndarray | None:
         """The term's value on every row, a boolean counting as 0 or 1, and NaN on a row where the term gives None: what
         it reads isn't there at that moment, as a fork detector without a fork. None when the term raises KeyError,
@@ -127,6 +156,7 @@ class TermEvaluator:
         finite number or None."""
         compiled = self._rule_compiler.compile_value(term)
         column = np.empty(len(rows))
+        started = time.perf_counter()
         for index, row in enumerate(rows):
             try:
                 value = self._rule_runner.value(
@@ -141,6 +171,8 @@ class TermEvaluator:
             if number is None:
                 return None
             column[index] = number
+        if rows:
+            self._seconds[term.source] = (time.perf_counter() - started) / len(rows)
         return column
 
     def columns(
@@ -149,20 +181,28 @@ class TermEvaluator:
         """What column gives for each term, in the terms' order, the rows split between the task runner's workers."""
         slices = self._task_runner.split(rows)
         if len(slices) <= 1 or not terms:
-            return self.slice_columns(rbs, rows, terms)
+            return self.slice_columns(rbs, rows, terms)[0]
         count = len(slices)
         results = self._task_runner.map(self.slice_columns, [rbs] * count, slices, [tuple(terms)] * count)
+        # What a term took is the mean of what it took in each worker, since each read a share of the rows.
+        for _, timings in results:
+            for source, seconds in timings.items():
+                self._seconds[source] = (self._seconds.get(source, seconds) + seconds) / 2
         merged: list[np.ndarray | None] = []
         for index in range(len(terms)):
-            parts = [result[index] for result in results]
+            parts = [columns[index] for columns, _ in results]
             merged.append(None if any(part is None for part in parts) else np.concatenate(parts))  # type: ignore[arg-type]
         return merged
 
     def slice_columns(
         self, rbs: RuleBasedGame, rows: Sequence[PositionRow], terms: Sequence[PythonRule]
-    ) -> list[np.ndarray | None]:
-        """What column gives for each term on these rows, in this process."""
-        return [self.column(rbs, rows, term) for term in terms]
+    ) -> tuple[list[np.ndarray | None], dict[str, float]]:
+        """What column gives for each term on these rows, in this process, and what each took to read.
+
+        The timings come back with the columns because a worker's are otherwise lost: it is a process of its
+        own, and what it measured dies with it."""
+        columns = [self.column(rbs, rows, term) for term in terms]
+        return columns, {term.source: self._seconds[term.source] for term in terms if term.source in self._seconds}
 
     def number(self, value: object) -> float | None:
         """A term's value as a number, a boolean counting as 0 or 1; None for anything else or a number that isn't

@@ -3,6 +3,7 @@ import hashlib
 import itertools
 import logging
 import math
+from types import MappingProxyType
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -14,6 +15,7 @@ from openmind.inference.constant.inference_constant import (
     CANDIDATE_BATCH,
     MIN_SCREENING_ROWS,
     SCREENING_SHARE,
+    SEEDED_WEIGHT,
     SINGLE_TARGET,
 )
 from openmind.inference.model.expression import Expression
@@ -25,6 +27,7 @@ from openmind.parallel.model.call_over_memory import CallOverMemory
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.model.position_row import PositionRow
+from openmind.rbs.model.sparse_fit import SparseFit
 from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.sparse_fitter import SparseFitter
 from openmind.rbs.service.term_evaluator import AggregateParts, TermEvaluator
@@ -97,11 +100,26 @@ class ExpressionSearch:
         max_steps: int,
         tolerance: float,
         budget: SearchBudget,
-        seeds: Sequence[Expression] = (),
+        seeds: Sequence[Expression | tuple[Expression, float]] = (),
     ) -> ExpressionSearchResult:
         """Targets are the training rows' payoffs scaled from 0 to 1, or several such targets by name. Seeds, expressions
         given to start from, are tried in the first generation before the leaves, in their order. No target
-        raises ValueError."""
+        raises ValueError.
+
+        **A seed may carry the weight the rules imply, and then the weight is half of what it gives.** A linear
+        heuristic values a position as the sum of its weighted readings, so the weight on "how many knights I
+        have" *is* what a knight is worth — a reasoned number is not carried alongside the term, it starts the
+        term off. Given as a bare expression, a seed starts where everything else does.
+
+        **What that weight buys is expansion order, not survival.** A term whose gradient does not pay is
+        shrunk to nothing in one step whatever it started at, which is the price doing its work and must stay
+        so. What a weighted seed gets is to be *expanded first* — `_expand` sorts by weight, so its conditions,
+        its thresholds and its children are generated before anything else's, and the term really wanted is
+        reached in the generation that would otherwise be spent working back to it.
+
+        **The weight arrives a generation later than it reads as.** The first generation fits an empty set of
+        columns — nothing has been tried yet — so the first fit that can start from a seed's weight is the
+        second, once the seeds' own columns are in."""
         named = (
             {SINGLE_TARGET: np.asarray(targets, dtype=float)}
             if isinstance(targets, np.ndarray)
@@ -124,7 +142,13 @@ class ExpressionSearch:
         combined: dict[bytes, set[bytes]] = {}
         passed_over: list[tuple[Expression, float]] = []
         leaves = generator.leaves(vocabulary)
-        first = tuple({expression.template: expression for expression in (*seeds, *leaves)}.values())
+        sown = [one if isinstance(one, tuple) else (one, 0.0) for one in seeds]
+        # What the rules said each seeded term is worth, by the template that carries it — so a term dropped,
+        # evicted or never admitted simply never asks for it, and nothing has to be kept in step by hand.
+        weighed = {expression.template: weight for expression, weight in sown if weight}
+        first = tuple(
+            {expression.template: expression for expression in (*(one for one, _ in sown), *leaves)}.values()
+        )
         logger.info(
             "Searching expressions for %s seconds within %d bytes, trying %s candidates: %d seeds, %d leaves, %d training "
             "rows, %d screened",
@@ -139,7 +163,7 @@ class ExpressionSearch:
         generation, stopped, tried_total = 0, "", 0
         while not stopped:
             generation += 1
-            fits = self._fit_all(expressions, kept, named, price, max_steps, tolerance)
+            fits = self._fit_all(expressions, kept, named, price, max_steps, tolerance, weighed)
             residuals = {name: residual for name, (_, residual, _) in fits.items()}
             candidates: Iterator[Candidate] = (
                 iter([(expression, None, None, None, None) for expression in first])
@@ -419,8 +443,12 @@ class ExpressionSearch:
         price: float,
         max_steps: int,
         tolerance: float,
+        weighed: Mapping[str, float] = MappingProxyType({}),
     ) -> Fits:
-        return {name: self._fit(expressions, kept, values, price, max_steps, tolerance) for name, values in targets.items()}
+        return {
+            name: self._fit(expressions, kept, values, price, max_steps, tolerance, weighed)
+            for name, values in targets.items()
+        }
 
     def _strongest(self, fits: Fits, count: int) -> np.ndarray:
         """Each kept expression's largest weight over the targets, in size."""
@@ -436,9 +464,16 @@ class ExpressionSearch:
         price: float,
         max_steps: int,
         tolerance: float,
+        weighed: Mapping[str, float] = MappingProxyType({}),
     ) -> tuple[np.ndarray, np.ndarray, float]:
         """The weights at the price, the residual of the scaled payoffs (prediction minus payoff), and the training
-        loss."""
+        loss.
+
+        `weighed` is what the rules said a seeded term is worth, which the fit starts that term from instead of
+        from nothing. The number has to be put on the scale the fit works on: the columns are centered and
+        scaled, and the prediction goes through a logistic, so a raw count of fourteen squares means nothing
+        here and is multiplied by the column's own scale and held to the range a weight on that scale can
+        sensibly take. It is a place to start one fit from, and the fitter moves it or shrinks it away."""
         if not kept:
             mean = float(np.mean(targets))
             prediction = np.full(len(targets), mean)
@@ -447,13 +482,35 @@ class ExpressionSearch:
             return np.zeros(0), prediction - targets, loss
         standard = np.column_stack([self.standard(columns[0]) for columns in kept])
         costs = np.array(
-            [expression.clauses * self.share(columns[0]) for expression, columns in zip(expressions, kept, strict=True)],
+            [self.cost(expression, columns[0]) for expression, columns in zip(expressions, kept, strict=True)],
             dtype=float,
         )
-        fit = self._sparse_fitter.fit(standard, targets, price, max_steps, tolerance, None, costs)
+        fit = self._sparse_fitter.fit(
+            standard, targets, price, max_steps, tolerance, self._started(expressions, kept, weighed), costs
+        )
         weights = np.asarray(fit.weights, dtype=float)
         prediction = expit(standard @ weights + fit.bias)
         return weights, prediction - targets, self._sparse_fitter.loss(standard, targets, fit.weights, fit.bias)
+
+    def _started(
+        self, expressions: Sequence[Expression], kept: Sequence[Columns], weighed: Mapping[str, float]
+    ) -> SparseFit | None:
+        """Where the fit starts, or nothing where no kept term was seeded with a weight.
+
+        Aligned to the kept columns and never to the order the seeds arrived in, since a term may have been
+        evicted, may never have been admitted, or may be one of the leaves. A column that does not vary has a
+        scale of nought and is read as all zeros, so there is nothing for a weight to start on there."""
+        if not weighed:
+            return None
+        start = [0.0] * len(expressions)
+        for at, (expression, columns) in enumerate(zip(expressions, kept, strict=True)):
+            held = weighed.get(expression.template)
+            if not held:
+                continue
+            scale = self.scaling(columns[0])[1]
+            if scale:
+                start[at] = float(np.clip(held * scale, -SEEDED_WEIGHT, SEEDED_WEIGHT))
+        return SparseFit(tuple(start), 0.0, 0, False) if any(start) else None
 
     def _evict(
         self,
@@ -544,9 +601,25 @@ class ExpressionSearch:
         """The share of rows where the column isn't blank: where what it reads is there."""
         return float(np.mean(~np.isnan(column))) if len(column) else 0.0
 
+    def cost(self, expression: Expression, column: np.ndarray) -> float:
+        """What a weight on that term costs: per clause, per share of rows where it isn't blank, per what it
+        takes to read against what the cheapest term here takes.
+
+        **A term is not only worth what it explains, it costs what it takes to read.** A look-ahead reads the
+        position after every legal action, so in chess it costs upwards of thirty-five ordinary readings while
+        being priced as one more clause. Fitted without that, a heuristic came out taking four tenths of a
+        second a position, and a two-second search budget bought four nodes of it — a heuristic that cannot be
+        read inside a search is not a heuristic, however well it predicts.
+
+        **Measured and not assumed.** Nothing here knows what a look-ahead is or that chess has thirty-five
+        moves; it knows that this term took a hundred times longer than that one on the same rows, which is
+        true of whatever made it slow. A term nobody timed costs what its clauses say, as before."""
+        dearness = self._term_evaluator.dearness(self._expression_generator.source(expression))
+        return expression.clauses * self.share(column) * dearness
+
     def _price(self, price: float, expression: Expression, column: np.ndarray) -> float:
-        """What a weight on the column costs: the price, per clause, per share of rows where it isn't blank."""
-        return price * expression.clauses * self.share(column)
+        """What a weight on the column costs at that price."""
+        return price * self.cost(expression, column)
 
     def _gradient(self, column: np.ndarray, *residuals: np.ndarray) -> float:
         """How steeply the loss falls when the standardized column gets a weight, the steepest over the residuals."""
