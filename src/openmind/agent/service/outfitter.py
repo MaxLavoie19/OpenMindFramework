@@ -4,7 +4,11 @@ from openmind.budget.model.allocation import Allocation
 from openmind.heuristic.model.move_rater import MoveRater
 from openmind.heuristic.model.position_valuer import PositionValuer
 from openmind.heuristic.service.rule_heuristic import RuleHeuristic
+from openmind.heuristic.service.rule_move_rater import RuleMoveRater
 from openmind.heuristic.service.rule_position_valuer import RulePositionValuer
+from openmind.heuristic.service.timed_move_rater import TimedMoveRater
+from openmind.heuristic.service.timed_position_valuer import TimedPositionValuer
+from openmind.model.service.model_timer import ModelTimer
 from openmind.model.constant.model_constant import RULES
 from openmind.knowledge.constant.task_constant import MOVE_VALUE, POSITION_VALUE
 from openmind.knowledge.model.model_record import ModelRecord
@@ -25,17 +29,23 @@ class Outfitter:
     A task whose chosen model is of a family nothing here can load is left out, and the search does without it rather
     than failing: a model is one way of filling a task, not the only one."""
 
-    def __init__(self, rule_heuristic: RuleHeuristic) -> None:
-        self._heuristic = rule_heuristic
+    def __init__(self, rule_heuristic: RuleHeuristic, model_timer: ModelTimer | None = None) -> None:
         self._valuer = RulePositionValuer(rule_heuristic)
+        self._rater = RuleMoveRater(rule_heuristic)
+        # What times every reading, so the registry learns what a model costs and the time management policy
+        # can turn a budget of seconds into a count of nodes that means something. Given none, nothing is
+        # timed and every model goes on costing the unmeasured default.
+        self._timer = model_timer
 
     def outfit(self, knowledge_base: KnowledgeBase, guidance: Guidance, allocation: Allocation) -> Guidance:
         """The guidance with the allocation's models in it, leaving whatever the caller filled itself alone: a caller
         that passed an opponent's model keeps it, and the rest is what was chosen."""
         position_value = guidance.position_value or self._filled(
-            knowledge_base, allocation.of(POSITION_VALUE), self._valuer
+            knowledge_base, allocation.of(POSITION_VALUE), self._valuer, TimedPositionValuer
         )
-        move_value = guidance.move_value or self._filled(knowledge_base, allocation.of(MOVE_VALUE), self._heuristic)
+        move_value = guidance.move_value or self._filled(
+            knowledge_base, allocation.of(MOVE_VALUE), self._rater, TimedMoveRater
+        )
         if position_value is not guidance.position_value or move_value is not guidance.move_value:
             logger.debug(
                 "Playing with %s",
@@ -59,16 +69,31 @@ class Outfitter:
         if record is None:
             return None
         if POSITION_VALUE in record.tasks:
-            return self._filled(knowledge_base, record, self._valuer)
-        return self._filled(knowledge_base, record, self._heuristic) if MOVE_VALUE in record.tasks else None
+            return self._filled(knowledge_base, record, self._valuer, TimedPositionValuer)
+        if MOVE_VALUE in record.tasks:
+            return self._filled(knowledge_base, record, self._rater, TimedMoveRater)
+        return None
 
     def _filled(
-        self, knowledge_base: KnowledgeBase, record: ModelRecord | None, service: PositionValuer | MoveRater
+        self,
+        knowledge_base: KnowledgeBase,
+        record: ModelRecord | None,
+        service: PositionValuer | MoveRater,
+        timing: type,
     ) -> tuple[object, PositionValuer | MoveRater] | None:
         """The model loaded, with the service that runs it; None where there is none, or where it isn't one of the
-        families this loads."""
+        families this loads.
+
+        **This is where a reading gets timed**, because it is where a model and the service running it are put
+        together and the last place the `ModelRecord` is in hand — past here a planner holds a pair and knows
+        nothing of which model it is. Every reading of every model chosen this way is measured, which is what
+        lets the seconds a step is given become a number of nodes rather than a guess."""
         model = self._loaded(knowledge_base, record)
-        return None if model is None else (model, service)
+        if model is None or record is None:
+            return None
+        if self._timer is None:
+            return (model, service)
+        return (model, timing(service, self._timer, knowledge_base, record))
 
     def _loaded(self, knowledge_base: KnowledgeBase, record: ModelRecord | None) -> RuleBasedSystem | None:
         """A rule-based model built from the ruleset it was registered by; None for anything else."""

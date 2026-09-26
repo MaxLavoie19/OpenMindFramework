@@ -6,6 +6,7 @@ from openmind.agent.service.actor import Actor
 from openmind.agent.service.agent import Agent
 from openmind.agent.service.hierarchy import Hierarchy
 from openmind.agent.service.outfitter import Outfitter
+from openmind.model.service.model_timer import ModelTimer
 from openmind.agent.service.level import Level
 from openmind.budget.factory.budget_factory import create_plain_time_manager
 from openmind.knowledge.constant.task_constant import ABSTRACTION
@@ -31,7 +32,7 @@ def create_agent(planner: Planner[object] | None = None, actor: Actor | None = N
         create_plain_time_manager(),
         create_improvised() if planner is None else planner,
         actor,
-        Outfitter(create_rule_heuristic()),
+        Outfitter(create_rule_heuristic(), ModelTimer()),
     )
 
 
