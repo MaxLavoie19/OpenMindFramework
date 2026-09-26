@@ -68,16 +68,26 @@ class RuleHeuristic:
         return self._readings(rbs, self._weighted(rbs, POSITION), node.state, self._names(node, player))
 
     def describe(self, rbs: RuleBasedSystem) -> str:
-        """The RBS as the heuristics it judges with: its context and every position and move rule with its weight.
-        Two RBSs describe alike when they judge alike."""
+        """The RBS as the heuristics it judges with: its context and every position and move rule with its weight
+        and what the rule reads. Two RBSs describe alike when they judge alike.
+
+        **What a rule reads is part of the description, because a name need not be one.** A fitted rule is named
+        for its own expression and reads as itself; a rule somebody wrote is named `a mark on the middle cell`,
+        which says what it is for and not what it does. A description is what builds the model again and what a
+        person reads to see what it believed, and a label does neither. It goes last so anything reading the
+        name and the weight is unaffected."""
         return json.dumps(
             {
                 "context": rbs.context,
-                "position": [[rule.name, weight] for rule, weight in self._weighted(rbs, POSITION)],
-                "move": [[rule.name, weight] for rule, weight in self._weighted(rbs, MOVE)],
+                "position": [self._said(rule, weight) for rule, weight in self._weighted(rbs, POSITION)],
+                "move": [self._said(rule, weight) for rule, weight in self._weighted(rbs, MOVE)],
             },
             indent=2,
         )
+
+    def _said(self, rule: RuleRecord, weight: float) -> list[object]:
+        """One rule as a description lists it: what it is called, what it weighs, and what it reads."""
+        return [rule.name, weight, str(getattr(rule.rule, "source", "") or "")]
 
     def _weighted(self, rbs: RuleBasedSystem, kind: str) -> tuple[tuple[RuleRecord, float], ...]:
         return tuple((rule, weight) for rule, weight in rbs.rules if rule.kind == kind)

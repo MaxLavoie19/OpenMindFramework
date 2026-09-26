@@ -35,29 +35,54 @@ class HeuristicRanker:
         self, knowledge_base: KnowledgeBase, game: RuleBasedGame, arms: tuple[Arm, ...], settings: RankingSettings
     ) -> tuple[ArmScore, ...]:
         """Plays the games the settings allow and gives every heuristic with what its games came to, best first.
-        Fewer than two heuristics raise ValueError: there is nothing to rank one against."""
+        Fewer than two heuristics raise ValueError: there is nothing to rank one against.
+
+        **With no number of games it plays until something stops it**, writing the standings out as it goes. A
+        bandit has no point at which it is finished — it is a way of spending attention, not a procedure that
+        terminates — so the honest shape is a run that reports and keeps going. Stopped from outside, what it
+        has learned so far is returned rather than lost."""
         if len(arms) < 2:
             raise ValueError(f"Ranking heuristics needs at least two, not {len(arms)}")
         rng = random.Random(settings.seed)
         scores: dict[str, tuple[int, float]] = {}
         players = game.players().names
-        for number in range(settings.games):
-            first, second = self._selector.pair(scores, {}, [arm.name for arm in arms], settings.exploration, rng)
-            playing = {name: arm for arm in arms for name in (arm.name,)}
-            guidance = self._guidance(knowledge_base, players, (playing[first], playing[second]))
-            (played,) = self._self_play.play(
-                knowledge_base, game, guidance, replace(settings.play, games=1, seed=settings.seed + number)
-            )
-            self._scored(scores, (first, second), played.payoffs)
-            logger.info(
-                "Game %d of %d: %s against %s paid %s",
-                number + 1,
-                settings.games,
-                first,
-                second,
-                played.payoffs or "nobody",
-            )
+        playing = {arm.name: arm for arm in arms}
+        number = 0
+        try:
+            while settings.games is None or number < settings.games:
+                first, second = self._selector.pair(scores, {}, [arm.name for arm in arms], settings.exploration, rng)
+                guidance = self._guidance(knowledge_base, players, (playing[first], playing[second]))
+                (played,) = self._self_play.play(
+                    knowledge_base, game, guidance, replace(settings.play, games=1, seed=settings.seed + number)
+                )
+                self._scored(scores, (first, second), played.payoffs)
+                number += 1
+                logger.info(
+                    "Game %d of %s: %s against %s paid %s",
+                    number,
+                    "no end" if settings.games is None else settings.games,
+                    first,
+                    second,
+                    played.payoffs or "nobody",
+                )
+                if settings.standings and number % settings.standings == 0:
+                    self._standings(number, self._ranked(arms, scores, settings.exploration))
+        except KeyboardInterrupt:
+            logger.info("Stopped after %d games", number)
         return self._ranked(arms, scores, settings.exploration)
+
+    def _standings(self, played: int, ranked: tuple[ArmScore, ...]) -> None:
+        """The table so far, headed, so a run with no end can be read while it runs."""
+        logger.info("After %d games: %-40s %7s %7s %7s %7s", played, "heuristic", "games", "points", "per game", "bound")
+        for score in ranked:
+            logger.info(
+                "                  %-40s %7d %7.1f %7.3f %7s",
+                score.arm.name,
+                score.games,
+                score.points,
+                score.mean,
+                "-" if score.bound is None else f"{score.bound:.3f}",
+            )
 
     def _guidance(
         self, knowledge_base: KnowledgeBase, players: tuple[str, ...], playing: tuple[Arm, Arm]

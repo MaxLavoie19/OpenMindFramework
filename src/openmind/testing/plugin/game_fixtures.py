@@ -97,14 +97,26 @@ def heuristic(knowledge: KnowledgeBase) -> Callable[..., RuleRecord]:
     ruleset for a move rule, or the task named — at that weight, as a producer of heuristics does: `heuristic("tictactoe", "a constant", PythonRule("1.0"), 0.25)`. A
     rule of the same name already there is declared anew and its weight set anew."""
 
-    def link(context: str, name: str, rule: Rule, weight: float, kind: str = POSITION, task: str | None = None) -> RuleRecord:
+    def link(
+        context: str,
+        name: str,
+        rule: Rule,
+        weight: float,
+        kind: str = POSITION,
+        task: str | None = None,
+        ruleset_name: str | None = None,
+    ) -> RuleRecord:
+        """`ruleset_name` is what the ruleset is called where that differs from the task it is a model of, so a
+        context can hold several models of one task — which is what fitting at several prices produces, and what
+        a bandit ranks. Left out, the ruleset is named for its task, as a context with one model of it is."""
         task = task or (MOVE_VALUE if kind == MOVE else POSITION_VALUE)
+        named = ruleset_name or task
         context_id = knowledge.ensure_context(context).id
         source = Source(knowledge.ensure_mechanism(INFERENCE).id, (("method", "fit"),))
-        ruleset = knowledge.ruleset_named(context_id, task)
+        ruleset = knowledge.ruleset_named(context_id, named)
         if ruleset is None:
-            ruleset = knowledge.ruleset(Ruleset(task, context_id, task, source))
-            create_model_registry().register_ruleset(knowledge, ruleset)
+            ruleset = knowledge.ruleset(Ruleset(named, context_id, task, source))
+            create_model_registry().register_ruleset(knowledge, ruleset, named)
         standing = next((held for held, _ in knowledge.ruleset_rules(ruleset.id) if held.name == name), None)
         declared = knowledge.declare(RuleRecord(name, kind, rule, source, id="" if standing is None else standing.id))
         knowledge.link(ruleset.id, declared.id, weight)

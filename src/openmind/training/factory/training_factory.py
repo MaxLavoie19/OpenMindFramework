@@ -1,5 +1,6 @@
 from openmind.agent.factory.agent_factory import create_agent
 from openmind.agent.service.outfitter import Outfitter
+from openmind.model.service.model_timer import ModelTimer
 from openmind.rbs.factory.rbs_factory import create_rule_heuristic
 from openmind.training.service.arm_selector import ArmSelector
 from openmind.training.service.heuristic_ranker import HeuristicRanker
@@ -29,4 +30,4 @@ def create_value_distiller(agent: Agent | None = None, workers: int = 1) -> Valu
 
 def create_heuristic_ranker(agent: Agent | None = None) -> HeuristicRanker:
     """Ranking heuristics by playing them against each other, pairing them by UCB1."""
-    return HeuristicRanker(create_self_play(agent), ArmSelector(), Outfitter(create_rule_heuristic()))
+    return HeuristicRanker(create_self_play(agent), ArmSelector(), Outfitter(create_rule_heuristic(), ModelTimer()))

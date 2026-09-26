@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 CONSTANT_RULE = "a position is worth this much before anything is read"
 CONSTANT_SOURCE = "1.0"
 
+#: What a ruleset holding one price's fit is called, where every price is kept. The fit the held-out rows chose
+#: keeps the task's own name, so whatever asked for the position value before still gets the one that was chosen.
+PRICED_RULESET = "{task} at price {price}"
+
 #: A target's values on the training rows and on the held-out rows, in the rows' order.
 type TargetValues = tuple[np.ndarray, np.ndarray]
 
@@ -63,10 +67,12 @@ class ValueGenerator:
         held_out: Sequence[PositionRow],
         settings: ValueSettings,
         target: HeuristicTarget,
-        seeds: Sequence[Expression] = (),
+        seeds: Sequence[Expression | tuple[Expression, float]] = (),
     ) -> ValueGenerationResult:
         """Without held-out rows, the fit with the lowest training loss is kept; ties go to the fewest terms. The search
-        runs at the middle price of the sweep, trying the seeds first."""
+        runs at the middle price of the sweep, trying the seeds first.
+
+        A seed may carry the weight the rules imply it should start from; see `ExpressionSearch.search`."""
         payoffs = np.array([row.target for row in training], dtype=float)
         held_out_payoffs = np.array([row.target for row in held_out], dtype=float)
         return self.generate_for_targets(
@@ -83,7 +89,7 @@ class ValueGenerator:
         targets: Mapping[str, TargetValues],
         settings: ValueSettings,
         target: HeuristicTarget,
-        seeds: Sequence[Expression] = (),
+        seeds: Sequence[Expression | tuple[Expression, float]] = (),
     ) -> dict[str, ValueGenerationResult]:
         """Each target's result, in the targets' order. A target is its values on the training and held-out rows, scaled
         from its lowest to its highest training value; one that never varies has nothing to fit and isn't searched. No
@@ -202,32 +208,71 @@ class ValueGenerator:
         )
         chosen = fitted[index]
         kept = sorted((at for at, weight in enumerate(chosen.weights) if weight != 0.0), key=lambda at: -abs(chosen.weights[at]))
-        bias = chosen.bias - math.fsum(chosen.weights[at] * float(means[at]) / float(scales[at]) for at in kept)
-        declared = [self._link(target, CONSTANT_RULE, PythonRule(CONSTANT_SOURCE), bias)]
+        declared = self._declared(target, POSITION_VALUE, chosen, terms, means, scales, label, fits[index].price)
+        others: list[tuple[str, tuple[RuleRecord, ...]]] = []
+        if settings.keep_every_price:
+            for at, fit in enumerate(fitted):
+                if at == index:
+                    continue
+                named = PRICED_RULESET.format(task=POSITION_VALUE, price=f"{fits[at].price:g}")
+                others.append((named, self._declared(target, named, fit, terms, means, scales, label, fits[at].price)))
+            logger.info(
+                "%sKept every price as a heuristic of its own to be played: %s",
+                label,
+                "; ".join(f"{named} with {len(rules) - 1} rules" for named, rules in others) or "there was only one",
+            )
+        strengths = tuple((terms[at], float(chosen.weights[at])) for at in kept)
+        return ValueGenerationResult(
+            target.context, declared, tuple(fits), fits[index], terms, strengths, tuple(others)
+        )
+
+    def _declared(
+        self,
+        target: HeuristicTarget,
+        ruleset_name: str,
+        fit: SparseFit,
+        terms: Sequence[PythonRule],
+        means: Sequence[float],
+        scales: Sequence[float],
+        label: str,
+        price: float,
+    ) -> tuple[RuleRecord, ...]:
+        """One fit written into a ruleset of its own: its non-zero terms at their weights on the values as read,
+        and the constant left when every term reads nothing."""
+        kept = sorted((at for at, weight in enumerate(fit.weights) if weight != 0.0), key=lambda at: -abs(fit.weights[at]))
+        bias = fit.bias - math.fsum(fit.weights[at] * float(means[at]) / float(scales[at]) for at in kept)
+        rules = [self._link(target, ruleset_name, CONSTANT_RULE, PythonRule(CONSTANT_SOURCE), bias)]
         for at in kept:
-            weight = chosen.weights[at] / float(scales[at])
-            declared.append(self._link(target, terms[at].source, terms[at], weight))
-            logger.debug("%s%+.6g × %s", label, weight, terms[at].source)
+            weight = fit.weights[at] / float(scales[at])
+            rules.append(self._link(target, ruleset_name, terms[at].source, terms[at], weight))
+            logger.debug("%s%s: %+.6g × %s", label, ruleset_name, weight, terms[at].source)
         logger.info(
-            "%sChose price %s: %d position rules and a constant of %s",
+            "%sPrice %s into %s: %d position rules and a constant of %s",
             label,
-            fits[index].price,
-            len(declared) - 1,
+            price,
+            ruleset_name,
+            len(rules) - 1,
             bias,
         )
-        strengths = tuple((terms[at], float(chosen.weights[at])) for at in kept)
-        return ValueGenerationResult(target.context, tuple(declared), tuple(fits), fits[index], terms, strengths)
+        return tuple(rules)
 
-    def _link(self, target: HeuristicTarget, name: str, rule: PythonRule, weight: float) -> RuleRecord:
-        """Declares a fitted position rule, open, and links it into the target's position value ruleset at its weight;
-        a rule of the same name already there is revised in place and its weight set anew."""
+    def _link(
+        self, target: HeuristicTarget, ruleset_name: str, name: str, rule: PythonRule, weight: float
+    ) -> RuleRecord:
+        """Declares a fitted position rule, open, and links it into that ruleset of the target's context at its
+        weight; a rule of the same name already there is revised in place and its weight set anew.
+
+        **The ruleset is named because a context may hold several.** One model of a task was one ruleset while
+        fitting kept one fit; several fits of the same task are several models, which is what the registry is
+        for. The task each is a model of stays `position value`, so whatever asks for models of that task finds
+        all of them and can tell them apart by playing."""
         knowledge_base = target.knowledge_base
         context_id = knowledge_base.ensure_context(target.context).id
         mechanism = knowledge_base.ensure_mechanism(INFERENCE).id
-        ruleset = knowledge_base.ruleset_named(context_id, POSITION_VALUE)
+        ruleset = knowledge_base.ruleset_named(context_id, ruleset_name)
         if ruleset is None:
             ruleset = knowledge_base.ruleset(
-                Ruleset(POSITION_VALUE, context_id, POSITION_VALUE, Source(mechanism, (("method", "fit"),)), open=True)
+                Ruleset(ruleset_name, context_id, POSITION_VALUE, Source(mechanism, (("method", "fit"),)), open=True)
             )
             ModelRegistry(AccuracyScorer()).register_ruleset(knowledge_base, ruleset)
         standing = next((held for held, _ in knowledge_base.ruleset_rules(ruleset.id, (POSITION,)) if held.name == name), None)

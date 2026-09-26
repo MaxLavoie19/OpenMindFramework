@@ -146,6 +146,66 @@ class ExpressionGenerator:
         base the pattern reads must be in the vocabulary."""
         return Expression(self._pattern_template(pattern, vocabulary), len(pattern.conditions), 0, pattern)
 
+    def counting(
+        self, base: str, value: Value, vocabulary: Vocabulary, owner: str | None = None
+    ) -> tuple[Expression, ...]:
+        """The expressions counting how many of that value stand in that base — and, where a base says whose each
+        one is, how many of them are the reader's own.
+
+        **The second is the one that is worth anything, and the search reaches it late.** Where a game keeps what
+        a thing is and whose it is in two structures over the same places — chess holds `piece` and `color` that
+        way — counting a value alone counts both sides' knights at once. That number barely moves from position
+        to position, so it explains nothing and the search passes over it; the term whose weight *is* what a
+        knight is worth needs the second condition, and the search only reaches it by growing a child of the
+        near-constant parent it already declined. Both are offered here so the seeding does not depend on that
+        happening.
+
+        Nothing about it is a board or a piece. It is how many of a thing there are, and how many of them are
+        mine, for a game that has things and says whose they are — and a game that says neither produces
+        neither."""
+        if base not in vocabulary.indices_by_base or value not in vocabulary.values_by_base.get(base, ()):
+            return ()
+        zero = (0,) * self._arity(vocabulary.indices_by_base[base])
+        found = [
+            self.pattern_expression(Pattern(base, (PatternCondition(base, zero, "==", rendered),)), vocabulary)
+            for rendered in self._rendered(value, vocabulary)
+        ]
+        if owner is None or owner not in vocabulary.indices_by_base:
+            return tuple(found)
+        if vocabulary.indices_by_base[owner] != vocabulary.indices_by_base[base]:
+            return tuple(found)
+        found.extend(
+            self.pattern_expression(
+                Pattern(
+                    base,
+                    (PatternCondition(base, zero, "==", rendered), PatternCondition(owner, zero, "==", ME)),
+                ),
+                vocabulary,
+            )
+            for rendered in self._rendered(value, vocabulary)
+        )
+        return tuple(found)
+
+    def owning(self, base: str, vocabulary: Vocabulary) -> str | None:
+        """Which base says whose the things in that one are: another over the same places, holding players' names.
+
+        Worked out and never declared, so a game that keeps ownership somewhere else, or nowhere, is not being
+        told it does. Where several would do, the first by name is taken and the rest are as good — each gives a
+        term, and what a term is worth is the fitter's to find."""
+        if base not in vocabulary.indices_by_base or not vocabulary.players:
+            return None
+        places = vocabulary.indices_by_base[base]
+        return next(
+            (
+                name
+                for name, indices in sorted(vocabulary.indices_by_base.items())
+                if name != base
+                and indices == places
+                and any(one in vocabulary.players for one in vocabulary.values_by_base.get(name, ()))
+            ),
+            None,
+        )
+
     def pattern_children(self, expression: Expression, vocabulary: Vocabulary) -> tuple[Expression, ...]:
         pattern = expression.pattern
         if pattern is None:

@@ -57,7 +57,7 @@ class SelfPlay:
         for number in range(settings.games):
             started = time.monotonic()
             one = self.play_game(knowledge_base, game, guidance, replace(settings, seed=settings.seed + number))
-            self._remembered(memory, game, one)
+            self._remembered(memory, game, one, guidance)
             played.append(one)
             logger.info(
                 "Played game %d of %d: %d steps in %s, %s",
@@ -151,7 +151,13 @@ class SelfPlay:
             picked.append((player, action))
         return JointAction(tuple(picked)) if picked else None  # type: ignore[arg-type]
 
-    def _remembered(self, memory: GameMemory, game: RuleBasedGame, played: PlayedGame) -> None:
+    def _remembered(
+        self,
+        memory: GameMemory,
+        game: RuleBasedGame,
+        played: PlayedGame,
+        guidance: Guidance | Mapping[str, Guidance],
+    ) -> None:
         """Keeps the game in the knowledge base: what was played, what it paid, and the heuristics it was played with,
         which is what tells a game played before a heuristic was learned from one played after.
 
@@ -161,7 +167,6 @@ class SelfPlay:
             return
         actions = tuple(joint.actions[0][1] for joint in played.actions if len(joint.actions) == 1)
         alone = len(actions) == len(played.actions)
-        model = ModelDescription(SELF_PLAY_GAME, game.describe())
         memory.remember(
             GameSummary(
                 game.context,
@@ -170,7 +175,7 @@ class SelfPlay:
                 memory.last_number(SELF_PLAY_GAME) + 1,
                 (played.agent_seed or 0, played.outcome_seed or 0),
                 game.players().names,
-                (model,) * len(game.players().names),
+                tuple(self._played_with(game, guidance, player) for player in game.players().names),
                 played.payoffs,
                 played.steps,
                 played.ending,
@@ -178,6 +183,30 @@ class SelfPlay:
                 actions=actions if alone else (),
             )
         )
+
+    def _played_with(
+        self, game: RuleBasedGame, guidance: Guidance | Mapping[str, Guidance], player: str
+    ) -> ModelDescription:
+        """What that player played with, as the game remembers models: its position value heuristic, named by the
+        ruleset it is, and described by what it judges with.
+
+        **Each side's own, because the point of playing two heuristics is telling them apart.** This used to
+        remember one description of the *game* for everybody, so two sides that played different heuristics were
+        recorded as having played the same thing, and nothing afterwards could say which had won. The field has
+        always been one model per player and the docstrings have always said heuristics; only the writing was
+        wrong.
+
+        A player with no heuristic played the game and nothing else, and is remembered as having done so —
+        which is a real thing to have played with, and is what tells a game played before a heuristic was
+        learned from one played after."""
+        held = guidance.get(player) if isinstance(guidance, Mapping) else guidance
+        filled = None if held is None else held.position_value
+        if filled is None:
+            return ModelDescription(SELF_PLAY_GAME, game.describe())
+        model, service = filled
+        named = getattr(getattr(model, "ruleset", None), "name", None) or SELF_PLAY_GAME
+        describes = getattr(service, "describe", None) or getattr(model, "describe", None)
+        return ModelDescription(str(named), describes(model) if describes is not None else repr(model))
 
     def _playing(self, guidance: Guidance | Mapping[str, Guidance], player: str) -> Guidance:
         """What that player plays with: its own guidance where each side was given one, and the one guidance

@@ -3,10 +3,14 @@ import time
 from collections.abc import Sequence
 
 from openmind.inference.model.deduction_budget import DeductionBudget
+from openmind.inference.model.expression import Expression
 from openmind.inference.model.ponder_settings import PonderSettings
 from openmind.inference.model.pondering import Labelling, Pondering
+from openmind.inference.service.expression_generator import ExpressionGenerator
+from openmind.inference.service.heuristic_deriver import HeuristicDeriver
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.inference.service.position_gatherer import PositionGatherer
+from openmind.inference.service.worth_reasoner import WorthReasoner
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_game
 from openmind.rbs.model.heuristic_target import HeuristicTarget
@@ -21,6 +25,11 @@ logger = logging.getLogger(__name__)
 #: What valuing a position without playing is called, named with the game the values were reasoned out in: what that
 #: game paid where it is over, and what its rules prove where they reach an end.
 SETTLED = "what the rules of {context} settle"
+
+#: What reasoning out the worth of things is called. It is not a way of valuing a position — it never looks at a
+#: payoff — but it is a way of paying for a search, and a way of paying reports itself beside the others or it is
+#: judged on nothing.
+REASONED = "what the rules of {context} imply things are worth"
 
 
 class HeuristicPonderer:
@@ -38,7 +47,14 @@ class HeuristicPonderer:
       game and what is proved there is a hint here, which is exactly what a bootstrap wants.
 
     What each source was worth is kept, paid or not: a way of bootstrapping that taught nothing here is a finding of
-    its own."""
+    its own.
+
+    **And the rules say one thing more, which is not a value at all.** Asked what each thing on the board is
+    worth — by taking it off and seeing how much of what its owner could do goes away — they answer without any
+    position having been valued. That is not a target to fit against; it is a set of terms worth trying first,
+    with the weight each ought to start at. It goes to the search as seeds. What it buys is expansion order: the
+    term whose weight is what a knight is worth gets reached in the generation that would otherwise be spent
+    rediscovering it, and a seed whose gradient does not pay is shrunk to nothing exactly like anything else."""
 
     def __init__(
         self,
@@ -46,11 +62,17 @@ class HeuristicPonderer:
         position_deducer: PositionDeducer,
         value_generator: ValueGenerator,
         game_relaxer: GameRelaxer,
+        heuristic_deriver: HeuristicDeriver,
+        worth_reasoner: WorthReasoner,
+        expression_generator: ExpressionGenerator,
     ) -> None:
         self._gatherer = position_gatherer
         self._deducer = position_deducer
         self._generator = value_generator
         self._relaxer = game_relaxer
+        self._deriver = heuristic_deriver
+        self._worth = worth_reasoner
+        self._expressions = expression_generator
 
     def ponder(self, knowledge_base: KnowledgeBase, game: RuleBasedGame, settings: PonderSettings) -> Pondering:
         """What it deduced, and what every way of deducing was worth."""
@@ -72,16 +94,19 @@ class HeuristicPonderer:
             )
             return Pondering(game.context, (), len(positions), tuple(tried), time.monotonic() - started)
         training, held_out = self._split(rows, settings.held_out)
+        valued_by = tried[-1].source
+        seeds = self._seeded(game, training, settings, tried)
         generated = self._generator.generate(
-            game, training, held_out, settings.values, HeuristicTarget(knowledge_base, game.context)
+            game, training, held_out, settings.values, HeuristicTarget(knowledge_base, game.context), seeds
         )
         logger.info(
-            "Pondered %s for %.1f seconds: %d rules from %d positions valued by %s",
+            "Pondered %s for %.1f seconds: %d rules from %d positions valued by %s, %d terms seeded",
             game.context,
             time.monotonic() - started,
             len(generated.rules),
             len(training),
-            tried[-1].source,
+            valued_by,
+            len(seeds),
         )
         return Pondering(
             generated.context,
@@ -139,6 +164,55 @@ class HeuristicPonderer:
             labelling.seconds,
         )
         return tuple(rows) if labelling.paid else ()
+
+    def _seeded(
+        self,
+        game: RuleBasedGame,
+        training: Sequence[PositionRow],
+        settings: PonderSettings,
+        tried: list[Labelling],
+    ) -> tuple[tuple[Expression, float], ...]:
+        """The terms the rules imply are worth trying, each with the weight they imply it should start at.
+
+        **Only the positions that will be fitted on.** The held-out rows decide which price is kept, so a seed
+        reasoned partly out of them would make that choice partly a choice about rows it had already seen. It
+        costs nothing to avoid: what a thing is worth is a fact about the rules, and the fitted-on positions ask
+        the rules just as well.
+
+        **Nothing here is told whose anything is.** `HeuristicDeriver.seeds` takes deduced sides where there are
+        any and this passes none, so the owning structure is found from the vocabulary instead — another base
+        over the same places whose values are the players' names. That is `ExpressionGenerator.owning`, and for
+        chess it finds the colour grid beside the piece grid without anything having deduced anything.
+        `SideDeducer` is deliberately not wired in here: open question 33 has it concluding that one player owns
+        both light and dark squares, and that white owns black's queen, and a deduction in that state would put
+        wrong owners into the very condition the seed exists to carry. The seam is `seeds(..., sides=...)` for
+        when the question is settled.
+
+        **It reports itself whether or not it found anything.** A way of paying for a search that seeded nothing
+        is a finding, exactly as a way of valuing that valued nothing is."""
+        started = time.monotonic()
+        positions = list({id(row.state): row.state for row in training}.values())
+        vocabulary = self._expressions.vocabulary(game, positions)
+        worth = self._worth.reason(game, positions, most=settings.worth_positions)
+        seeds = self._deriver.seeds(self._deriver.holdings(worth), vocabulary)
+        tried.append(
+            Labelling(
+                REASONED.format(context=game.context),
+                len(positions) if settings.worth_positions is None else min(len(positions), settings.worth_positions),
+                len({held for _, _, held in worth.holdings}),
+                time.monotonic() - started,
+            )
+        )
+        logger.info(
+            "%s: %d things worth something over %d kinds, seeding %d terms, in %.1f seconds%s",
+            REASONED.format(context=game.context),
+            len(worth.holdings),
+            len({value for _, value, _ in worth.holdings}),
+            len(seeds),
+            tried[-1].seconds,
+            "" if worth.settled else " — resting on nothing, since no position bore out that doing less is worse",
+        )
+        return seeds
 
     def _payoffs(self, game: RuleBasedGame, state: State, players: Sequence[str]) -> tuple[float, ...] | None:
         """What the position paid, where it is one the game is over in."""
