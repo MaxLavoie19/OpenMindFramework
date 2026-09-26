@@ -10,6 +10,11 @@ from openmind.knowledge.model.source import Source
 from openmind.knowledge.model.tags import Tags
 from openmind.knowledge.model.task import Task
 from openmind.structure.model.value import Value
+from openmind.structure.model.record import Record
+
+
+#: How a record is written down: what kind of record it is, and what its parts hold.
+RECORD, PARTS = "record", "parts"
 
 
 class KnowledgeJsonMapper:
@@ -169,13 +174,41 @@ class KnowledgeJsonMapper:
         return _pairs(data)
 
 
+    def value_to_data(self, value: object) -> object:
+        """A value as JSON takes it: a name, a number, nothing, or a record written as its parts.
+
+        **What a game hands OMF is either one of OMF's own formats or it says how to write itself.** A record
+        is one of them, so a game whose squares are records is writing in a format OMF knows — and until this
+        existed, every such value was lost on the way to disk, silently, because the store simply could not
+        say it. Anything that is neither is refused here rather than at the moment of writing, where what went
+        wrong is a line of JSON and no longer a value anybody can name."""
+        if isinstance(value, Record):
+            return {RECORD: value.kind, PARTS: {name: self.value_to_data(one) for name, one in value.parts}}
+        if isinstance(value, tuple | list):
+            return [self.value_to_data(one) for one in value]
+        if value is None or isinstance(value, str | int | float | bool):
+            return value
+        raise TypeError(
+            f"{value!r} is not one of OMF's values: a name, a number, nothing, a record, or a list of those. "
+            "A value a game hands OMF either uses one of its formats or says how to write itself down."
+        )
+
+    def value_from_data(self, data: object) -> object:
+        """That value again, a record made as the game declared it."""
+        if isinstance(data, dict) and RECORD in data:
+            parts = data.get(PARTS) or {}
+            return Record.of(str(data[RECORD]), {name: self.value_from_data(one) for name, one in parts.items()})
+        if isinstance(data, list):
+            return [self.value_from_data(one) for one in data]
+        return data
+
+
 def _pairs_to_data(pairs: tuple[tuple[str, Value], ...]) -> list[list[object]]:
     return [[key, value] for key, value in pairs]
 
 
 def _pairs(data: object) -> tuple[tuple[str, Value], ...]:
     return tuple((str(key), value) for key, value in (data or ()))  # type: ignore[union-attr, misc]
-
 
 def _time_to_data(at: datetime | None) -> str | None:
     return None if at is None else at.isoformat()
