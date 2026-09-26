@@ -1,96 +1,193 @@
-from openmind.predictor.model.drawn import Column, Other, Row
+from dataclasses import dataclass
+
+from openmind.predictor.model.watched import Watched
+from openmind.rule.model.consequence import Consequence
+from openmind.rule.model.clause import Clause
+from openmind.rule.model.literal import Literal
+from openmind.rule.model.term import Constant
 from openmind.predictor.service.consequence_learner import ConsequenceLearner
-from openmind.structure.model.cell_names import CellNames
+
+
+def test_a_condition_reads_as_a_condition_and_not_as_a_refusal():
+    """Conditions are learned by the machinery that learns what a game refuses, so each carries that head — and
+    "this happens where refused :- the turn is white" is not what it says. What holds is the conditions; what
+    they conclude here is that the consequence follows.
+
+    Pinned because the first attempt asked each condition for a `readable` that a literal has not got. It passed
+    every test, since no test had a consequence with conditions on it, and killed a run on the first capture."""
+    when = Clause(
+        (Literal("refused", ()), Literal("turn", (Constant("white"),)).denied)
+    )
+
+    said = Consequence("Removed", "move", "grid", (), (), None, (when,)).readable
+
+    assert "refused" not in said
+    assert "where turn(white)" in said
+from openmind.rule.model.drawn import Always, Place
 from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
+from openmind.structure.model.machine import Machine
+from openmind.structure.model.phase import Phase
+from openmind.structure.model.record import Record
 from openmind.world.model.action import Action
+from openmind.world.model.change import Moved, Placed, Removed, Told
 from openmind.world.model.state import State
-from openmind.world.service.changer import Changer
 
-NAMES = CellNames(("a", "b", "c"), ("3", "2", "1"))
-PLAYERS = ("white", "black")
-
-
-def a_board(pieces, colors, turn="white"):
-    return State.of(piece=Grid.of(pieces, NAMES), color=Grid.of(colors, NAMES), turn=turn)
+PLACING, MOVING = Phase("placing", ("place",)), Phase("moving", ("move", "take"))
+PHASES = (PLACING, MOVING)
 
 
-def nothing():
-    return [[None, None, None], [None, None, None], [None, None, None]]
+@dataclass(frozen=True, slots=True)
+class Cell(Record):
+    row: int
+    column: int
 
 
-def walking(source, target):
-    return Action("move", (("source", source), ("target", target)))
+def a_position(at, **cells):
+    """A three by three board with those cells filled, in that phase."""
+    held = [[None, None, None], [None, None, None], [None, None, None]]
+    for name, value in cells.items():
+        row, column = int(name[1]), int(name[2])
+        held[row - 1][column - 1] = value
+    return State.of(grid=Grid.of(held), phase=Machine(PHASES, at), turn="first")
 
 
-def watched(before, action, after, acting="white"):
-    """What was seen: the position, the action, whose it was, what changed, and how the action reads.
-
-    The readings are what the conditions can be made of, so they must hold what actually tells one case from
-    another — here, what stands where the move lands."""
-    parameters = dict(action.parameters)
-    standing = before.model("color").at(parameters["target"])
-    readings = {
-        "piece at source": before.model("piece").at(parameters["source"]),
-        "color at target is another player": standing is not None and standing != acting,
-    }
-    return (before, action, acting, Changer().between(before, after), readings)
+def placing(row, column, mark):
+    """Putting a new thing down: the square is the parameter's, the thing is always the same."""
+    return Watched(
+        a_position("placing"),
+        Action("place", (("cell", Cell(row, column)),)),
+        (Placed("grid", (row, column), mark), Told("turn", "second")),
+    )
 
 
-def test_what_an_action_always_does_is_learned_without_conditions():
-    pieces, colors = nothing(), nothing()
-    pieces[2][0], colors[2][0] = "rook", "white"
-    before = a_board(pieces, colors)
-    moved, moved_colors = nothing(), nothing()
-    moved[2][2], moved_colors[2][2] = "rook", "white"
-    after = a_board(moved, moved_colors, "black")
-
-    found = ConsequenceLearner().learn([watched(before, walking("a1", "c1"), after)], PLAYERS, positions=1)
-    said = [one.readable for one in found]
-
-    assert any("moved piece" in one and "the row of source" in one and "the column of target" in one for one in said), said
-    assert any("told turn, holding the player not acting" == one for one in said), said
+def moving(origin, destination):
+    """Carrying a thing from one square to another."""
+    return Watched(
+        a_position("moving", **{f"c{origin[0]}{origin[1]}": "a thing"}),
+        Action("move", (("from", Cell(*origin)), ("to", Cell(*destination)))),
+        (Moved("grid", origin, destination), Told("turn", "second")),
+    )
 
 
-def test_a_square_no_parameter_names_is_learned_as_rows_and_columns_of_the_ones_that_do():
-    """The piece taken in passing: at the row the mover started on and the column it landed on."""
-    pieces, colors = nothing(), nothing()
-    pieces[1][0], colors[1][0] = "pawn", "white"
-    pieces[1][1], colors[1][1] = "pawn", "black"
-    before = a_board(pieces, colors)
-    moved, moved_colors = nothing(), nothing()
-    moved[0][1], moved_colors[0][1] = "pawn", "white"
-    after = a_board(moved, moved_colors, "black")
-
-    found = ConsequenceLearner().learn([watched(before, walking("a2", "b3"), after)], PLAYERS, positions=1)
-    removals = [one for one in found if one.change == "Removed" and one.model == "piece"]
-
-    assert any(one.where == (Row("source"), Column("target")) for one in removals), [one.readable for one in removals]
+def taking(origin, destination):
+    """Carrying a thing onto one that was there, which goes first."""
+    return Watched(
+        a_position("moving", **{f"c{origin[0]}{origin[1]}": "a thing", f"c{destination[0]}{destination[1]}": "another"}),
+        Action("take", (("from", Cell(*origin)), ("to", Cell(*destination)))),
+        (Removed("grid", destination), Moved("grid", origin, destination), Told("turn", "second")),
+    )
 
 
-def test_what_happens_only_sometimes_is_learned_with_the_conditions_it_happens_under():
-    quiet_before = a_board(*_with({(2, 0): ("rook", "white")}))
-    quiet_after = a_board(*_with({(2, 2): ("rook", "white")}), "black")
-    taking_before = a_board(*_with({(2, 0): ("rook", "white"), (2, 2): ("pawn", "black")}))
-    taking_after = a_board(*_with({(2, 2): ("rook", "white")}), "black")
-    seen = [
-        watched(quiet_before, walking("a1", "c1"), quiet_after),
-        watched(taking_before, walking("a1", "c1"), taking_after),
+def seen():
+    return [
+        placing(1, 1, "a mark"), placing(2, 3, "a mark"), placing(3, 2, "a mark"),
+        moving((1, 1), (1, 2)), moving((2, 2), (3, 3)), moving((3, 1), (1, 3)),
+        taking((1, 1), (2, 2)), taking((3, 3), (1, 2)), taking((2, 1), (2, 3)),
     ]
 
-    found = ConsequenceLearner().learn(seen, PLAYERS, positions=1, grow=1.0)
-    removals = [one for one in found if one.change == "Removed"]
 
-    assert removals, [one.readable for one in found]
-    assert all(one.when for one in removals), [one.readable for one in removals]
-    assert all(
-        ("color at target is another player", "==", True) in rule.conditions
-        for one in removals
-        for rule in one.when
-    ), [one.readable for one in removals]
+def learned():
+    return ConsequenceLearner().learn(seen())
 
 
-def _with(held):
-    pieces, colors = nothing(), nothing()
-    for (row, column), (piece, color) in held.items():
-        pieces[row][column], colors[row][column] = piece, color
-    return pieces, colors
+def test_every_action_of_every_phase_is_learned():
+    """A game of phases has an action per phase and each does its own thing. What is learned is what *this*
+    action leads to, never what actions lead to, so every action offered anywhere has to come back."""
+    found = {one.action for one in learned()}
+
+    assert found == {action for phase in PHASES for action in phase.actions}
+
+
+def test_what_an_action_does_is_said_in_terms_of_the_action():
+    """The whole point. A change naming the square a thing was carried from says what happened once; the same
+    change with that square drawn from the action says what happens whenever it is played."""
+    carried = next(one for one in learned() if one.action == "move" and one.change == "Moved")
+
+    assert carried.where == (Place("from", "row"), Place("from", "column"))
+    assert carried.onto == (Place("to", "row"), Place("to", "column"))
+
+
+def test_a_move_is_about_the_thing_where_the_move_starts():
+    """What ties an action to its subject. Once it is known that a move carries whatever stands where `from`
+    points, the thing being moved is not one of nine things the position holds that a rule might be about — it is
+    the thing the change names."""
+    carried = next(one for one in learned() if one.action == "move" and one.change == "Moved")
+
+    assert {one.parameter for one in carried.where} == {"from"}
+
+
+def test_a_thing_put_down_that_is_always_the_same_is_said_to_be_always_the_same():
+    """Where a game's action names what to place, the thing is drawn from the action; where it does not, it is a
+    fact about the action rather than about this playing of it."""
+    put = next(one for one in learned() if one.action == "place" and one.change == "Placed")
+
+    assert put.value == Always("a mark")
+    assert put.where == (Place("cell", "row"), Place("cell", "column"))
+
+
+def test_taking_removes_where_the_move_lands_and_not_where_it_starts():
+    """Two changes of different kinds in one action, each drawn its own way — which is what tells a move that
+    takes from a move onto an empty square, and cannot be had from the two positions."""
+    taken = next(one for one in learned() if one.action == "take" and one.change == "Removed")
+
+    assert taken.where == (Place("to", "row"), Place("to", "column"))
+
+
+def test_an_action_that_does_a_thing_twice_is_left_unlearned_rather_than_learned_wrongly():
+    """Castling moves two pieces, a deal gives a card to each player. Which sighting's first is which sighting's
+    second is not something agreement alone can settle, so nothing is said."""
+    twice = Watched(
+        a_position("moving"),
+        Action("castle", (("side", "king"),)),
+        (Moved("grid", (1, 1), (1, 2)), Moved("grid", (1, 3), (1, 4))),
+    )
+
+    assert not [one for one in ConsequenceLearner().learn([twice, twice]) if one.change == "Moved"]
+
+
+def paying(row, column, won):
+    """A move that ends the game, paying each player under their own name."""
+    where = State.of(
+        grid=Grid.of([[None, None, None], [None, None, None], [None, None, None]]),
+        phase=Machine(PHASES, "moving"),
+        turn="first",
+        payoff=Map.of({"first": None, "second": None}),
+    )
+    return Watched(
+        where,
+        Action("place", (("cell", Cell(row, column)),)),
+        (
+            Placed("grid", (row, column), "a mark"),
+            Placed("payoff", ("first",), 1.0 if won == "first" else 0.0),
+            Placed("payoff", ("second",), 1.0 if won == "second" else 0.0),
+        ),
+    )
+
+
+def test_what_a_game_pays_each_player_is_learned_although_it_happens_once_per_player():
+    """Two changes of a kind are left unlearned because nothing tells them apart, and that is right for a board:
+    which sighting's first move goes with which sighting's second cannot be had from agreement.
+
+    A map's entries tell themselves apart. What a game pays is one change per player, under that player's own
+    name, and the names are the same in every sighting — so there is nothing to pair, and a game being won
+    became learnable the moment they were grouped by name instead of being thrown away together."""
+    learned = ConsequenceLearner().learn(
+        [paying(1, 1, "first"), paying(2, 2, "second"), paying(3, 3, "first"), paying(1, 3, "second")]
+    )
+
+    paid = [one for one in learned if one.model == "payoff"]
+    assert len(paid) == 2
+    assert all(one.change == "Placed" for one in paid)
+
+
+def test_two_moves_of_one_board_are_still_left_unlearned():
+    """The rule this narrows is still the rule everywhere it was right: a grid's coordinates move with the
+    action, so keying on them would make every sighting a group of its own and nothing would generalise."""
+    twice = Watched(
+        a_position("moving"),
+        Action("castle", (("side", "king"),)),
+        (Moved("grid", (1, 1), (1, 2)), Moved("grid", (1, 3), (1, 4))),
+    )
+
+    assert not [one for one in ConsequenceLearner().learn([twice, twice]) if one.change == "Moved"]

@@ -2,6 +2,7 @@ import pytest
 
 from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
 from openmind.world.model.change import Moved, Placed, Removed, Told
 from openmind.world.model.state import State
 from openmind.world.service.changer import Changer
@@ -129,3 +130,56 @@ def test_what_is_read_between_two_positions_makes_the_second_one():
 def test_changing_cells_of_something_that_holds_none_says_so():
     with pytest.raises(TypeError):
         Changer().applied(a_board(), [Removed("turn", "b2")])
+
+
+def a_game_in_play():
+    """A board with what the game has paid beside it, which is nothing while it goes on."""
+    return State.of(
+        piece=Grid.of([["king", "pawn"], [None, "rook"]], NAMES),
+        payoff=Map.of({"white": None, "black": None}),
+        turn="white",
+    )
+
+
+def test_what_a_game_pays_can_be_changed_like_anything_else_in_a_position():
+    """A position holds scalars, grids and maps, and what an action did could be said of the first two only.
+    So anything a game kept by key was invisible to everything that learns from changes — and what a game pays
+    is kept exactly that way, which is why no learner had ever seen a game being won."""
+    over = Changer().applied(
+        a_game_in_play(), [Placed("payoff", ("white",), 1.0), Placed("payoff", ("black",), 0.0)]
+    )
+
+    assert over.model("payoff")["white"] == 1.0
+    assert over.model("payoff")["black"] == 0.0
+
+
+def test_an_entry_emptied_reads_as_nothing_rather_than_going_away():
+    """A key a game has stopped paying is a key paying nothing, which is what None means everywhere else."""
+    emptied = Changer().applied(
+        Changer().applied(a_game_in_play(), [Placed("payoff", ("white",), 1.0)]), [Removed("payoff", ("white",))]
+    )
+
+    assert emptied.model("payoff")["white"] is None
+    assert "white" in emptied.model("payoff")
+
+
+def test_nothing_is_carried_between_keys_and_asking_says_why():
+    """Carrying a thing from one place to another is what a board is for. An entry under a key is not somewhere
+    a thing stands, it is what that key currently reads."""
+    with pytest.raises(TypeError, match="by key"):
+        Changer().applied(a_game_in_play(), [Moved("payoff", ("white",), ("black",))])
+
+
+def test_a_payoff_that_now_reads_otherwise_is_read_off_the_two_positions():
+    """A game that says nothing about what its action did still has the difference read off it, and until now
+    that reading skipped every map in the position."""
+    over = State.of(
+        piece=Grid.of([["king", "pawn"], [None, "rook"]], NAMES),
+        payoff=Map.of({"white": 1.0, "black": 0.0}),
+        turn="white",
+    )
+
+    found = Changer().between(a_game_in_play(), over)
+
+    assert Placed("payoff", ("white",), 1.0) in found
+    assert Placed("payoff", ("black",), 0.0) in found

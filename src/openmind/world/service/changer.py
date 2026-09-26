@@ -1,8 +1,11 @@
 import logging
 from collections.abc import Sequence
 
+from openmind.structure.model.coordinates import Coordinates
 from openmind.structure.model.grid import Grid
+from openmind.structure.model.map import Map
 from openmind.structure.model.scalar import Scalar
+from openmind.structure.model.value import Value
 from openmind.world.model.change import Change, Moved, Placed, Removed, Told
 from openmind.world.model.state import State
 
@@ -55,6 +58,12 @@ class Changer:
                 removed.extend(one)
                 placed.extend(other)
                 moved.extend(carried)
+            elif isinstance(model, Map) and isinstance(was, Map):
+                placed.extend(
+                    Placed(name, (key,), model[key])
+                    for key in model.keys()
+                    if was.get(key) != model[key]
+                )
             elif isinstance(model, Scalar) and isinstance(was, Scalar) and model.value != was.value:
                 placed.append(Told(name, model.value))
         return (*removed, *moved, *placed)
@@ -82,6 +91,8 @@ class Changer:
         if isinstance(change, Told):
             return state.with_model(change.model, change.value)
         grid = state.model(change.model)
+        if isinstance(grid, Map):
+            return self._kept(state, grid, change)
         if not isinstance(grid, Grid):
             raise TypeError(f"{change.model!r} holds no cells to change")
         if isinstance(change, Placed):
@@ -91,3 +102,24 @@ class Changer:
         if isinstance(change, Moved):
             return state.with_model(change.model, grid.moved(change.source, change.target))
         raise TypeError(f"Unknown change: {change!r}")
+
+    def _kept(self, state: State, held: Map, change: Change) -> State:
+        """A change to something held by key rather than by place: an entry set, or emptied.
+
+        **A map is the third structure and was the one nothing could change.** A position holds scalars, grids
+        and maps, and what an action did could be said of the first two only — so anything a game kept by key
+        was invisible to everything that learns from changes. What a game *pays* is kept that way, which is why
+        no learner had ever seen a game being won: the fact was in the position and could not be said to have
+        happened.
+
+        Nothing moves between keys. Carrying a thing from one place to another is what a board is for; an entry
+        under a key is not somewhere a thing stands, it is what that key currently reads."""
+        if isinstance(change, Placed):
+            return state.with_model(change.model, held.with_item(self._key(change.at), change.value))
+        if isinstance(change, Removed):
+            return state.with_model(change.model, held.with_item(self._key(change.at), None))
+        raise TypeError(f"{change.model!r} holds its values by key, so nothing can be carried between them: {change!r}")
+
+    def _key(self, at: Coordinates) -> Value:
+        """Which entry a change names: a map is indexed by its key alone, so a place of one is that key."""
+        return at[0] if len(at) == 1 else at  # type: ignore[return-value]
