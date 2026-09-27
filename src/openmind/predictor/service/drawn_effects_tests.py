@@ -2,7 +2,7 @@ from openmind.inference.model.example import Example
 from openmind.predictor.service.drawn_effects import DrawnEffects
 from openmind.statement.model.clause import Clause
 from openmind.statement.model.consequence import Consequence
-from openmind.statement.model.drawn import Always, Other, Row, Column
+from openmind.statement.model.drawn import always, column, other, row
 from openmind.statement.model.literal import Literal
 from openmind.statement.model.term import Constant
 from openmind.structure.model.cell_names import CellNames
@@ -30,14 +30,14 @@ def moving(**held) -> Consequence:
         "change": "Removed",
         "action": "move",
         "model": "piece",
-        "where": (Row("source"), Column("source")),
+        "where": (row("source"), column("source")),
     }
     return Consequence(**{**fields, **held})
 
 
 def passing() -> Consequence:
     """That the turn becomes the other player's, which can only be drawn where whose it is now can be read."""
-    return Consequence("Told", "move", "turn", value=Other())
+    return Consequence("Told", "move", "turn", value=other())
 
 
 def playing(**held) -> DrawnEffects:

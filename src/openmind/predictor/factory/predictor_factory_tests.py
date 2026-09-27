@@ -3,7 +3,7 @@ from openmind.predictor.service.drawn_effects import DrawnEffects
 from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.statement.model.consequence import Consequence
 from openmind.rule.model.consequence_rule import ConsequenceRule
-from openmind.statement.model.drawn import Other
+from openmind.statement.model.drawn import other
 from openmind.structure.model.grid import Grid
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
@@ -17,7 +17,7 @@ def a_board() -> State:
 
 def passing() -> ConsequenceRule:
     """What was learned of an action: the turn becomes the other player's."""
-    return ConsequenceRule((Consequence("Told", "place", "turn", value=Other()),))
+    return ConsequenceRule((Consequence("Told", "place", "turn", value=other()),))
 
 
 def test_a_runner_given_a_caller_uses_it_rather_than_making_its_own():

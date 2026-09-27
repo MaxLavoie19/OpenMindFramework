@@ -1,20 +1,6 @@
-from dataclasses import fields
-
-from openmind.statement.model.consequence import Consequence
-from openmind.statement.model.drawn import Always, Asked, Column, Drawn, More, Other, Place, Row, Standing, Stepped
 from openmind.rule.mapper.clause_json_mapper import ClauseJsonMapper
-from openmind.structure.mapper.value_json_mapper import ValueJsonMapper
-
-#: Every way one part of a change can be drawn from the action, by the name it is written down under.
-#:
-#: Named rather than numbered, so a drawing added later does not renumber the ones already written down, and a
-#: file written today still reads after one is added.
-DRAWINGS: dict[str, type] = {
-    one.__name__: one for one in (Place, Stepped, Row, Column, Standing, Asked, Always, Other, More)
-}
-
-#: Which of them a drawing is, as it is written down.
-DRAWN = "drawn"
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.drawn import Drawn
 
 
 class ConsequenceJsonMapper:
@@ -27,24 +13,20 @@ class ConsequenceJsonMapper:
     had found.
 
     Said as what it is rather than as the text of it, for the reason `ClauseJsonMapper` gives: a rule that has to
-    be parsed before it can be used is a rule that will one day fail to parse. A drawing carries the name of its
-    kind, since `Always("row")` and `Place("row", …)` must not come back as one another.
+    be parsed before it can be used is a rule that will one day fail to parse.
 
     Its conditions are clauses and go through the clause mapper, because they are the same kind of thing as the
     conditions under which an action is refused — learned by the same machinery, and written down the same way.
 
-    **What a drawing holds is a value of the game's, and goes through the value mapper.** A promotion is drawn
-    as `Always(Piece('white', 'queen'))` and a capture as `Always(None)`: the first is a record the game
-    declared, and written out as itself it is a Python object no store can say. Asked of the mapper that knows
-    what a record is, both are written the same way as every other value the game hands OMF."""
+    **And so are its drawings, now that a drawing is a term.** This kept its own map from a kind's name to its
+    class, and read a drawing's fields off the dataclass, beside a mapper that already knew how to write down
+    any term — and a third reading of the same thing, to put a record's value through the value mapper. Several
+    ways of writing one thing is how the two halves of this system came to disagree about what a capture is. A
+    drawing now goes through `term_to_data` like every other term, and a way of drawing added later is written
+    down without this being told about it."""
 
-    def __init__(
-        self,
-        clause_json_mapper: ClauseJsonMapper | None = None,
-        value_json_mapper: ValueJsonMapper | None = None,
-    ) -> None:
+    def __init__(self, clause_json_mapper: ClauseJsonMapper | None = None) -> None:
         self._clauses = ClauseJsonMapper() if clause_json_mapper is None else clause_json_mapper
-        self._values = ValueJsonMapper() if value_json_mapper is None else value_json_mapper
 
     def to_data(self, consequence: Consequence) -> dict[str, object]:
         return {
@@ -73,19 +55,9 @@ class ConsequenceJsonMapper:
         )
 
     def drawn_to_data(self, drawn: Drawn) -> dict[str, object]:
-        """One way of drawing a part from the action, with the name of which way it is.
-
-        Its own fields and no more, read off the kind rather than listed here, so a drawing that gains a field
-        is written down with it without this having to be told — and each of them through the value mapper,
-        since a field may hold whatever the game puts on a square."""
-        return {
-            DRAWN: type(drawn).__name__,
-            **{one.name: self._values.to_data(getattr(drawn, one.name)) for one in fields(drawn)},
-        }
+        """One way of drawing a part from the action, written down as the term it is."""
+        return self._clauses.term_to_data(drawn)
 
     def drawn_from_data(self, data: dict[str, object]) -> Drawn:
-        named = str(data.get(DRAWN, ""))
-        kind = DRAWINGS.get(named)
-        if kind is None:
-            raise ValueError(f"No way of drawing a part is called {named!r}; there are {sorted(DRAWINGS)}")
-        return kind(**{one.name: self._values.from_data(data[one.name]) for one in fields(kind) if one.name in data})
+        """That drawing again."""
+        return self._clauses.term_to_term(data)

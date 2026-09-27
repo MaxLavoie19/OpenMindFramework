@@ -23,7 +23,7 @@ def test_a_condition_reads_as_a_condition_and_not_as_a_refusal():
 
     assert "refused" not in said
     assert "where turn(white)" in said
-from openmind.statement.model.drawn import Always, Place
+from openmind.statement.model.drawn import always, part, place
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
 from openmind.structure.model.machine import Machine
@@ -104,8 +104,8 @@ def test_what_an_action_does_is_said_in_terms_of_the_action():
     change with that square drawn from the action says what happens whenever it is played."""
     carried = next(one for one in learned() if one.action == "move" and one.change == "Moved")
 
-    assert carried.where == (Place("from", "row"), Place("from", "column"))
-    assert carried.onto == (Place("to", "row"), Place("to", "column"))
+    assert carried.where == (place("from", "row"), place("from", "column"))
+    assert carried.onto == (place("to", "row"), place("to", "column"))
 
 
 def test_a_move_is_about_the_thing_where_the_move_starts():
@@ -114,7 +114,7 @@ def test_a_move_is_about_the_thing_where_the_move_starts():
     the thing the change names."""
     carried = next(one for one in learned() if one.action == "move" and one.change == "Moved")
 
-    assert {one.parameter for one in carried.where} == {"from"}
+    assert {part(one, 0) for one in carried.where} == {"from"}
 
 
 def test_a_thing_put_down_that_is_always_the_same_is_said_to_be_always_the_same():
@@ -122,8 +122,8 @@ def test_a_thing_put_down_that_is_always_the_same_is_said_to_be_always_the_same(
     fact about the action rather than about this playing of it."""
     put = next(one for one in learned() if one.action == "place" and one.change == "Placed")
 
-    assert put.value == Always("a mark")
-    assert put.where == (Place("cell", "row"), Place("cell", "column"))
+    assert put.value == always("a mark")
+    assert put.where == (place("cell", "row"), place("cell", "column"))
 
 
 def test_taking_removes_where_the_move_lands_and_not_where_it_starts():
@@ -131,7 +131,7 @@ def test_taking_removes_where_the_move_lands_and_not_where_it_starts():
     takes from a move onto an empty square, and cannot be had from the two positions."""
     taken = next(one for one in learned() if one.action == "take" and one.change == "Removed")
 
-    assert taken.where == (Place("to", "row"), Place("to", "column"))
+    assert taken.where == (place("to", "row"), place("to", "column"))
 
 
 def test_an_action_that_does_a_thing_twice_is_left_unlearned_rather_than_learned_wrongly():

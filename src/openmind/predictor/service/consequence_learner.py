@@ -8,7 +8,7 @@ from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.inference.service.refusal_learner import RefusalLearner
 from openmind.statement.model.consequence import Consequence
 from openmind.structure.model.map import Map
-from openmind.statement.model.drawn import Always, Drawn, Other, Place, Stepped
+from openmind.statement.model.drawn import Drawn, always, other, place, stepped
 from openmind.predictor.model.watched import Watched
 from openmind.structure.model.record import Record
 from openmind.structure.model.schema import ActionKind
@@ -235,24 +235,24 @@ class ConsequenceLearner:
         Still not offered, and so still unlearnable: a count that goes up (`More`), and what a model holds where
         a parameter points (`Standing`). Neither is needed for a move; a clock is drawn as nothing because of
         the first."""
-        found: set[Drawn] = {Always(value)}
+        found: set[Drawn] = {always(value)}
         if self._acting is not None and self._players:
             others = [one for one in self._players if one != self._acting(watched.where)]
             if len(others) == 1 and others[0] == value:
-                found.add(Other())
+                found.add(other())
         places = [
-            (name, place, one)
+            (name, named, one)
             for name, held in watched.action.parameters
-            for place, one in self._parts(name, held)
+            for named, one in self._parts(name, held)
         ]
-        for name, place, one in places:
+        for name, named, one in places:
             if one == value:
-                found.add(Place(name, place))
+                found.add(place(name, named))
             if not isinstance(one, (int, float)) or isinstance(one, bool):
                 continue
-            for other, _, step in places:
+            for by, _, step in places:
                 if isinstance(step, (int, float)) and not isinstance(step, bool) and one + step == value:
-                    found.add(Stepped(name, place, other))
+                    found.add(stepped(name, named, by))
         return found
 
     def _parts(self, parameter: str, value: Value) -> tuple[tuple[str, Value], ...]:

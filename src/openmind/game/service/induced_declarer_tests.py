@@ -14,7 +14,7 @@ from openmind.rbs.service.simulation import Simulation
 from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.statement.model.clause import Clause
 from openmind.statement.model.consequence import Consequence
-from openmind.statement.model.drawn import Always, Other, Place
+from openmind.statement.model.drawn import always, other, place
 from openmind.statement.model.literal import Literal
 from openmind.statement.model.term import Constant, Number
 from openmind.rule.service.rule_caller import RuleCaller
@@ -82,8 +82,8 @@ def refusing_a_taken_square() -> Clause:
 def marking() -> tuple[Consequence, ...]:
     """What a learner works out an action does: it puts a mark down, and the turn passes."""
     return (
-        Consequence("Placed", "place", "grid", (Place("cell", "row"), Place("cell", "column")), value=Always("a mark")),
-        Consequence("Told", "place", "turn", value=Other(), order=1),
+        Consequence("Placed", "place", "grid", (place("cell", "row"), place("cell", "column")), value=always("a mark")),
+        Consequence("Told", "place", "turn", value=other(), order=1),
     )
 
 

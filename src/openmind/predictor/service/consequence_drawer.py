@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping, Sequence
 from openmind.inference.model.example import Example
 from openmind.statement.model.consequence import Consequence
 from openmind.statement.model.clause import Clause
-from openmind.statement.model.drawn import Always, Asked, Column, Drawn, More, Other, Place, Row, Standing, Stepped
+from openmind.statement.model.drawn import ALWAYS, ASKED, COLUMN, Drawn, MORE, OTHER, PLACE, ROW, STANDING, STEPPED, drawing, part
 from openmind.structure.model.coordinates import Coordinates
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.record import Record
@@ -126,32 +126,38 @@ class ConsequenceDrawer:
         turn passing could not be drawn does not pass its turn, which is a failure somebody can see."""
         if drawn is None:
             return None
-        if isinstance(drawn, Always):
-            return drawn.value
-        if isinstance(drawn, Asked):
-            return parameters.get(drawn.parameter)
-        if isinstance(drawn, Other):
+        which = drawing(drawn)
+        if which == ALWAYS:
+            return part(drawn, 0)
+        if which == ASKED:
+            return parameters.get(str(part(drawn, 0)))
+        if which == OTHER:
             others = [player for player in players if player != acting]
             return others[0] if len(others) == 1 else UNDRAWN
-        if isinstance(drawn, More):
-            held = state.value(drawn.model)
-            return held + drawn.by if isinstance(held, int | float) and not isinstance(held, bool) else UNDRAWN
-        if isinstance(drawn, Standing):
-            at = self._at(state, drawn.model, parameters.get(drawn.parameter))
-            grid = state.model(drawn.model)
+        if which == MORE:
+            held = state.value(str(part(drawn, 0)))
+            by = part(drawn, 1)
+            return held + by if self._number(held) and self._number(by) else UNDRAWN  # type: ignore[operator]
+        if which == STANDING:
+            model = str(part(drawn, 0))
+            at = self._at(state, model, parameters.get(str(part(drawn, 1))))
+            grid = state.model(model)
             if at is None or not isinstance(grid, Grid) or not grid.inside(at):
                 return UNDRAWN
             return grid.at(at)
-        if isinstance(drawn, Place):
-            return self._held(parameters.get(drawn.parameter), drawn.place)
-        if isinstance(drawn, Stepped):
+        if which == PLACE:
+            return self._held(parameters.get(str(part(drawn, 0))), str(part(drawn, 1)))
+        if which == STEPPED:
             return self._stepped(
-                self._held(parameters.get(drawn.parameter), drawn.place), parameters.get(drawn.by)
+                self._held(parameters.get(str(part(drawn, 0))), str(part(drawn, 1))),
+                parameters.get(str(part(drawn, 2))),
             )
-        at = self._at(state, self._any_grid(state), parameters.get(drawn.parameter))
+        if which not in (ROW, COLUMN):
+            return UNDRAWN
+        at = self._at(state, self._any_grid(state), parameters.get(str(part(drawn, 0))))
         if at is None:
             return None
-        return at[0] if isinstance(drawn, Row) else at[1]
+        return at[0] if which == ROW else at[1]
 
     def _held(self, value: Value, place: str) -> Value:
         """That named place of what a parameter holds.

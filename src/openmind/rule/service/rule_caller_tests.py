@@ -10,7 +10,7 @@ from openmind.predictor.service.drawn_effects import DrawnEffects
 from openmind.rule.model.clause_rule import ClauseRule
 from openmind.statement.model.consequence import Consequence
 from openmind.rule.model.consequence_rule import ConsequenceRule
-from openmind.statement.model.drawn import Column, Row
+from openmind.statement.model.drawn import column, row
 from openmind.statement.model.literal import Literal
 from openmind.rule.model.python_rule import PythonRule
 from openmind.statement.model.term import Constant, Number
@@ -100,7 +100,7 @@ def test_what_a_clause_reads_is_unaffected_by_how_python_rules_are_read():
 
 def emptying() -> ConsequenceRule:
     """What an action does, as OMF learns it: the square the mover came from empties."""
-    return ConsequenceRule((Consequence("Removed", "move", "grid", (Row("origin"), Column("origin"))),))
+    return ConsequenceRule((Consequence("Removed", "move", "grid", (row("origin"), column("origin"))),))
 
 
 def making_them_happen() -> RuleCaller:

@@ -5,7 +5,7 @@ import pytest
 
 from openmind.rule.mapper.consequence_json_mapper import ConsequenceJsonMapper
 from openmind.statement.model.consequence import Consequence
-from openmind.statement.model.drawn import Always, Asked, More, Other, Place, Standing, Stepped
+from openmind.statement.model.drawn import always, asked, more, other, place, standing, stepped
 from openmind.statement.model.clause import Clause
 from openmind.statement.model.literal import Literal
 from openmind.statement.model.term import Constant
@@ -17,8 +17,8 @@ def a_consequence(**held) -> Consequence:
         "change": "Moved",
         "action": "move",
         "model": "grid",
-        "where": (Place("self", "row"), Place("self", "column")),
-        "onto": (Stepped("self", "row", "x"), Stepped("self", "column", "y")),
+        "where": (place("self", "row"), place("self", "column")),
+        "onto": (stepped("self", "row", "x"), stepped("self", "column", "y")),
         "value": None,
         "when": (),
         "order": 2,
@@ -43,11 +43,11 @@ def test_what_an_action_does_survives_being_written_down():
 
 @pytest.mark.parametrize(
     "drawn",
-    [Place("self", "row"), Stepped("self", "row", "x"), Standing("grid", "self"),
-     Asked("promotion"), Always("a mark"), Always(None), Other(), More("clock", 2)],
+    [place("self", "row"), stepped("self", "row", "x"), standing("grid", "self"),
+     asked("promotion"), always("a mark"), always(None), other(), more("clock", 2)],
 )
 def test_every_way_of_drawing_a_part_is_written_down_as_the_way_it_is(drawn):
-    """`Always('row')` and a place called `row` must not come back as one another, so a drawing carries the name
+    """`always('row')` and a place called `row` must not come back as one another, so a drawing carries the name
     of its kind and not only its fields."""
     one = a_consequence(where=(drawn,), onto=(), value=drawn)
 
@@ -64,7 +64,9 @@ def test_the_conditions_it_happens_under_are_kept_as_the_logic_they_are():
 
 
 def test_a_drawing_nobody_knows_says_so_rather_than_coming_back_as_something_else():
-    with pytest.raises(ValueError, match="No way of drawing"):
+    """Refused by the term mapper now rather than by a map kept here, because a drawing is a term. The
+    complaint changed wording and not substance: something that does not say which kind it is is not read."""
+    with pytest.raises(ValueError, match="A term has to say which kind it is"):
         ConsequenceJsonMapper().drawn_from_data({"drawn": "Sideways", "parameter": "self"})
 
 
@@ -85,7 +87,7 @@ def test_a_drawing_holding_a_record_survives_the_round_trip():
     becomes, and written out as itself that is a Python object no store can say — which brought a run down two
     hours in, on a knowledge base fresh enough to reach the declaration."""
     mapper = ConsequenceJsonMapper()
-    drawn = Always(Promoted("white", "queen"))
+    drawn = always(Promoted("white", "queen"))
 
     assert mapper.drawn_from_data(mapper.drawn_to_data(drawn)) == drawn
 
@@ -94,4 +96,4 @@ def test_a_drawing_holding_nothing_still_says_nothing():
     """A capture sets a square to nothing, and nothing must not come back as the string for it."""
     mapper = ConsequenceJsonMapper()
 
-    assert mapper.drawn_from_data(mapper.drawn_to_data(Always(None))) == Always(None)
+    assert mapper.drawn_from_data(mapper.drawn_to_data(always(None))) == always(None)
