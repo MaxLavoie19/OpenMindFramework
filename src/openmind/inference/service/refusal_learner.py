@@ -599,9 +599,16 @@ class RefusalLearner:
 
         The consequence was one class of rule outside the space and nothing saying so: the rules about what
         could happen next. A king may not be left where it can be taken; a king may not castle across a square
-        an enemy could reach. Both were writable by hand and unfindable by search."""
+        an enemy could reach. Both were writable by hand and unfindable by search.
+
+        **A reading said of a later moment is always about this candidate, so it is always offered.** What a
+        case carries about now is narrowed by linkedness — a position says sixty-four things about a board and
+        every candidate in it carries all of them identically, so they separate nothing. A reading of the board
+        a candidate *leads to* is not like that: there is one such board per candidate, and it exists because
+        of the candidate. Nothing has to be worked out about whether it is linked."""
         asking = self._hypothetical.askable(example) if self._hypothetical is not None else ()
-        return (*self._readings.tied(example.literals), *asking)
+        later = tuple(one for one in example.literals if one.when is not None)
+        return (*self._readings.tied(example.literals), *later, *asking)
 
     def worth_trying(self, body: frozenset, slipped: set[frozenset] | None) -> bool:
         """Whether that body is worth putting to the guard at all, given what slipped one condition shorter.

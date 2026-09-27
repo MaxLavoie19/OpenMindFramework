@@ -395,20 +395,24 @@ is the checklist to make it findable, and writing it out changed the order.
       that something could happen next that one would rather did not, and happenings already have a language
       here."* What a taking is, is already derivable — `LOSING` and `Change.losing` say which changes leave a
       thing no longer standing where it stood.
-- [ ] **A candidate's later facts are read into its case**, as `happens(E, after(candidate))` literals.
-      Half done: `Hypothetical.happenings` produces them. Nothing puts them in a case yet.
+- [x] **A candidate's later facts are read into its case. Done.** `Sniper.started` reads them and the pursuit
+      carries them. A reading said of a later moment is *always* about this candidate — there is one such
+      board per candidate and it exists because of the candidate — so it is offered without any question of
+      linkedness, which is what narrows the readings of now.
 - [x] **Nothing else needs changing, if they are read rather than evaluated. Verified.** `covers` matches a ground
       literal by looking it up in the case, and a moment is part of a literal's identity — so a clause
       mentioning a later moment matches by lookup, with no branch for moments at all. The guard follows: a
       legal move's case carries its own later facts, so `slips` works unchanged. Checked: a clause mentioning
       a later moment matches a case that carries it and not one that does not, and the same reading said of
       now and of later are two different literals.
-- [ ] **The cost decides where this can live, and it is the whole difficulty.** Reading a later fact is a ply
+- [x] **The cost decides where this can live. Decided: the sniper.** Reading a later fact is a ply
       of lookahead. Eagerly, over a position's fourteen thousand candidates, that is unaffordable — which is
       why `Hypothetical` evaluates lazily and why its answer is opaque. But the **sniper works on one
       candidate and a pool of seventy-five**, where a ply each is nothing. So the first place this is
       affordable is the sniper, not the bulk learner, and that is a better answer than making the bulk learner
-      cheaper.
+      cheaper. So `Sniper.started` takes `among` — what is believed so far — because the question of whether
+      the other side could reply is put to the rules below, and with none the answer is yes for every move
+      there is, which is how king safety once refused all twenty legal moves of the opening.
 - [ ] **It rests on the predictor being right about what a move does**, because the later board comes from it.
       That is question 36 and it is open.
 

@@ -5,6 +5,7 @@ from openmind.inference.service.hypothesis_table import HypothesisTable
 from openmind.inference.service.refusal_learner import RefusalLearner
 from openmind.inference.service.sniper import Sniper
 from openmind.statement.model.literal import Literal
+from openmind.statement.model.moment import after
 from openmind.statement.model.term import Constant
 
 
@@ -173,3 +174,48 @@ def test_a_pursuit_carries_its_readings_so_resuming_means_the_same_places():
 
     assert started.offered, "tied once when it began"
     assert Pursuit(wanted, started.offered).offered == started.offered
+
+
+def a_later_reading():
+    """Something that could happen once this candidate is done, said of the moment it would happen at."""
+    return Literal("happens", (Constant("taken"),), when=after(Constant("this")))
+
+
+def test_a_reading_of_a_later_moment_is_offered_to_the_search():
+    """The rules about what could happen next were outside the space a search combines. A reading said of a
+    later moment is always about this candidate — there is one such board per candidate, and it exists because
+    of the candidate — so nothing has to be worked out about whether it is linked."""
+    later = a_later_reading()
+    case = Example((a_reading("colour", "dark"), later), True, "a position")
+
+    assert later in RefusalLearner().offered(case)
+
+
+def test_what_only_a_later_moment_tells_apart_can_now_be_found():
+    """King safety's shape, with nothing of chess in it. Two candidates read identically now; one of them lets
+    something be taken afterwards and the other does not. Before a reading could say when, no combination of
+    what a case carried could tell them apart, and a pursuit would have finished having proved the vocabulary
+    could not say it."""
+    later = a_later_reading()
+    wanted = Example((a_reading("colour", "dark"), later), True, "a position")
+    guard = CaseIndex((Example((a_reading("colour", "dark"),), False, "a position"),))
+    sniper = sniping()
+
+    found = sniper.pursue(sniper.started(wanted), guard, HypothesisTable(), (wanted,), seconds=60.0)
+
+    assert found.found is not None
+    assert [one.predicate for one in found.found.body] == ["happens"]
+    assert found.found.body[0].when is not None, "and it is the later one that refuses it"
+
+
+def test_the_same_reading_now_and_later_are_not_interchangeable():
+    """A moment is part of what a literal is, which is what makes the guard work without knowing about moments:
+    a legal move whose board leads nowhere carries the now reading and not the later one."""
+    now_one = Literal("happens", (Constant("taken"),))
+    wanted = Example((a_later_reading(),), True, "a position")
+    guard = CaseIndex((Example((now_one,), False, "a position"),))
+    sniper = sniping()
+
+    found = sniper.pursue(sniper.started(wanted), guard, HypothesisTable(), (wanted,), seconds=60.0)
+
+    assert found.found is not None, "the later reading does not turn away the legal move carrying the now one"

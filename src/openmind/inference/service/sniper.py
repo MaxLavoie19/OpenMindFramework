@@ -54,14 +54,34 @@ class Sniper:
         # try again what was. A whole range always finishes, so where it got to is exactly where it ends.
         self._between_clocks = between_clocks
 
-    def started(self, case: Example, readings: CandidateReadings | None = None) -> Pursuit:
-        """A pursuit of that candidate, its readings tied once and kept.
+    def started(
+        self,
+        case: Example,
+        readings: CandidateReadings | None = None,
+        among: Sequence[Clause] = (),
+    ) -> Pursuit:
+        """A pursuit of that candidate, its readings tied once and kept, including what could happen after it.
 
         Tied by the readings the case was read with, where the caller has them: what a rule may be built from
         is the couple of dozen readings the candidate is *in*, not the sixty-four the position carries about
-        squares the candidate never names."""
+        squares the candidate never names.
+
+        **And this is where reading the board a candidate leads to becomes affordable.** A later reading costs
+        a ply of lookahead, which over a position's fourteen thousand candidates is why the question was asked
+        lazily and answered opaquely. A pursuit is one candidate; a pool is scores of them. A ply each is
+        nothing, and what it buys is that the rules about what could happen next are in the space the search
+        combines rather than outside it.
+
+        `among` is what is believed so far, and it is not optional. The question of whether the other side
+        could reply is put to the rules below, and with none the answer is yes for every move there is —
+        which is how king safety once refused all twenty legal moves of the opening position."""
         tying = CandidateReadings() if readings is None else readings
-        return Pursuit(case, tying.tied(case.literals))
+        asking = self._learner.hypothetical
+        later = () if asking is None else asking.happenings(
+            case, lambda one: any(self._learner.covers(clause, one, among) for clause in among)
+        )
+        told = Example((*case.literals, *later), case.holds, case.where) if later else case
+        return Pursuit(told, tying.tied(told.literals))
 
     def pursue(
         self,
