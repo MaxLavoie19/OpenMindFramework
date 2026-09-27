@@ -279,6 +279,36 @@ questions by number.
     - **Undecided.**
 
 
+36. **What a move does is scored on boards, and another rule has to ask it what happened.** (found putting the
+    sniper to king safety, after the question it needs was made available to the search)
+    `TAKEN_AFTER` — "taken from that player, once this is done, by something they could then do" — is the rule
+    a king may not be left where it can be taken, and the only one chess has that nothing could express. It is
+    answered by `Hypothetical._takes`, which draws what a candidate does and looks for a `Removed` change.
+    **On a mature predictor there are none.** A run that had learned `Removed | grid` at one in the morning had
+    learned only `Moved`, `Placed` and `Told` by eight, and the question is therefore false everywhere.
+    **The predictor is not wrong.** `Placed` is documented as "something put where there was nothing, *or over
+    what was there*" and `Moved` as "what stood at one place now at another". So a capture may be said as
+    `Removed(destination)` then `Moved(origin, destination)`, or as `Moved(origin, destination)` alone, and the
+    two make the same board out of every position. Nothing in fitting a predictor against boards prefers
+    either, and the shorter one won.
+    **`change.py` states the problem in its own first note** — *"An effect that hands back a position says what
+    the position became and never what the action did. Whatever differs between the two has to be worked out,
+    and which difference was the point cannot be... so what it did is there to be read rather than inferred."*
+    The changes exist so that what an action did is readable. But which changes are learned is settled by which
+    boards they reproduce, and that is blind to the distinction the changes were introduced to carry.
+    **This is the first place the two halves have had to agree about anything.** Until now the predictor learned
+    what a move does and the constraint learner learned what is refused, and neither read the other. The first
+    rule needing both at once is the one that cannot be asked, and it fails silently: a question that cannot be
+    answered comes back no, and a king who is never in danger looks like a rule that is simply not there.
+    - **Options:** undrafted. What is visible: whether `_takes` should ask *whether the thing is still there
+      afterwards* rather than whether a removal was drawn, which is general and correct and costs a board
+      comparison per candidate; whether a change onto a place already holding something counts as taking it,
+      which is reading what `Placed` and `Moved` already say they mean rather than adding anything; and whether
+      a predictor should be scored on what it says an action *did* as well as on the board it gives, which is
+      the only one of the three that stops the next such disagreement rather than this one.
+    - **Undecided.**
+
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
