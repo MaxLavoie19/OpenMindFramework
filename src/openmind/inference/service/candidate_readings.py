@@ -6,6 +6,7 @@ from openmind.inference.model.evidence import Evidence
 from openmind.inference.model.example import Example
 from openmind.inference.service.side_deducer import FACES, OWNS
 from openmind.statement.model.literal import Literal
+from openmind.statement.model.drawn import part, place as placed
 from openmind.statement.model.term import Constant, Functor, Number, Term
 from openmind.structure.model.coordinates import Coordinates
 from openmind.structure.model.grid import Grid
@@ -29,6 +30,13 @@ logger = logging.getLogger(__name__)
 #: their distance came to. A clause grown from cases can only ever mention what a case said, so a distance
 #: has to be said before any rule about travelling can exist.
 PLACES_APART = "places apart"
+
+#: How far a place reaches, whichever way it goes: the size of a step and not the step.
+#:
+#: A term of the place rather than a name built out of it. "how far self row" was a string spelling out
+#: `how far(place(self, row))` and unable to be taken apart, so nothing could ask which place it was about —
+#: which is exactly what pairing two of them by sort has to ask.
+HOW_FAR = "how far"
 
 #: What a structure holds where one of the candidate's parameters points: which parameter, which structure, and
 #: the thing itself.
@@ -426,7 +434,7 @@ class CandidateReadings:
         if not facing:
             return ()
         return tuple(
-            Literal(TOWARD, (Constant(self._place(one.predicate, number + 1)), Number(int(term.value) * facing)))
+            Literal(TOWARD, (self._placed(one.predicate, number + 1), Number(int(term.value) * facing)))
             for one in parameters
             for number, term in enumerate(one.arguments)
             if isinstance(term, Number)
@@ -477,7 +485,7 @@ class CandidateReadings:
                                 ON_LINE,
                                 (
                                     Constant(base),
-                                    *(Constant(self._place(one[0], one[1])) for one in stepping),
+                                    *(self._placed(one[0], one[1]) for one in stepping),
                                     Constant(name),
                                     self._value(model.at(where)),
                                 ),
@@ -546,7 +554,7 @@ class CandidateReadings:
         it goes across is two numbers of one kind, where a row against a column is two of different kinds and
         their distance says nothing."""
         held = [
-            (one.arguments[0].name, one.arguments[-1].value)
+            (one.arguments[0], one.arguments[-1].value)
             for one in sized
             if isinstance(one.arguments[-1], Number)
         ]
@@ -554,8 +562,8 @@ class CandidateReadings:
             Literal(
                 PLACES_APART,
                 (
-                    Constant(f"how far {name}"),
-                    Constant(f"how far {other}"),
+                    Functor(HOW_FAR, (name,)),
+                    Functor(HOW_FAR, (other,)),
                     Constant(self._way(size, elsewhere)),
                     Number(abs(size - elsewhere)),
                 ),
@@ -564,9 +572,12 @@ class CandidateReadings:
             if self._alike_named(name, other)
         )
 
-    def _alike_named(self, one: str, other: str) -> bool:
-        """Whether two places named as the readings name them hold the same kind of thing."""
-        kinds = {self._place(name, number): kind for name, number, _, kind in self._places}
+    def _alike_named(self, one: Term, other: Term) -> bool:
+        """Whether two places hold the same kind of thing, asked of the schema rather than of their names.
+
+        It matched strings: "self row" against "self column", recovering from a name what the game had
+        declared outright. A place being a term, the parameter and the part are there to be read."""
+        kinds = {self._placed(name, number): kind for name, number, _, kind in self._places}
         held, theirs = kinds.get(one), kinds.get(other)
         return held is None or theirs is None or held == theirs
 
@@ -606,7 +617,7 @@ class CandidateReadings:
                             LANDS_ON,
                             (
                                 Constant(base),
-                                *(Constant(self._place(one[0], one[1])) for one in stepping),
+                                *(self._placed(one[0], one[1]) for one in stepping),
                                 Constant(name),
                                 self._value(reached),
                             ),
@@ -624,7 +635,7 @@ class CandidateReadings:
             Literal(
                 FROM_NOTHING,
                 (
-                    Constant(self._place(literal.predicate, number + 1)),
+                    self._placed(literal.predicate, number + 1),
                     Constant(self._way(0, term.value)),
                     Number(abs(term.value)),
                 ),
@@ -666,7 +677,7 @@ class CandidateReadings:
                     Literal(
                         POINTED_AT,
                         (
-                            *(Constant(self._place(held[0], held[1])) for held in pointing),
+                            *(self._placed(held[0], held[1]) for held in pointing),
                             Constant(name),
                             self._value(model.at(where)),
                         ),
@@ -699,8 +710,8 @@ class CandidateReadings:
             Literal(
                 PLACES_APART,
                 (
-                    Constant(self._place(name, place)),
-                    Constant(self._place(other, elsewhere)),
+                    self._placed(name, place),
+                    self._placed(other, elsewhere),
                     Constant(self._way(one.value, two.value)),
                     Number(abs(one.value - two.value)),
                 ),
@@ -738,13 +749,32 @@ class CandidateReadings:
         reads the same three answers."""
         return "after" if other > one else "before" if other < one else "alongside"
 
-    def _place(self, parameter: str, number: int) -> str:
-        """What the game calls that place of that parameter, or its number where the game named none."""
+    def _placed(self, parameter: str, number: int) -> Term:
+        """That place of that parameter, as the term it is.
+
+        **A place was a name and is now a term**, which is the whole of this step. `Constant("self row")` was a
+        string that spelled out `place(self, row)` and could not be taken apart, so the sort of a place had to
+        be recovered by matching the string against the schema, and a drawing saying the same place said it in
+        another notation entirely. Said as a term it composes, it unifies, and it is the same object the
+        predictor draws with.
+
+        A parameter with one place is that parameter: a number named `x` has no part worth naming, and
+        `place(x, x)` would say the same thing twice. The distinction is the one the names already made."""
         held = [one for one in self._places if one[0] == parameter]
         for name, place, part, _ in held:
             if place == number:
-                return parameter if len(held) == 1 else f"{parameter} {part}"
-        return f"{parameter} {number}"
+                return Constant(parameter) if len(held) == 1 else placed(parameter, part)
+        return placed(parameter, str(number))
+
+    def _place(self, parameter: str, number: int) -> str:
+        """What that place is called, for anything that needs a name rather than a term."""
+        return self._named_place(self._placed(parameter, number))
+
+    def _named_place(self, term: Term) -> str:
+        """That place term written as the name it used to be, which is what a reading of a name still expects."""
+        if isinstance(term, Constant):
+            return str(term.name)
+        return f"{part(term, 0)} {part(term, 1)}"
 
     def _alike(self, parameter: str, number: int, other: str, elsewhere: int) -> bool:
         """Whether two places hold the same kind of thing, which is the only case where their distance means

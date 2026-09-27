@@ -6,6 +6,7 @@ from openmind.inference.service.candidate_readings import (
     ACTING,
     ANOTHER,
     BELONGS,
+    HOW_FAR,
     TOWARD,
     CandidateReadings,
 )
@@ -17,7 +18,18 @@ from openmind.structure.model.grid import Grid
 from openmind.structure.model.list import List
 from openmind.structure.model.map import Map
 from openmind.structure.model.record import Record
+from openmind.statement.model.drawn import part
 from openmind.structure.model.value import Value
+
+
+def how_far(literal):
+    """Whether that reading is about the size of a step rather than the step, now that it says so as a term."""
+    return isinstance(literal.arguments[0], Functor) and literal.arguments[0].name == HOW_FAR
+
+
+def said_place(term):
+    """A place term as the name it used to be, so a test can still say which place it means."""
+    return f"{part(term, 0)} {part(term, 1)}" if isinstance(term, Functor) else str(term.name)
 from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
@@ -208,11 +220,7 @@ def test_two_sizes_are_compared_so_a_rule_about_them_is_in_the_space_at_all():
     clause can ever mention, and a thing travelling as far one way as the other is exactly such a comparison."""
     readings = CandidateReadings().read(a_position(), a_move("a2", "b1"))
 
-    sizes = [
-        one
-        for one in readings
-        if one.predicate == "places apart" and str(one.arguments[0].name).startswith("how far")
-    ]
+    sizes = [one for one in readings if one.predicate == "places apart" and how_far(one)]
 
     assert sizes
     assert all(one.arguments[-1].value >= 0 for one in sizes)
@@ -224,19 +232,16 @@ def test_sizes_that_are_equal_are_read_as_standing_alongside_each_other():
     readings = CandidateReadings().read(a_position(), a_move("a2", "b1"))
 
     said = {
-        (one.arguments[0].name, one.arguments[1].name): one.arguments[2].name
+        (one.arguments[0].arguments[0], one.arguments[1].arguments[0]): one.arguments[2].name
         for one in readings
-        if one.predicate == "places apart" and str(one.arguments[0].name).startswith("how far")
+        if one.predicate == "places apart" and how_far(one)
     }
     sized = {
-        one.arguments[0].name: one.arguments[-1].value
-        for one in readings
-        if one.predicate == "from nothing"
+        one.arguments[0]: one.arguments[-1].value for one in readings if one.predicate == "from nothing"
     }
 
     for (one, other), way in said.items():
-        equal = sized[one.removeprefix("how far ")] == sized[other.removeprefix("how far ")]
-        assert (way == "alongside") == equal
+        assert (way == "alongside") == (sized[one] == sized[other]), "a place is a term, so it is the key"
 
 
 def test_how_big_a_number_is_is_read_apart_from_which_side_of_nothing_it_is_on():
@@ -246,16 +251,17 @@ def test_how_big_a_number_is_is_read_apart_from_which_side_of_nothing_it_is_on()
     rule at all. Said from nothing, all four carry the same distance in both places."""
     readings = CandidateReadings().read(a_position(), a_move("a2", "b1"))
 
-    said = {one.arguments[0].name: one.arguments[1:] for one in readings if one.predicate == "from nothing"}
+    said = {one.arguments[0]: one.arguments[1:] for one in readings if one.predicate == "from nothing"}
     pointed = {
         one.predicate: tuple(term.value for term in one.arguments)
         for one in readings
         if one.predicate in ("origin", "destination")
     }
 
-    assert set(said) == {"origin 1", "origin 2", "destination 1", "destination 2"}
+    assert {said_place(one) for one in said} == {"origin 1", "origin 2", "destination 1", "destination 2"}
     assert all(way.name == "after" and far.value >= 0 for way, far in said.values())
-    assert said["origin 1"][1].value == pointed["origin"][0]
+    at = next(one for one in said if said_place(one) == "origin 1")
+    assert said[at][1].value == pointed["origin"][0]
 
 
 def test_a_case_holds_where_the_game_refuses_the_candidate():
