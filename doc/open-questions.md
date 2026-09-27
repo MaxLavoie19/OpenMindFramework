@@ -338,6 +338,65 @@ questions by number.
       to learn, not the first, and the honest move is to say so and come back.
     - **Undecided.**
 
+    **Since measured again with tight rules below, and the circularity is not the only thing in the way.**
+    Run with the forty written constraints as the layer below — every one of them but king safety, so the
+    rules below are tight and silent about kings — the same reading says `king` *never*, on any move:
+
+    ```
+    board  the game says      move  what could be taken next
+    1      refused for check  e8f7  nothing
+    1      allowed            a8a6  nothing
+    2      refused for check  e2e3  bishop, pawn, rook
+    2      allowed            a1b1  bishop, pawn, rook
+    3      refused for check  e7d6  bishop, queen
+    3      allowed            a7a5  bishop, queen
+    ```
+
+    Not yes everywhere but no everywhere, and the reason turned out to be stale evidence rather than a limit:
+    the knowledge base read from had been filled before a removal's condition generalised. Learned again from
+    two thousand moves of legal play on current code, the condition is `lands on(self, x, y, grid,
+    piece(X1, X2))` — both colour and kind are variables, and a king is a piece like any other. Those two
+    thousand moves took 186 things, ten distinct kinds, both colours, every kind but a king, which is never
+    taken in legal play. **The general condition is reached from evidence that never contains the case it has
+    to cover.**
+
+    **Run again with tight rules below and consequences learned here, the reading separates exactly:**
+
+    ```
+    board  the game says      move  what could be taken next
+    1      refused for check  e8f7  king
+    1      allowed            a8a6  nothing
+    1      allowed            b6b5  pawn
+    2      refused for check  e2e3  bishop, king, pawn, rook
+    2      allowed            a1b1  bishop, pawn
+    3      refused for check  e7d6  bishop, king, queen
+    3      allowed            a7a5  bishop, pawn, queen
+    4      refused for check  g2f1  king, knight, pawn, rook
+    4      allowed            a1b1  bishop, knight, pawn, rook
+    ```
+
+    `king` after six of six moves refused for check and after none of sixteen legal moves. The rule is a body
+    of one condition. **So only the loose half of this question was ever real**, and what it costs is settled:
+    the hard rule is cheap exactly to the degree the easy ones are right.
+    - **Decided (Maxime): iteratively.** Improve the ruleset until it is stable but for the harder rules still
+      missing, then dig deeper, and each pass uncovers more hypotheses until the set is coherent. The ordering
+      option, made a loop rather than a one-off schedule.
+    - **What that leaves open, and none of it is started:**
+        - **What stable means.** Not "the rules stopped changing" — the one measured case in the literature
+          (Komachi et al., EMNLP 2008) found a per-step confidence threshold delays drift rather than
+          preventing it, and what worked was stopping at a *measured peak*. So stability wants measuring on
+          held-out let-through, not on the rules. **Whether a stable point exists at all is unmeasured.**
+        - **What deeper opens.** A reading that rests on the rules below is offered unconditionally today.
+          Under a loop it would be earned — withheld while the layer below is loose, since offering it early
+          is what produced the yes-everywhere answer above.
+        - **When to stop.** The sniper already terminates with either the briefest body or a proof that no
+          combination of readings separates a candidate. That second outcome is the one signal telling
+          "dig deeper" apart from "a reading is missing", and no published system reports it. It is the
+          natural termination test for the loop and has never been run on a king-safety residual.
+        - **Consequences do not outlive their run.** `plain2` and `sides2` persist none; `windowed` cannot be
+          loaded at all, holding the pre-rewrite spelling. A loop that re-learns what a move does every pass
+          is paying for it every pass.
+
 
 ## Struck, by number
 
