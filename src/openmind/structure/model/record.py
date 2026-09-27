@@ -41,7 +41,21 @@ class Record:
     #: Every kind of record a game has declared, by name, so one written down can be made again.
     _kinds: ClassVar[dict[str, type["Record"]]] = {}
 
+    #: The names this already uses, which a game's part may therefore not take.
+    _TAKEN = ("kind", "parts", "_kinds")
+
     def __init_subclass__(cls, **named: object) -> None:
+        # Refused at the moment the game declares it, because the alternative is silence. A part named `kind`
+        # shadows the property saying what kind of record this is, so the record writes itself down under
+        # whatever that part happens to hold — a piece whose type is a queen is written as a record called
+        # `queen` — and comes back, much later and somewhere else, as a KeyError about a record no game ever
+        # declared. Nothing between the two says anything at all.
+        clashing = [one for one in cls._TAKEN if one in cls.__dict__.get("__annotations__", {})]
+        if clashing:
+            raise TypeError(
+                f"{cls.__name__} declares a part called {clashing[0]!r}, which is a name a record already "
+                f"uses for itself; a game's parts may not be called any of {list(cls._TAKEN)}."
+            )
         # Registered without calling up, because a frozen slotted dataclass is built twice — once as written
         # and once by the decorator — and the second is the class a game actually holds. The later
         # registration is the one that stands, which is the one wanted.

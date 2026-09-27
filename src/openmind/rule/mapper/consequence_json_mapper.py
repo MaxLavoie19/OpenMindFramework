@@ -3,6 +3,7 @@ from dataclasses import fields
 from openmind.rule.model.consequence import Consequence
 from openmind.rule.model.drawn import Always, Asked, Column, Drawn, More, Other, Place, Row, Standing, Stepped
 from openmind.rule.mapper.clause_json_mapper import ClauseJsonMapper
+from openmind.structure.mapper.value_json_mapper import ValueJsonMapper
 
 #: Every way one part of a change can be drawn from the action, by the name it is written down under.
 #:
@@ -30,10 +31,20 @@ class ConsequenceJsonMapper:
     kind, since `Always("row")` and `Place("row", …)` must not come back as one another.
 
     Its conditions are clauses and go through the clause mapper, because they are the same kind of thing as the
-    conditions under which an action is refused — learned by the same machinery, and written down the same way."""
+    conditions under which an action is refused — learned by the same machinery, and written down the same way.
 
-    def __init__(self, clause_json_mapper: ClauseJsonMapper | None = None) -> None:
+    **What a drawing holds is a value of the game's, and goes through the value mapper.** A promotion is drawn
+    as `Always(Piece('white', 'queen'))` and a capture as `Always(None)`: the first is a record the game
+    declared, and written out as itself it is a Python object no store can say. Asked of the mapper that knows
+    what a record is, both are written the same way as every other value the game hands OMF."""
+
+    def __init__(
+        self,
+        clause_json_mapper: ClauseJsonMapper | None = None,
+        value_json_mapper: ValueJsonMapper | None = None,
+    ) -> None:
         self._clauses = ClauseJsonMapper() if clause_json_mapper is None else clause_json_mapper
+        self._values = ValueJsonMapper() if value_json_mapper is None else value_json_mapper
 
     def to_data(self, consequence: Consequence) -> dict[str, object]:
         return {
@@ -65,12 +76,16 @@ class ConsequenceJsonMapper:
         """One way of drawing a part from the action, with the name of which way it is.
 
         Its own fields and no more, read off the kind rather than listed here, so a drawing that gains a field
-        is written down with it without this having to be told."""
-        return {DRAWN: type(drawn).__name__, **{one.name: getattr(drawn, one.name) for one in fields(drawn)}}
+        is written down with it without this having to be told — and each of them through the value mapper,
+        since a field may hold whatever the game puts on a square."""
+        return {
+            DRAWN: type(drawn).__name__,
+            **{one.name: self._values.to_data(getattr(drawn, one.name)) for one in fields(drawn)},
+        }
 
     def drawn_from_data(self, data: dict[str, object]) -> Drawn:
         named = str(data.get(DRAWN, ""))
         kind = DRAWINGS.get(named)
         if kind is None:
             raise ValueError(f"No way of drawing a part is called {named!r}; there are {sorted(DRAWINGS)}")
-        return kind(**{one.name: data[one.name] for one in fields(kind) if one.name in data})
+        return kind(**{one.name: self._values.from_data(data[one.name]) for one in fields(kind) if one.name in data})

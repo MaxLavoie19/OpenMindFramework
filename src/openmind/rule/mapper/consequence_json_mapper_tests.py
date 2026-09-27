@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 
 import pytest
 
@@ -8,6 +9,7 @@ from openmind.rule.model.drawn import Always, Asked, More, Other, Place, Standin
 from openmind.rule.model.clause import Clause
 from openmind.rule.model.literal import Literal
 from openmind.rule.model.term import Constant
+from openmind.structure.model.record import Record
 
 
 def a_consequence(**held) -> Consequence:
@@ -70,3 +72,26 @@ def test_that_a_drawing_was_not_settled_is_kept_too():
     """Thin evidence looking like a confident error is what sends somebody hunting a fault that is not there,
     and that is as true of a consequence read back as of one just learned."""
     assert written(a_consequence(settled=False)).settled is False
+
+
+@dataclass(frozen=True, slots=True)
+class Promoted(Record):
+    colour: str
+    type: str
+
+
+def test_a_drawing_holding_a_record_survives_the_round_trip():
+    """The value a square becomes is whatever the game puts on squares. A promotion is drawn as the piece it
+    becomes, and written out as itself that is a Python object no store can say — which brought a run down two
+    hours in, on a knowledge base fresh enough to reach the declaration."""
+    mapper = ConsequenceJsonMapper()
+    drawn = Always(Promoted("white", "queen"))
+
+    assert mapper.drawn_from_data(mapper.drawn_to_data(drawn)) == drawn
+
+
+def test_a_drawing_holding_nothing_still_says_nothing():
+    """A capture sets a square to nothing, and nothing must not come back as the string for it."""
+    mapper = ConsequenceJsonMapper()
+
+    assert mapper.drawn_from_data(mapper.drawn_to_data(Always(None))) == Always(None)
