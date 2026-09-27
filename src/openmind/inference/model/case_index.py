@@ -2,7 +2,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from openmind.inference.model.example import Example
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.literal import Literal
 
 
 @dataclass(frozen=True, slots=True)

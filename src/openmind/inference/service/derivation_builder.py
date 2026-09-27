@@ -1,7 +1,7 @@
 from openmind.inference.model.derivation import Derivation
 from openmind.inference.model.derivation_step import GIVEN, DerivationStep
 from openmind.inference.model.substitution import Substitution
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 
 class DerivationBuilder:

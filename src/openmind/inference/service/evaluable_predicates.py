@@ -2,8 +2,8 @@ import logging
 import operator
 from collections.abc import Callable, Mapping, Sequence
 
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number, Term
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number, Term
 
 logger = logging.getLogger(__name__)
 

@@ -2,9 +2,9 @@ from openmind.inference.model.example import Example
 from openmind.inference.model.inference_budget import InferenceBudget
 from openmind.inference.service.clause_challenger import ClauseChallenger
 from openmind.inference.service.clause_learner import ClauseLearner
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant
 
 LEGAL = Literal("legal", ())
 

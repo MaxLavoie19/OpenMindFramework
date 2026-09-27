@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Functor, Term, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Functor, Term, Variable
 
 
 @dataclass(frozen=True, slots=True)

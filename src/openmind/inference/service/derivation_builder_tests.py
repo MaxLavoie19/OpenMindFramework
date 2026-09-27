@@ -1,8 +1,8 @@
 from openmind.inference.model.derivation_step import GIVEN
 from openmind.inference.model.substitution import Substitution
 from openmind.inference.service.derivation_builder import DerivationBuilder
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
 
 
 def said(name: str, *, certainty: float = 1.0, called: str = "") -> Clause:

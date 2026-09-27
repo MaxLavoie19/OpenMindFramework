@@ -1,7 +1,7 @@
 from dataclasses import fields
 
-from openmind.rule.model.consequence import Consequence
-from openmind.rule.model.drawn import Always, Asked, Column, Drawn, More, Other, Place, Row, Standing, Stepped
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.drawn import Always, Asked, Column, Drawn, More, Other, Place, Row, Standing, Stepped
 from openmind.rule.mapper.clause_json_mapper import ClauseJsonMapper
 from openmind.structure.mapper.value_json_mapper import ValueJsonMapper
 

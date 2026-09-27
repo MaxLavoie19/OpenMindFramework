@@ -1,8 +1,8 @@
 from openmind.inference.service.clause_constraint import ClauseConstraint
 from openmind.inference.service.refusal_learner import REFUSED
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number
 from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.world.model.action import Action

@@ -8,7 +8,7 @@ from openmind.language.service.coupling_learner import CouplingLearner
 from openmind.language.service.syntax_learner import SyntaxLearner
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.record import Record
-from openmind.world.model.change import Moved, Removed
+from openmind.statement.model.change import Moved, Removed
 from openmind.world.model.state import State
 
 

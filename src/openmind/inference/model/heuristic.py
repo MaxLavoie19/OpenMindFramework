@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from openmind.inference.model.derivation import Derivation
 from openmind.inference.model.parameter import Parameter
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 from openmind.structure.model.value import Value
 
 #: What a heuristic is trying to do. Optimal play maximises the win; predictive play says what a player will

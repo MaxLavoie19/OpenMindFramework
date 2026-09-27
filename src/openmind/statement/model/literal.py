@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from openmind.rule.model.term import Functor, Term, Variable
+from openmind.statement.model.term import Functor, Term, Variable
 
 
 @dataclass(frozen=True, slots=True)

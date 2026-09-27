@@ -1,9 +1,9 @@
 from openmind.inference.model.answer import DISPROVED, PROVED, UNKNOWN
 from openmind.inference.model.inference_budget import InferenceBudget
 from openmind.inference.service.goal_prover import NOTHING_BEARS, GoalProver
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number, Variable
 
 FIRST, WIDE, NARROW = Constant("first"), Constant("wide"), Constant("narrow")
 

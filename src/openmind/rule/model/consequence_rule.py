@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from openmind.rule.model.consequence import Consequence
+from openmind.statement.model.consequence import Consequence
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,10 +1,10 @@
 from openmind.inference.model.example import Example
 from openmind.predictor.service.drawn_effects import DrawnEffects
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.consequence import Consequence
-from openmind.rule.model.drawn import Always, Other, Row, Column
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.drawn import Always, Other, Row, Column
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant
 from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.world.model.state import State

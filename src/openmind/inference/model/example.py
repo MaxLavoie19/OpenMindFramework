@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.literal import Literal
 
 
 @dataclass(frozen=True, slots=True)

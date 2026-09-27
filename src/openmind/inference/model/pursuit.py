@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
 from openmind.inference.model.example import Example
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,7 +12,7 @@ from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.model.identifier import new_identifier
 from openmind.knowledge.model.task import Task
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 logger = logging.getLogger(__name__)
 

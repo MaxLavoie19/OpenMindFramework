@@ -7,11 +7,11 @@ from openmind.knowledge.constant.rule_kind_constant import CONSTRAINT, POSITION
 from openmind.knowledge.mapper.rule_record_json_mapper import RuleRecordJsonMapper
 from openmind.knowledge.model.source import Source
 from openmind.knowledge.model.rule_record import RuleRecord
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 from openmind.rule.model.clause_rule import ClauseRule
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.literal import Literal
 from openmind.rule.model.python_rule import PythonRule
-from openmind.rule.model.term import Number, Variable
+from openmind.statement.model.term import Number, Variable
 from openmind.world.model.state import State
 
 

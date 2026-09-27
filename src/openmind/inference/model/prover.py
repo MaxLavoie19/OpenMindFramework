@@ -3,7 +3,7 @@ from typing import Protocol
 
 from openmind.inference.model.answer import Answer
 from openmind.inference.model.inference_budget import InferenceBudget
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 
 class Prover(Protocol):

@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 
 from openmind.predictor.model.watched import Watched
-from openmind.rule.model.consequence import Consequence
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant
 from openmind.predictor.service.consequence_learner import ConsequenceLearner
 
 
@@ -23,14 +23,14 @@ def test_a_condition_reads_as_a_condition_and_not_as_a_refusal():
 
     assert "refused" not in said
     assert "where turn(white)" in said
-from openmind.rule.model.drawn import Always, Place
+from openmind.statement.model.drawn import Always, Place
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
 from openmind.structure.model.machine import Machine
 from openmind.structure.model.phase import Phase
 from openmind.structure.model.record import Record
 from openmind.world.model.action import Action
-from openmind.world.model.change import Moved, Placed, Removed, Told
+from openmind.statement.model.change import Moved, Placed, Removed, Told
 from openmind.world.model.state import State
 
 PLACING, MOVING = Phase("placing", ("place",)), Phase("moving", ("move", "take"))

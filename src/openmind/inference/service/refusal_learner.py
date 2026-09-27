@@ -16,9 +16,9 @@ from openmind.inference.service.hypothesis_table import HypothesisTable
 from openmind.inference.service.hypothesis_tester import HypothesisTester
 from openmind.inference.service.hypothetical import ALLOWED, ALLOWED_AFTER, TAKEN_AFTER, Hypothetical
 from openmind.inference.service.unifier import Unifier
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Number, Term, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Number, Term, Variable
 from openmind.structure.model.value import Value
 
 logger = logging.getLogger(__name__)

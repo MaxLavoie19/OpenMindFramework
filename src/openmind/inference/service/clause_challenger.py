@@ -7,8 +7,8 @@ from openmind.inference.model.misprediction import Misprediction
 from openmind.inference.model.surprise import Surprise
 from openmind.inference.service.chance_fitter import ChanceFitter
 from openmind.inference.service.clause_learner import ClauseLearner
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
 
 logger = logging.getLogger(__name__)
 

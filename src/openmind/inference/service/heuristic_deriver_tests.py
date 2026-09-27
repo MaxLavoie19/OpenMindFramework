@@ -6,9 +6,9 @@ from openmind.inference.model.vocabulary import Vocabulary
 from openmind.inference.model.worth import Worth
 from openmind.inference.service.heuristic_deriver import HeuristicDeriver
 from openmind.knowledge.constant.rule_kind_constant import POSITION
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Variable
 
 LEGAL = Literal("legal", ())
 

@@ -2,15 +2,15 @@ import logging
 from collections.abc import Callable, Mapping, Sequence
 
 from openmind.inference.model.example import Example
-from openmind.rule.model.consequence import Consequence
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.drawn import Always, Asked, Column, Drawn, More, Other, Place, Row, Standing, Stepped
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.drawn import Always, Asked, Column, Drawn, More, Other, Place, Row, Standing, Stepped
 from openmind.structure.model.coordinates import Coordinates
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.record import Record
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
-from openmind.world.model.change import Change, Moved, Placed, Removed, Told
+from openmind.statement.model.change import Change, Moved, Placed, Removed, Told
 from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)

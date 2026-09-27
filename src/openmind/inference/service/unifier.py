@@ -1,9 +1,9 @@
 import logging
 
 from openmind.inference.model.substitution import Substitution
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Number, Term, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Number, Term, Variable
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number, Variable
 
 
 def test_a_clause_of_one_positive_literal_is_a_fact_it_states() -> None:

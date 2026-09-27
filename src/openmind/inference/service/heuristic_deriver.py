@@ -15,9 +15,9 @@ from openmind.inference.service.clause_learner import ClauseLearner
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.side_deducer import OWNS
 from openmind.inference.service.subsumer import Subsumer
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Variable
 from openmind.structure.model.value import Value
 
 logger = logging.getLogger(__name__)

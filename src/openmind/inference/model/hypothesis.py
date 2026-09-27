@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 
 @dataclass(frozen=True, slots=True)

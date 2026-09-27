@@ -10,8 +10,8 @@ from openmind.inference.service.candidate_readings import (
     CandidateReadings,
 )
 from openmind.inference.service.side_deducer import FACES, OWNS
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Number
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Number
 from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.list import List

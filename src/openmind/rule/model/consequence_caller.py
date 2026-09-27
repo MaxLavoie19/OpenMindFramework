@@ -1,7 +1,7 @@
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
-from openmind.rule.model.consequence import Consequence
+from openmind.statement.model.consequence import Consequence
 from openmind.structure.model.value import Value
 from openmind.world.model.state import State
 

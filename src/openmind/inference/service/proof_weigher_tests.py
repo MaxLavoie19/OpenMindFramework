@@ -4,8 +4,8 @@ from openmind.inference.model.derivation import Derivation
 from openmind.inference.model.derivation_step import GIVEN, RESOLVED, DerivationStep
 from openmind.inference.model.inference_budget import InferenceBudget
 from openmind.inference.service.proof_weigher import ProofWeigher
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
 
 
 def proof(*leaning: tuple[str, float]) -> Derivation:

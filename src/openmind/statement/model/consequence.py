@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from openmind.rule.model.drawn import Drawn
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.drawn import Drawn
+from openmind.statement.model.clause import Clause
 
 
 @dataclass(frozen=True, slots=True)

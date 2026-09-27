@@ -1,8 +1,8 @@
 from openmind.inference.model.inference_budget import InferenceBudget
 from openmind.inference.service.forward_chainer import ForwardChainer
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number, Variable
 
 WIDE, NARROW = Constant("wide"), Constant("narrow")
 

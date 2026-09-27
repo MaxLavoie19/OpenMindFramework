@@ -1,10 +1,10 @@
-from openmind.rule.model.consequence import Consequence
-from openmind.rule.model.drawn import Always, Asked, Column, More, Other, Row, Standing
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.drawn import Always, Asked, Column, More, Other, Row, Standing
 from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
 from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.world.model.action import Action
-from openmind.world.model.change import Moved, Placed, Removed, Told
+from openmind.statement.model.change import Moved, Placed, Removed, Told
 from openmind.world.model.state import State
 
 NAMES = CellNames(("a", "b", "c"), ("3", "2", "1"))

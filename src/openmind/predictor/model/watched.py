@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from openmind.world.model.action import Action
-from openmind.world.model.change import Change
+from openmind.statement.model.change import Change
 from openmind.world.model.state import State
 
 

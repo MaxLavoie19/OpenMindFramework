@@ -5,9 +5,9 @@ from openmind.inference.model.example import Example
 from openmind.inference.model.inference_budget import InferenceBudget
 from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.inference.service.refusal_learner import REFUSED, RefusalLearner
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Number, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Number, Variable
 from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.record import Record

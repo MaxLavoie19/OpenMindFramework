@@ -1,9 +1,9 @@
 from openmind.inference.model.example import Example
 from openmind.inference.service.constraint_distiller import ConstraintDistiller
 from openmind.inference.service.refusal_learner import REFUSED, RefusalLearner
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Number, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Number, Variable
 
 PAWN = Functor("piece", (Constant("white"), Constant("pawn")))
 ROOK = Functor("piece", (Constant("white"), Constant("rook")))

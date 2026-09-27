@@ -4,8 +4,8 @@ from collections.abc import Callable, Mapping, Sequence
 from openmind.inference.model.example import Example
 from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.consequence import Consequence
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.consequence import Consequence
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
 from openmind.world.model.state import State

@@ -6,7 +6,7 @@ from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
 from openmind.structure.model.scalar import Scalar
 from openmind.structure.model.value import Value
-from openmind.world.model.change import Change, Moved, Placed, Removed, Told
+from openmind.statement.model.change import Change, Moved, Placed, Removed, Told
 from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)

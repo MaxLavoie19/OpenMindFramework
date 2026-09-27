@@ -1,8 +1,8 @@
 from openmind.inference.model.substitution import Substitution
 from openmind.inference.service.unifier import Unifier
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Number, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Number, Variable
 
 
 def test_two_literals_saying_the_same_of_the_same_things_agree_about_nothing() -> None:

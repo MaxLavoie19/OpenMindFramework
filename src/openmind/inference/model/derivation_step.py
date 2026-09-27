@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from openmind.inference.model.substitution import Substitution
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 #: What a step did, as the engine names it.
 GIVEN = "given"

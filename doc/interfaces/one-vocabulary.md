@@ -328,9 +328,13 @@ and runner — how a rule is kept and run. `world` keeps positions, actions, joi
 is the case. `structure` keeps values, grids, records and coordinates — what things *are*, which is what
 terms denote.
 
-It also fixes the one arrow that is backwards. `world` does not import `rule` at all; `rule` imports `world`
-six times, because `Consequence` and `Drawn` live in one and `Change` in the other. Afterwards `statement`
-depends on `structure` alone and everything depends on `statement`.
+Afterwards `statement` depends on `structure` alone and everything else depends on `statement`.
+
+**Corrected after doing it.** This section first claimed the move would fix a backwards arrow — `rule`
+importing `world` six times because `Consequence` and `Drawn` lived in one and `Change` in the other. That was
+wrong. All six are `State` and `Action`, and they stay: a rule is *run against a position*, so a rule caller
+needs one. The dependency was proper all along. What the move actually buys is the first line of that
+paragraph and nothing more, which is still the point — a shared thing owned by somebody.
 
 **The cost is import churn and it is large**: counting both projects, `clause` is imported by 76 files,
 `literal` by 65, `term` by 52, `consequence` by 17, `drawn` by 13, `change` by 13. Mechanical, and the sort of
@@ -355,8 +359,10 @@ stops at the edge of it deliberately, and the boundary is written here rather th
 
 ## Stages
 
-**Stage zero — the domain exists.** The moves above, no behaviour, one commit. Everything after it is
-impossible to do halfway because there is somewhere for the shared thing to live.
+**Stage zero — the domain exists. Done.** The moves above, no behaviour, one commit: six modules and two test
+files moved, 109 files rewritten across both projects, both suites unchanged at 1464 and 63. `statement`
+depends on `structure` alone; `world` depends on it once, where `Changer` applies a change; `rule` depends on
+it six times.
 
 
 Each is a component and goes through the usual two stops.

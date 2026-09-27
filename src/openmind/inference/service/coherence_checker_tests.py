@@ -3,9 +3,9 @@ from openmind.inference.constant.certainty_constant import CANNOT_BOTH_HOLD
 from openmind.inference.model.inference_budget import InferenceBudget
 from openmind.inference.service.coherence_checker import CoherenceChecker
 from openmind.inference.service.justifier import Justifier
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number, Variable
 
 WIDE = Constant("wide")
 

@@ -11,7 +11,7 @@ from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.inference.service.hypothesis_table import HypothesisTable
 from openmind.inference.service.hypothesis_tester import HypothesisTester
 from openmind.inference.service.refusal_learner import RefusalLearner
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 logger = logging.getLogger(__name__)
 

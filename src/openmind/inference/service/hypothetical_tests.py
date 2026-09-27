@@ -5,10 +5,10 @@ from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.inference.service.hypothetical import ALLOWED, TAKEN_AFTER, Hypothetical
 from openmind.inference.service.refusal_learner import REFUSED, RefusalLearner
 from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
-from openmind.rule.model.consequence import Consequence
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Number, Variable
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Number, Variable
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.kind import Kind
 from openmind.structure.model.record import Record

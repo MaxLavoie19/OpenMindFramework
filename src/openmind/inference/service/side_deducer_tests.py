@@ -8,8 +8,8 @@ import pytest
 from openmind.inference.service.fact_recorder import FactRecorder
 from openmind.inference.service.side_deducer import FACES, OWNS, SideDeducer
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number
 
 
 class Thing(NamedTuple):

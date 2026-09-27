@@ -3,8 +3,8 @@ import logging
 from openmind.inference.model.substitution import Substitution
 from openmind.inference.service.evaluable_predicates import EvaluablePredicates
 from openmind.inference.service.unifier import Unifier
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
 
 logger = logging.getLogger(__name__)
 

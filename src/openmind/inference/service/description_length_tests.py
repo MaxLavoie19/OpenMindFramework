@@ -2,9 +2,9 @@ from math import inf, isclose
 
 from openmind.inference.constant.refusal_constant import REFUSED
 from openmind.inference.service.description_length import DescriptionLength
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number
 
 
 def refused_when(*literals):

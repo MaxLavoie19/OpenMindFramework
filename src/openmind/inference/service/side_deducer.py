@@ -5,8 +5,8 @@ from collections.abc import Sequence
 from openmind.inference.model.fact import Fact
 from openmind.inference.service.information import Information
 from openmind.inference.model.sides import Sides
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number, Term
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number, Term
 from openmind.structure.model.value import Value
 
 logger = logging.getLogger(__name__)

@@ -1,7 +1,7 @@
 from openmind.inference.service.resolver import Resolver
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number, Variable
 
 
 def fact(predicate: str, *arguments: object) -> Clause:

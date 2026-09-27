@@ -1,9 +1,9 @@
 from openmind.predictor.factory.predictor_factory import create_effects_runner, create_rule_predictor
 from openmind.predictor.service.drawn_effects import DrawnEffects
 from openmind.rule.factory.rule_factory import create_rule_caller
-from openmind.rule.model.consequence import Consequence
+from openmind.statement.model.consequence import Consequence
 from openmind.rule.model.consequence_rule import ConsequenceRule
-from openmind.rule.model.drawn import Other
+from openmind.statement.model.drawn import Other
 from openmind.structure.model.grid import Grid
 from openmind.world.model.action import Action
 from openmind.world.model.state import State

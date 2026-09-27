@@ -4,8 +4,8 @@ from openmind.inference.model.pursuit import Pursuit
 from openmind.inference.service.hypothesis_table import HypothesisTable
 from openmind.inference.service.refusal_learner import RefusalLearner
 from openmind.inference.service.sniper import Sniper
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant
 
 
 def a_reading(name: str, value: str) -> Literal:

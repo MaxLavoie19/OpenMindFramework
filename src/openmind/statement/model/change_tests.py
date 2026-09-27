@@ -1,4 +1,4 @@
-from openmind.world.model.change import CHANGES, LOSING, Moved, Placed, Removed, Told
+from openmind.statement.model.change import CHANGES, LOSING, Moved, Placed, Removed, Told
 
 
 def test_each_kind_says_where_whatever_stood_there_stops_standing_there():

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from openmind.inference.model.chance import Chance
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.literal import Literal
 
 
 @dataclass(frozen=True, slots=True)

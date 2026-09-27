@@ -1,7 +1,7 @@
 from openmind.inference.model.case_index import CaseIndex
 from openmind.inference.model.example import Example
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant
 
 
 def reading(name: str, *values: object) -> Literal:

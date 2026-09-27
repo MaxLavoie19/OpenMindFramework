@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from openmind.inference.model.example import Example
 from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.inference.service.refusal_learner import RefusalLearner
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 from openmind.rule.model.rule import ConstraintRule
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action

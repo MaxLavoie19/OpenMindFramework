@@ -4,11 +4,11 @@ from dataclasses import dataclass
 import pytest
 
 from openmind.rule.mapper.consequence_json_mapper import ConsequenceJsonMapper
-from openmind.rule.model.consequence import Consequence
-from openmind.rule.model.drawn import Always, Asked, More, Other, Place, Standing, Stepped
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.drawn import Always, Asked, More, Other, Place, Standing, Stepped
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant
 from openmind.structure.model.record import Record
 
 

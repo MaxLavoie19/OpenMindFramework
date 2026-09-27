@@ -5,15 +5,15 @@ import pytest
 from openmind.inference.service.clause_constraint import ClauseConstraint
 from openmind.inference.service.refusal_learner import REFUSED
 from openmind.rule.factory.rule_factory import create_rule_caller
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 from openmind.predictor.service.drawn_effects import DrawnEffects
 from openmind.rule.model.clause_rule import ClauseRule
-from openmind.rule.model.consequence import Consequence
+from openmind.statement.model.consequence import Consequence
 from openmind.rule.model.consequence_rule import ConsequenceRule
-from openmind.rule.model.drawn import Column, Row
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.drawn import Column, Row
+from openmind.statement.model.literal import Literal
 from openmind.rule.model.python_rule import PythonRule
-from openmind.rule.model.term import Constant, Number
+from openmind.statement.model.term import Constant, Number
 from openmind.rule.service.rule_caller import RuleCaller
 from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from openmind.inference.model.chance import Chance
 from openmind.inference.model.derivation import Derivation
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 #: What the engine can say about a question.
 #:

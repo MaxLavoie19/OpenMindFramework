@@ -6,15 +6,15 @@ from openmind.inference.model.example import Example
 from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
 from openmind.world.service.changer import Changer
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number, Term
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number, Term
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.record import Record
 from openmind.structure.model.schema import ActionKind
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
-from openmind.world.model.change import LOSING
+from openmind.statement.model.change import LOSING
 from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)

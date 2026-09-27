@@ -3,7 +3,7 @@ from collections.abc import Sequence
 
 from openmind.inference.model.hypothesis import Hypothesis
 from openmind.inference.service.description_length import DescriptionLength
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 logger = logging.getLogger(__name__)
 

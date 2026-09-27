@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from openmind.inference.model.chance import Chance
 from openmind.inference.service.statistics import BEFORE_HOLDING, BEFORE_NOT, Statistics
 from openmind.inference.model.example import Example
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 logger = logging.getLogger(__name__)
 

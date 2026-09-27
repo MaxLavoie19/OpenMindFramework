@@ -12,11 +12,11 @@ from openmind.predictor.factory.predictor_factory import create_rule_predictor
 from openmind.rbs.factory.rbs_factory import create_rule_based_game
 from openmind.rbs.service.simulation import Simulation
 from openmind.rule.factory.rule_factory import create_rule_caller
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.consequence import Consequence
-from openmind.rule.model.drawn import Always, Other, Place
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Number
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.consequence import Consequence
+from openmind.statement.model.drawn import Always, Other, Place
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Number
 from openmind.rule.service.rule_caller import RuleCaller
 from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper

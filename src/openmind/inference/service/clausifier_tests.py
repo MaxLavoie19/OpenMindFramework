@@ -1,8 +1,8 @@
 from openmind.inference.model.formula import And, Atom, Exists, ForAll, Iff, Implies, Not, Or
 from openmind.inference.service.clausifier import Clausifier
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Variable
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Variable
 
 
 def said(predicate: str, *arguments: object) -> Atom:

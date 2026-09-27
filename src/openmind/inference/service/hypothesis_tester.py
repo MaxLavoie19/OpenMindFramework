@@ -7,8 +7,8 @@ from openmind.inference.constant.refusal_constant import REFUSED
 from openmind.inference.model.case_index import CaseIndex
 from openmind.inference.model.example import Example
 from openmind.inference.model.hypothesis import Hypothesis
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
 
 if TYPE_CHECKING:  # The learner imports this one, so naming it back at run time would close a ring.
     from openmind.inference.service.refusal_learner import RefusalLearner

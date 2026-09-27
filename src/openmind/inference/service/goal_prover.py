@@ -10,7 +10,7 @@ from openmind.inference.service.derivation_builder import DerivationBuilder
 from openmind.inference.service.proof_weigher import ProofWeigher
 from openmind.inference.service.resolver import Resolver
 from openmind.inference.service.subsumer import Subsumer
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 logger = logging.getLogger(__name__)
 

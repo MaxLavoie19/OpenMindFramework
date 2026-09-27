@@ -5,8 +5,8 @@ from itertools import combinations, permutations, product
 from openmind.inference.model.evidence import Evidence
 from openmind.inference.model.example import Example
 from openmind.inference.service.side_deducer import FACES, OWNS
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant, Functor, Number, Term
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant, Functor, Number, Term
 from openmind.structure.model.coordinates import Coordinates
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.list import List

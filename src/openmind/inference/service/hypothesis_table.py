@@ -2,7 +2,7 @@ import logging
 from collections.abc import Iterable, Sequence
 
 from openmind.inference.model.hypothesis import Hypothesis
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 logger = logging.getLogger(__name__)
 

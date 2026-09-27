@@ -2,8 +2,8 @@ from openmind.epistemology.service.foundherentism import Foundherentism
 from openmind.inference.model.derivation import Derivation
 from openmind.inference.model.derivation_step import GIVEN, DerivationStep
 from openmind.inference.service.justifier import Justifier
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
 
 
 def resting_on(*names: str) -> Derivation:

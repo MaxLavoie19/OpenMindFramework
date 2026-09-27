@@ -5,9 +5,9 @@ from openmind.game.service.game_declarer import GameDeclarer
 from openmind.game.service.schema_declarer import SchemaDeclarer
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 from openmind.rule.model.clause_rule import ClauseRule
-from openmind.rule.model.consequence import Consequence
+from openmind.statement.model.consequence import Consequence
 from openmind.rule.model.consequence_rule import ConsequenceRule
 from openmind.rule.service.rule_caller import RuleCaller
 from openmind.structure.model.schema import Schema

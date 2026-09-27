@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from openmind.inference.model.derivation_step import DerivationStep
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 
 
 @dataclass(frozen=True, slots=True)

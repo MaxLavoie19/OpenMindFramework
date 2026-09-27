@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Variable
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Variable
 
 
 @dataclass(frozen=True, slots=True)

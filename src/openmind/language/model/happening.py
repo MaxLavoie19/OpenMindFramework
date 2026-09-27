@@ -3,7 +3,7 @@ from dataclasses import dataclass, fields
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.record import Record
 from openmind.structure.model.value import Value
-from openmind.world.model.change import Change, Moved, Placed, Removed, Told
+from openmind.statement.model.change import Change, Moved, Placed, Removed, Told
 from openmind.world.model.state import State
 
 

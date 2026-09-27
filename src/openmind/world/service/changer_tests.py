@@ -3,7 +3,7 @@ import pytest
 from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
-from openmind.world.model.change import Moved, Placed, Removed, Told
+from openmind.statement.model.change import Moved, Placed, Removed, Told
 from openmind.world.model.state import State
 from openmind.world.service.changer import Changer
 

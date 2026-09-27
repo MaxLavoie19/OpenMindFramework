@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from typing import Protocol
 
-from openmind.rule.model.clause import Clause
+from openmind.statement.model.clause import Clause
 from openmind.structure.model.value import Value
 from openmind.world.model.state import State
 

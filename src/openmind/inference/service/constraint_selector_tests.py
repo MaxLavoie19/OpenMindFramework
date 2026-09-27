@@ -2,9 +2,9 @@ from openmind.inference.constant.refusal_constant import REFUSED
 from openmind.inference.model.hypothesis import Hypothesis
 from openmind.inference.service.constraint_selector import ConstraintSelector
 from openmind.inference.service.description_length import DescriptionLength
-from openmind.rule.model.clause import Clause
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Number
+from openmind.statement.model.clause import Clause
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Number
 
 
 def a_clause(conditions):

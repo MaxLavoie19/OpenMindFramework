@@ -3,8 +3,8 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from openmind.rule.model.literal import Literal
-from openmind.rule.model.term import Constant
+from openmind.statement.model.literal import Literal
+from openmind.statement.model.term import Constant
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.scalar import Scalar
 from openmind.structure.model.value import Value
