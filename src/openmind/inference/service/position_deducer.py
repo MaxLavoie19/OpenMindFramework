@@ -40,16 +40,36 @@ class PositionDeducer:
         self._action_text_mapper = action_text_mapper
         self._clock = clock
 
-    def deduce(self, rbs: RuleBasedGame, state: State, budget: DeductionBudget) -> Deduction:
+    def deduce(
+        self,
+        rbs: RuleBasedGame,
+        state: State,
+        budget: DeductionBudget,
+        seen: dict[tuple[State, int], Proof | None] | None = None,
+    ) -> Deduction:
         """The first depth that proves the position, or nothing proven when the plies or the seconds run out; a budget of
-        fewer than 1 ply or no seconds, or a position without a legal action, raises ValueError."""
+        fewer than 1 ply or no seconds, or a position without a legal action, raises ValueError.
+
+        `seen` is the memo of what has been decided, and a caller may own it rather than letting this keep its
+        own. Two things come of that, and both matter.
+
+        **What the walk proved on its way is kept instead of thrown away.** Proving one position proves many:
+        every state the deduction reached and resolved is proven, and all of it but the root was discarded. Put
+        through `proven`, one memo is a labelled position for every node the walk touched. That is the
+        difference the chess literature measures between labelling a search's root and labelling its whole
+        tree — Veness, Silver, Uther and Blair report 1362 Elo against 2157 from the same self-play, the
+        largest single effect in that work, and it is a change to *what is labelled* rather than to what is
+        fitted.
+
+        **And the next position starts where the last one stopped.** A memo carried across the positions of one
+        run finds states it has already decided, since positions from the same game share their futures."""
         if budget.plies < 1 or budget.seconds <= 0.0:
             raise ValueError(f"A deduction needs at least 1 ply and more than 0 seconds, not {budget}")
         if not rbs.actions(state):
             raise ValueError("No legal action to deduce from")
         player = rbs.acting_player(state)
         deadline = self._clock() + budget.seconds
-        memo: dict[tuple[State, int], Proof | None] = {}
+        memo: dict[tuple[State, int], Proof | None] = {} if seen is None else seen
         reached = 0
         for depth in range(1, budget.plies + 1):
             try:
@@ -77,7 +97,11 @@ class PositionDeducer:
         return Deduction(state, player, None, None, (), reached)
 
     def deduce_moves(
-        self, rbs: RuleBasedGame, state: State, budget: DeductionBudget
+        self,
+        rbs: RuleBasedGame,
+        state: State,
+        budget: DeductionBudget,
+        seen: dict[tuple[State, int], Proof | None] | None = None,
     ) -> tuple[tuple[Action, tuple[float, ...]], ...]:
         """What each action here is proven to pay every player, for the actions proven within the budget.
 
@@ -98,7 +122,7 @@ class PositionDeducer:
         if not actions:
             raise ValueError("No legal action to deduce from")
         deadline = self._clock() + budget.seconds
-        memo: dict[tuple[State, int], Proof | None] = {}
+        memo: dict[tuple[State, int], Proof | None] = {} if seen is None else seen
         proven: dict[Action, tuple[float, ...]] = {}
         reached = 0
         for depth in range(1, budget.plies + 1):
@@ -122,6 +146,27 @@ class PositionDeducer:
             reached,
         )
         return tuple((action, proven[action]) for action in actions if action in proven)
+
+    def proven(
+        self, seen: dict[tuple[State, int], Proof | None]
+    ) -> tuple[tuple[State, tuple[float, ...]], ...]:
+        """Every position that memo holds a proof of, with what it pays each player.
+
+        **The tree a deduction walked, read back.** Nothing here is estimated and nothing is new: each entry was
+        proven while some other question was being answered, and the only reason it was not available before is
+        that the memo was private. One position asked about at four plies can leave hundreds behind it.
+
+        A state decided at several depths appears once. Any proof of a state is a proof of it — the depth is how
+        far the walk had to look, not a qualifier on the answer — so the deepest is kept for no reason but that
+        one of them has to be."""
+        held: dict[State, tuple[int, tuple[float, ...]]] = {}
+        for (state, depth), proof in seen.items():
+            if proof is None:
+                continue
+            standing = held.get(state)
+            if standing is None or depth > standing[0]:
+                held[state] = (depth, proof[0])
+        return tuple((state, payoffs) for state, (_, payoffs) in held.items())
 
     def _decide(
         self,

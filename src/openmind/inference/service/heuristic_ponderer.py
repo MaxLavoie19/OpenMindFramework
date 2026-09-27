@@ -131,28 +131,52 @@ class HeuristicPonderer:
         settings: PonderSettings,
         tried: list[Labelling],
     ) -> tuple[PositionRow, ...]:
-        """The positions this game could settle, as rows: what it paid where a position is over, and what its rules
-        prove where they reach an end within the plies given.
+        """The positions this game could settle, as rows: what it paid where a position is over, what its rules
+        prove where they reach an end within the plies given, and every position those proofs passed through.
 
         The rows are of the real game, whichever game the values were reasoned out in: a relaxation is where the
-        reasoning is cheap, not what the heuristic is for."""
+        reasoning is cheap, not what the heuristic is for.
+
+        **Every node the deduction proved, and not only the ones it was asked about.** Proving one position
+        proves many — each state the walk reached and resolved is proven — and all of it but the answer was
+        being thrown away. One memo now runs through every position of the pass, so a later position starts
+        from what an earlier one already decided, and at the end the whole of it becomes rows.
+
+        This is the one change the chess literature measures as large. Veness, Silver, Uther and Blair fit the
+        same linear evaluation by the same self-play and got 1362 Elo labelling a search's root against 2157
+        labelling its whole tree — the biggest single effect in that work, and a change to *what is labelled*
+        rather than to what is fitted. Ours are proofs where theirs were backed-up estimates, which is a better
+        label and a rarer one."""
         started = time.monotonic()
         named = SETTLED.format(context=reasoned_in.context)
         rows: list[PositionRow] = []
         valued, paid, proved = 0, 0, 0
         players = game.players().names
+        settled: dict[State, tuple[float, ...]] = {}
+        seen: dict = {}
         for state in positions:
             payoffs = self._payoffs(game, state, players)
             if payoffs is not None:
                 paid += 1
             else:
-                payoffs = self._proved(reasoned_in, state, settings)
+                payoffs = self._proved(reasoned_in, state, settings, seen)
                 proved += 1 if payoffs is not None else 0
             if payoffs is None:
                 continue
             valued += 1
+            settled[state] = payoffs
+        # What the walks proved along the way, which is every node of every tree they built. A position asked
+        # about outright keeps the value it was asked about, so nothing here overrides an answer with a note
+        # taken on the way to it.
+        along = 0
+        for state, payoffs in self._deducer.proven(seen):
+            if state in settled or len(payoffs) != len(players):
+                continue
+            settled[state] = payoffs
+            along += 1
+        for state, payoffs in settled.items():
             rows.extend(PositionRow(state, player, payoff) for player, payoff in zip(players, payoffs, strict=True))
-        labelling = Labelling(named, valued, len({row.target for row in rows}), time.monotonic() - started)
+        labelling = Labelling(named, len(settled), len({row.target for row in rows}), time.monotonic() - started)
         tried.append(labelling)
         if valued == 0 and any(len(reasoned_in.joint_actions(state)) > 1 for state in positions[:1]):
             logger.warning(
@@ -160,12 +184,14 @@ class HeuristicPonderer:
                 named,
             )
         logger.info(
-            "%s valued %d of %d positions — %d paid out, %d proved — %d differently, in %.1f seconds",
+            "%s valued %d of %d positions — %d paid out, %d proved — and %d more the proofs passed through, "
+            "%d differently, in %.1f seconds",
             named,
             valued,
             len(positions),
             paid,
             proved,
+            along,
             labelling.values,
             labelling.seconds,
         )
@@ -288,7 +314,9 @@ class HeuristicPonderer:
         )
         return tuple(rows) if labelling.paid else ()
 
-    def _proved(self, game: RuleBasedGame, state: State, settings: PonderSettings) -> tuple[float, ...] | None:
+    def _proved(
+        self, game: RuleBasedGame, state: State, settings: PonderSettings, seen: dict | None = None
+    ) -> tuple[float, ...] | None:
         """What a deduction proves the position is worth, or None where the plies don't reach an end.
 
         A deduction reasons about one player acting. Where several can act at once — which is what a game relaxed of
@@ -296,7 +324,9 @@ class HeuristicPonderer:
         acting = game.joint_actions(state)
         if not acting or len(acting) > 1:
             return None
-        deduction = self._deducer.deduce(game, state, DeductionBudget(settings.plies, settings.deduction_seconds))
+        deduction = self._deducer.deduce(
+            game, state, DeductionBudget(settings.plies, settings.deduction_seconds), seen
+        )
         return deduction.payoffs
 
     def _relaxations(self, knowledge_base: KnowledgeBase, game: RuleBasedGame) -> tuple[RuleBasedGame, ...]:

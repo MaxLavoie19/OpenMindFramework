@@ -139,3 +139,53 @@ def test_deducing_what_every_action_pays_needs_a_legal_action_and_a_budget(game:
         create_position_deducer().deduce_moves(played, played.start(), DeductionBudget(plies=0, seconds=5.0))
     with pytest.raises(ValueError):
         create_position_deducer().deduce_moves(played, played.start(), DeductionBudget(plies=1, seconds=0.0))
+
+
+def test_the_walk_leaves_behind_every_position_it_proved(game: Game) -> None:
+    """Proving one position proves many, and all of it but the answer was being thrown away. This is the
+    difference between labelling a search's root and labelling its whole tree."""
+    played = game("tictactoe")
+    deducer = create_position_deducer()
+    # Far enough in that the plies reach an end: nothing is provable within four plies of an empty board,
+    # the earliest win being the fifth.
+    state = placed(played, played.start(), (1, 1), (2, 1), (1, 2))
+    seen = {}
+
+    deducer.deduce(played, state, DeductionBudget(plies=6, seconds=20.0), seen)
+    proven = deducer.proven(seen)
+
+    assert len(proven) > 1, "one question asked, many positions answered"
+    assert all(len(payoffs) == len(played.players().names) for _, payoffs in proven)
+    assert len({state for state, _ in proven}) == len(proven), "a state decided at several depths appears once"
+
+
+def test_a_memo_given_to_one_deduction_is_reused_by_the_next(game: Game) -> None:
+    """Positions of the same game share their futures, so the second question starts from what the first
+    already decided."""
+    played = game("tictactoe")
+    deducer = create_position_deducer()
+    budget = DeductionBudget(plies=5, seconds=20.0)
+    start = placed(played, played.start(), (1, 1), (2, 1))
+    after = placed(played, start, (1, 2))
+
+    shared = {}
+    deducer.deduce(played, start, budget, shared)
+    after_first = set(shared)
+    deducer.deduce(played, after, budget, shared)
+
+    alone = {}
+    deducer.deduce(played, after, budget, alone)
+
+    assert after_first <= set(shared), "the memo is added to, never replaced"
+    assert set(alone) & after_first, "the second question asked about states the first had already decided"
+
+
+def test_a_deduction_keeps_its_own_memo_where_none_is_given(game: Game) -> None:
+    """The memo is an offer, not a requirement: nothing that called this before has to pass one."""
+    played = game("tictactoe")
+    deducer = create_position_deducer()
+
+    deduced = deducer.deduce(played, played.start(), DeductionBudget(plies=2, seconds=5.0))
+
+    assert deduced.plies >= 1
+    assert deducer.proven({}) == ()

@@ -146,3 +146,40 @@ def test_settling_moves_reports_itself_even_where_it_settles_nothing(game: Game,
     assert rows == ()
     assert [one.source for one in tried] == [MOVES_SETTLED.format(context=played.context)]
     assert tried[0].paid is False
+
+
+def test_valuing_keeps_the_positions_the_proofs_passed_through(game: Game, knowledge: KnowledgeBase, caplog):
+    """Far more rows than positions asked about, for work already paid for: proving one position proves many,
+    and all of it but the answer was being discarded."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+    held = settings(positions=30, held_out=10)
+    positions = ponderer._gatherer.gather(played, 40, 1)
+
+    with caplog.at_level(logging.INFO):
+        rows = ponderer._valued(played, played, positions, held, [])
+
+    assert len({row.state for row in rows}) > len(positions), "more positions valued than were asked about"
+    assert any("the proofs passed through" in one.message for one in caplog.records), "it says how many it kept"
+
+
+def test_a_position_asked_about_keeps_the_value_it_was_asked_about(game: Game, knowledge: KnowledgeBase):
+    """A note taken on the way to an answer never overrides the answer, so what the game paid a finished
+    position stays what that position is worth."""
+    from openmind.structure.model.grid import Grid
+    from openmind.structure.model.map import Map
+    from openmind.world.model.state import State
+
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+    finished = State.of(
+        cell=Grid((3, 3), ("X", "X", "X", "O", "O", None, None, None, None)),
+        turn="O",
+        payoff=Map.of({"X": 1.0, "O": 0.0}),
+    )
+    positions = (*ponderer._gatherer.gather(played, 20, 1), finished)
+
+    rows = ponderer._valued(played, played, positions, settings(), [])
+
+    paid = {row.player: row.target for row in rows if row.state == finished}
+    assert paid == {"X": 1.0, "O": 0.0}, "what the game paid, not what a walk noted"
