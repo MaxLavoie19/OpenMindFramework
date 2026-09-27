@@ -13,11 +13,19 @@ class Literal:
     replaces, and everything a rule can now say that it could not follows from it.
 
     `negated` denies it. A rule's body is written as denials, since a clause is a disjunction and a condition is
-    something whose failing would make the rule not apply."""
+    something whose failing would make the rule not apply.
+
+    `when` is the moment it is said of, and **None is now**. Every reading there has ever been is of the
+    position as it stands, so saying nothing means saying now, and moments arrive without a single existing
+    clause having to be rewritten to mention one. What it buys is the thing that had to be special machinery
+    before: a king may not be left where it can be taken is one reading held now and denied at a later moment,
+    which is a clause rather than a question somebody had to build an answering service for."""
 
     predicate: str
     arguments: tuple[Term, ...] = ()
     negated: bool = False
+    #: When it is said to hold. None is now.
+    when: Term | None = None
 
     #: Worked out once when the literal is made, and never part of what makes two literals the same.
     #:
@@ -38,7 +46,7 @@ class Literal:
                 found.setdefault(variable, None)
         object.__setattr__(self, "variables", tuple(found))
         object.__setattr__(self, "ground", not found)
-        object.__setattr__(self, "_hash", hash((self.predicate, self.arguments, self.negated)))
+        object.__setattr__(self, "_hash", hash((self.predicate, self.arguments, self.negated, self.when)))
 
     @property
     def arity(self) -> int:
@@ -46,8 +54,12 @@ class Literal:
 
     @property
     def denied(self) -> "Literal":
-        """The same thing said the other way."""
-        return Literal(self.predicate, self.arguments, not self.negated)
+        """The same thing said the other way, of the same moment."""
+        return Literal(self.predicate, self.arguments, not self.negated, self.when)
+
+    def said_of(self, when: Term | None) -> "Literal":
+        """The same thing said of that moment."""
+        return Literal(self.predicate, self.arguments, self.negated, when)
 
     def opposes(self, other: "Literal") -> bool:
         """Whether the two say the same thing and disagree about it, which is what lets them be resolved."""
