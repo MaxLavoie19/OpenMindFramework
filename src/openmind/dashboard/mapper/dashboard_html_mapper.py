@@ -10,6 +10,10 @@ from openmind.dashboard.model.game_view import GameView
 
 GIGABYTE = 1024**3
 
+#: Where the page following the runs working out a game's constraints is served, and where one run of them is,
+#: with the run's own name after it.
+CONSTRAINTS_PATH = "/constraints"
+
 STYLE = """
 body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem 1.25rem; background: #f7f7f5; color: #222; }
 h1 { font-size: 1.3rem; margin: 0 0 .25rem; } h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
@@ -205,7 +209,7 @@ class DashboardHtmlMapper:
 
     #: Every page worth going to, and what to call it. One list, so a page added here is reachable from all of
     #: them rather than from whichever one happened to link to it.
-    PAGES = (("/", "Training"), ("/constraints", "What it is learning"), ("/games", "Games"))
+    PAGES = (("/", "Training"), (CONSTRAINTS_PATH, "What it is learning"), ("/games", "Games"))
 
     def _page(self, title: str, refresh_seconds: int, body: str) -> str:
         """A page of its own, under the title, reloading itself every so many seconds (never at 0).
@@ -259,9 +263,19 @@ class DashboardHtmlMapper:
         ]
         return self._page(f"{domain} {game.label}", refresh_seconds, self._game_section(game, game.label, " · ".join(links)))
 
-    def constraints_page(self, domain: str, learning: ConstraintLearning | None, refresh_seconds: int) -> str:
+    def constraints_page(
+        self,
+        domain: str,
+        learning: ConstraintLearning | None,
+        refresh_seconds: int,
+        runs: Sequence[ConstraintLearning] = (),
+    ) -> str:
         """The page following a run that is working out what a game refuses: the position it is on, how the
-        constraints it now holds stand against that position, and the constraints themselves."""
+        constraints it now holds stand against that position, and the constraints themselves.
+
+        `runs` is every run that has said anything, so the page can put them beside each other before it shows
+        one of them in full. Arms are how anything here is settled and they are launched together; a page that
+        shows one and names no other hides the only comparison that decides anything."""
         if learning is None:
             return self._page(
                 f"{domain} constraints",
@@ -289,6 +303,8 @@ class DashboardHtmlMapper:
         return self._page(
             f"{domain} constraints",
             refresh_seconds,
+            f"{self._runs(runs, learning)}"
+            f"<h2>{html.escape(learning.run) or 'The run'}</h2>"
             f"<p class='muted'>{html.escape(learning.at)} &middot; {html.escape(learning.fen)}</p>"
             f"<div class='cards'>{cards}</div>"
             f"<h2>The position it is on</h2><div class='game'>{board}</div>"
@@ -296,6 +312,37 @@ class DashboardHtmlMapper:
             f"<h2>What it refuses</h2>{self._rules(learning)}"
             f"<h2>What a move does</h2>{self._consequences(learning)}"
             f"<h2>What the notation says</h2>{self._notation(learning)}",
+        )
+
+    def _runs(self, runs: Sequence[ConstraintLearning], showing: ConstraintLearning) -> str:
+        """Every run that has said anything, beside each other, the one being shown marked.
+
+        Empty where there is only one, because a comparison of one run with itself is a row of numbers already
+        on the page below it. `let through` is what the arms are usually being compared on: a candidate the
+        game refuses and the constraints do not."""
+        if len(runs) < 2:
+            return ""
+        head = ("run", "position", "constraints", "readings", "let through", "wrongly refused", "seconds", "last said")
+        rows = "".join(
+            "<tr>"
+            f"<td><a href='{CONSTRAINTS_PATH}/{html.escape(one.run)}'>{html.escape(one.run)}</a>"
+            f"{' &larr;' if one.run == showing.run else ''}</td>"
+            f"<td class='count'>{one.position}</td>"
+            f"<td class='count'>{len(one.rules)}</td>"
+            f"<td class='count'>{one.readings}</td>"
+            f"<td class='count'>{one.let_through}</td>"
+            f"<td class='count'>{one.wrongly_refused}</td>"
+            f"<td class='count'>{one.seconds:.1f}</td>"
+            f"<td>{html.escape(one.at)}</td>"
+            "</tr>"
+            for one in runs
+        )
+        headings = "".join(f"<th>{html.escape(one)}</th>" for one in head)
+        return (
+            "<h2>The runs</h2><div class='scroll'>"
+            f"<table><tr>{headings}</tr>{rows}</table></div>"
+            "<p class='muted'>Each run writes its own snapshot; they are launched together so that an arm with "
+            "a change can be read against one without it.</p>"
         )
 
     def _consequences(self, learning: ConstraintLearning) -> str:

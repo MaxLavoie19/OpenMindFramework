@@ -79,9 +79,16 @@ def page(settings: DashboardSettings, refresh: int, path: str = "/") -> tuple[in
     try:
         if path in ("/", "/index.html"):
             return 200, mapper.to_html(_SERVICE.snapshot(settings), refresh).encode("utf-8")
-        if path == CONSTRAINTS_PATH:
-            learning = ConstraintLearningReader().latest(settings.log_directory)
-            return 200, mapper.constraints_page(settings.domain, learning, refresh).encode("utf-8")
+        if path == CONSTRAINTS_PATH or path.startswith(f"{CONSTRAINTS_PATH}/"):
+            reader = ConstraintLearningReader()
+            runs = reader.runs(settings.log_directory)
+            wanted = path[len(CONSTRAINTS_PATH) + 1:]
+            learning = next((one for one in runs if one.run == wanted), None) if wanted else None
+            if learning is None and wanted:
+                return 404, mapper.missing_page(settings.domain).encode("utf-8")
+            return 200, mapper.constraints_page(
+                settings.domain, learning or (runs[0] if runs else None), refresh, runs
+            ).encode("utf-8")
         browser = _SERVICE.game_browser
         if path == "/games":
             games = browser.decisive(settings.knowledge_directory, settings.domain)

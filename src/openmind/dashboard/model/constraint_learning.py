@@ -19,7 +19,11 @@ class ConstraintLearning:
     propose — four thousand and ninety-six of them in chess, against twenty the game allows. `rightly_refused`
     and `rightly_allowed` are agreement; `let_through` is a candidate the game refuses and the constraints do not,
     which is a move OMF would offer and the game would reject; `wrongly_refused` is a move the game allows and the
-    constraints refuse, which is a move OMF will never make and nothing will ever tell it about."""
+    constraints refuse, which is a move OMF will never make and nothing will ever tell it about.
+
+    `run` is which run said it, by the name of the file it writes. Several run at once and are meant to — an
+    arm with a change against an arm without it is how anything here is decided — so a page showing one of them
+    and calling it *the* run shows whichever was named first and hides the comparison the runs exist for."""
 
     position: int
     fen: str
@@ -31,6 +35,7 @@ class ConstraintLearning:
     rightly_allowed: int
     seconds: float
     readings: int
+    run: str = ""
     matching: int = 0
     written_by_hand: int = 0
     at: str = ""
