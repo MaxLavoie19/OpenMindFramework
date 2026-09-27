@@ -10,7 +10,12 @@ from openmind.entrypoint.debug_options import add_debug_option, start_debugging
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.rbs.factory.rbs_factory import create_game
 from openmind.rbs.service.rule_based_game import RuleBasedGame
-from openmind.search.factory.search_factory import create_improvised, create_minimax, create_monte_carlo_tree_search
+from openmind.search.factory.search_factory import (
+    create_greedy,
+    create_improvised,
+    create_minimax,
+    create_monte_carlo_tree_search,
+)
 from openmind.search.model.guidance import Guidance
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
 from openmind.world.mapper.grid_text_mapper import GridTextMapper
@@ -23,6 +28,7 @@ logger = logging.getLogger(__name__)
 PLANNERS = {
     "minimax": create_minimax,
     "monte-carlo": create_monte_carlo_tree_search,
+    "greedy": create_greedy,
     "improvised": create_improvised,
 }
 
