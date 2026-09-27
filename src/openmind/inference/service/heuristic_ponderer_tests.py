@@ -183,3 +183,21 @@ def test_a_position_asked_about_keeps_the_value_it_was_asked_about(game: Game, k
 
     paid = {row.player: row.target for row in rows if row.state == finished}
     assert paid == {"X": 1.0, "O": 0.0}, "what the game paid, not what a walk noted"
+
+
+def test_the_rows_held_back_are_gathered_positions_and_not_nodes_from_a_tree(
+    game: Game, knowledge: KnowledgeBase
+):
+    """The price is chosen on the rows held back, and the nodes a proof passed through outnumber the gathered
+    positions many times over. Held back at the end, the choice would be made on endgames — where a proof is
+    cheap — rather than on the positions the heuristic is for."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+    positions = ponderer._gatherer.gather(played, 40, 1)
+
+    rows = ponderer._valued(played, played, positions, settings(), [])
+    _, held_out = ponderer._split(rows, 10)
+
+    assert held_out, "something is held back"
+    asked = set(positions)
+    assert all(row.state in asked for row in held_out), "every row held back is a position that was gathered"

@@ -168,15 +168,21 @@ class HeuristicPonderer:
         # What the walks proved along the way, which is every node of every tree they built. A position asked
         # about outright keeps the value it was asked about, so nothing here overrides an answer with a note
         # taken on the way to it.
-        along = 0
+        along: list[tuple[State, tuple[float, ...]]] = []
         for state, payoffs in self._deducer.proven(seen):
             if state in settled or len(payoffs) != len(players):
                 continue
-            settled[state] = payoffs
-            along += 1
-        for state, payoffs in settled.items():
+            along.append((state, payoffs))
+        # **The nodes first and the gathered positions last, because the last rows are the ones held back.**
+        # `_split` keeps the tail to choose the price on, and these outnumber the gathered positions many
+        # times over, so appending them would have quietly made the held-out set whatever the walks happened
+        # to touch — endgames, where a proof is cheap — rather than the positions the heuristic is for. A price
+        # chosen on a distribution the model will never meet is chosen on nothing.
+        for state, payoffs in (*along, *settled.items()):
             rows.extend(PositionRow(state, player, payoff) for player, payoff in zip(players, payoffs, strict=True))
-        labelling = Labelling(named, len(settled), len({row.target for row in rows}), time.monotonic() - started)
+        labelling = Labelling(
+            named, len(settled) + len(along), len({row.target for row in rows}), time.monotonic() - started
+        )
         tried.append(labelling)
         if valued == 0 and any(len(reasoned_in.joint_actions(state)) > 1 for state in positions[:1]):
             logger.warning(
@@ -191,7 +197,7 @@ class HeuristicPonderer:
             len(positions),
             paid,
             proved,
-            along,
+            len(along),
             labelling.values,
             labelling.seconds,
         )
