@@ -275,3 +275,94 @@ def test_a_constraint_can_say_what_stands_where_the_candidate_points():
 
     assert any(one.predicate == "holds" for clause in learned for one in clause.body)
     assert all(len(clause.body) <= 4 for clause in learned), "asked by size, the shortest body that works wins"
+
+
+def a_reading(name, value):
+    return Literal(name, (Constant(value),))
+
+
+def reaching_further():
+    """Cases where one condition can be said safely but says almost nothing, and two conditions say a great deal
+    while neither of them alone may be said at all.
+
+    `narrow` holds of one refused case and of nothing the game allows, so a search stopping at one condition
+    takes it. `wide` and `paired` each hold of a legal move, so neither survives the guard on its own; together
+    they hold of five refused cases and of nothing legal. That shape is not contrived — it is what a run's
+    constraints were measured leaving standing, where `a rook` and `both offsets away from nothing` each turn
+    away something legal and the two together turn away nothing."""
+    refused = [
+        a_case([a_reading("narrow", "here"), a_reading("wide", "yes"), a_reading("paired", "yes")], True),
+        *(a_case([a_reading("wide", "yes"), a_reading("paired", "yes")], True) for _ in range(4)),
+    ]
+    allowed = [
+        a_case([a_reading("wide", "yes"), a_reading("paired", "no")], False),
+        a_case([a_reading("wide", "no"), a_reading("paired", "yes")], False),
+    ]
+    return [*refused, *allowed]
+
+
+def test_a_search_stopping_at_the_first_size_that_works_misses_what_two_conditions_say():
+    """The baseline the change is against, kept so the difference is visible rather than asserted. Told to look
+    no further than the first size that works, the learner takes the one condition that says almost nothing."""
+    learner = RefusalLearner(further=0)
+
+    learned = learner.learn(reaching_further(), PLENTY)
+
+    said = [one.predicate for clause in learned for one in clause.body]
+    assert "narrow" in said, "it took the one condition it could say safely"
+
+
+def test_two_conditions_neither_of_which_may_be_said_alone_are_reached_and_preferred():
+    """What the search is for. Looking one size past the first that works finds the pair, and pricing coverage by
+    what a body costs to say prefers it — five cases for two conditions against one case for one."""
+    learner = RefusalLearner()
+
+    learned = learner.learn(reaching_further(), PLENTY)
+
+    first = learned[0]
+    assert {one.predicate for one in first.body} == {"wide", "paired"}
+    assert sum(1 for one in reaching_further() if one.holds and learner.covers(first, one)) == 5
+
+
+def test_a_longer_body_is_not_taken_merely_for_refusing_more():
+    """The other half of the price, and the reason coverage alone will not do. A body is reached past the first
+    working size only where its shorter parts turn away a legal move, and those are exactly the bodies that
+    refuse most — so a search choosing by coverage alone takes the longest thing it is offered every time."""
+    learner = RefusalLearner()
+    one_term = Clause((Literal(REFUSED, ()), a_reading("wide", "yes").denied))
+    two_term = Clause((Literal(REFUSED, ()), a_reading("wide", "yes").denied, a_reading("paired", "yes").denied))
+
+    assert learner.cost(two_term) > learner.cost(one_term)
+    assert learner.cost(one_term) == 2.0, "one condition, plus what having a constraint at all costs"
+    assert learner.cost(two_term) == 5.0, "two conditions squared, plus the same"
+
+
+def test_a_body_whose_shorter_part_already_passed_is_never_put_to_the_guard():
+    """Conditions only narrow, so a body containing a part that passed refuses no more than that part and costs
+    more to say. Asking the guard about it is work that cannot change the answer."""
+    learner = RefusalLearner()
+    wide, paired = a_reading("wide", "yes").denied, a_reading("paired", "yes").denied
+    slipped_alone = {frozenset([wide])}
+
+    assert not learner.worth_trying(frozenset([wide, paired]), slipped_alone), "paired passed on its own"
+    assert learner.worth_trying(frozenset([wide, paired]), {frozenset([wide]), frozenset([paired])})
+
+
+def test_every_body_is_worth_trying_where_nothing_shorter_was_recorded():
+    """At the first size there is nothing shorter to have slipped, and the prune must not turn into a filter
+    that lets nothing through."""
+    learner = RefusalLearner()
+
+    assert learner.worth_trying(frozenset([a_reading("wide", "yes").denied]), None)
+
+
+def test_the_prune_does_not_change_what_is_learned():
+    """The point of it. It skips bodies that could not have won, so the constraint that comes out is the one
+    that came out before — the same five cases for the same two conditions."""
+    learner = RefusalLearner()
+
+    learned = learner.learn(reaching_further(), PLENTY)
+
+    first = learned[0]
+    assert {one.predicate for one in first.body} == {"wide", "paired"}
+    assert sum(1 for one in reaching_further() if one.holds and learner.covers(first, one)) == 5

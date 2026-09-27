@@ -86,6 +86,15 @@ class HypothesisTable:
         contrasts itself against. Filtering here is what keeps the choosing possible."""
         return tuple(sorted((one for one in self._held.values() if one.useful), key=lambda one: one.size))
 
+    def slipping(self, size: int) -> set[frozenset]:
+        """The bodies of that many conditions that turn away something the game allows.
+
+        What a search one condition longer needs, and the reason these are kept at all. A body is worth asking
+        the guard about only where every part of it one condition shorter slipped; anything else is dominated
+        by the part that did not. Kept as bodies rather than as hypotheses because that is all the asking
+        needs, and because the caller is about to look each one up thousands of times."""
+        return {key for key, one in self._held.items() if one.slips and len(key) == size}
+
     def covering(self, place: int) -> tuple[Hypothesis, ...]:
         """Those useful ones that refuse the case at that place, briefest first."""
         return tuple(one for one in self.useful() if place in one.refusing)

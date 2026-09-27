@@ -51,6 +51,7 @@ class HypothesisTester:
         start: int = 0,
         stop: int | None = None,
         deadline: float | None = None,
+        beyond: set[frozenset] | None = None,
     ) -> tuple[Hypothesis, ...]:
         """Every body of that many of those readings, from `start` to `stop`, tried.
 
@@ -60,11 +61,23 @@ class HypothesisTester:
 
         A body that turns away something the game allows is not measured for coverage. Nothing will use it, and
         the reason to carry it at all is so that the next case to reach the same body does not pay for the same
-        test."""
+        test.
+
+        `beyond` is what slipped one condition shorter, where the caller has it. A body containing a part that
+        already passed the guard refuses no more than that part and costs more to say, so it is skipped without
+        being tested — which is what makes searching past the first working size affordable. The range still
+        runs over every combination in order, so two callers naming the same range still mean the same bodies;
+        what changes is which of them are put to the guard."""
         found: list[Hypothesis] = []
         for chosen in islice(combinations(offered, size), start, stop):
             if deadline is not None and self._learner.clock() >= deadline:
                 break
+            # Keyed by the conditions as a clause holds them, which is how the table keys a body. Keyed by
+            # their denials instead, the lookup never matches and every body past the first size is
+            # skipped as dominated — the prune turns into a search that stops one size early and spends
+            # the time anyway.
+            if not self._learner.worth_trying(frozenset(chosen), beyond):
+                continue
             clause = Clause((Literal(REFUSED, ()), *(one.denied for one in chosen)))
             if self._learner.slips(clause, guard):
                 found.append(Hypothesis(clause, frozenset(), True))

@@ -64,6 +64,9 @@ class RefusalLearner:
         evaluable: EvaluablePredicates | None = None,
         hypothetical: Hypothetical | None = None,
         clock: Callable[[], float] = time.monotonic,
+        further: int = 1,
+        per_clause: float = 1.0,
+        exponent: float = 2.0,
     ) -> None:
         self._readings = CandidateReadings() if readings is None else readings
         self._unifier = Unifier() if unifier is None else unifier
@@ -71,11 +74,36 @@ class RefusalLearner:
         self._hypothetical = hypothetical
         self._clock = clock
         self._tester = HypothesisTester(self)
+        # How many sizes past the first that works to keep looking, and what a constraint costs to say.
+        #
+        # **A longer body can refuse more, and stopping at the first size that works never finds out.** Adding
+        # a condition only narrows, so among bodies built from the same readings a longer one always refuses
+        # less — but a longer body whose every shorter part turns away a legal move is reached by no shorter
+        # search, and it may refuse a great deal. Measured over eight cases a run's constraints still left
+        # standing, against a guard of eighteen hundred legal moves: three stopped at one condition and took a
+        # body refusing five to six hundred where two conditions would have refused nine hundred and sixty, and
+        # a fourth gained again at three. Half the cases lost between a third and a half of what was there.
+        #
+        # The price is the one the distiller already puts on a constraint — what having it at all costs, plus
+        # its length raised to a power — so that the search and the distilling agree about what a condition is
+        # worth. Without the price, widening the window would simply take the longest body every time.
+        self._further = further
+        self._per_clause = per_clause
+        self._exponent = exponent
 
     @property
     def clock(self) -> Callable[[], float]:
         """What it tells the time by, so that anything sharing its budget tells the time the same way."""
         return self._clock
+
+    def cost(self, clause: Clause) -> float:
+        """What that constraint costs to say: having it at all, plus its length raised to a power.
+
+        The same price the distiller puts on one, so that what the search prefers and what the distilling keeps
+        are the same preference asked at two moments. A search choosing by coverage alone takes the longest body
+        it is offered, since a longer body is reached only where every shorter part of it turns away a legal
+        move — and those are exactly the bodies that refuse most."""
+        return self._per_clause + float(len(clause.body)) ** self._exponent
 
     @property
     def hypothetical(self) -> Hypothetical | None:
@@ -493,7 +521,10 @@ class RefusalLearner:
 
         The cases are narrowed to those sharing a settled reading with the constraint before any is asked. No case
         the constraint covers is left out of that, since covering means having every settled reading of it."""
-        settled = [one for one in clause.body if one.ground and not self._evaluable.evaluable(one.predicate)]
+        # Computed rather than read, which now includes what is *asked* about a board that does not exist
+        # yet. No case carries one, so narrowing by it finds no case at all and the constraint is declared
+        # to turn nothing away — every body containing a question would pass the guard unexamined.
+        settled = [one for one in clause.body if one.ground and not self.computes(one.predicate)]
         return any(self.covers(clause, one) for one in index.narrowed(settled))
 
     def _briefest(
@@ -519,23 +550,85 @@ class RefusalLearner:
         legal moves. It is judging against every legal move seen anywhere, so a rule that names a square dies on
         the first position where that square has a legal move out of it.
 
-        Among the bodies of the smallest size that work, the one refusing most of what is still unaccounted for
-        is taken. Size decides which are considered; coverage decides between them.
+        **It does not stop at the first size that works, and that is measured.** Among bodies built from the
+        same readings a longer one always refuses less, so stopping there looks safe — but a body whose every
+        shorter part turns away a legal move is reached by no shorter search, and it may refuse a great deal
+        more than anything short enough to be found. Over eight cases a run's constraints still left standing,
+        judged against eighteen hundred legal moves, half lost between a third and a half of the coverage
+        available one size further on. So the search keeps going `further` sizes past the first that works.
+
+        Among everything standing in that window, the one refusing most of what is still unaccounted for *for
+        what it costs to say* is taken. Coverage alone would take the longest body every time, since a longer
+        body is reached only where its shorter parts slip, and those are the ones that refuse most.
 
         None where nothing of `longest` conditions or fewer will do. The caller then tries another case, and a
-        case no brief rule fits is a case something longer has to account for."""
-        offered = self._readings.tied(example.literals)
+        case no brief rule fits is a case something longer has to account for. Where the clock runs out with
+        something already standing, that is returned rather than nothing: it passed the same guard, and a
+        constraint found is worth more to the caller than the search it did not finish."""
+        offered = self.offered(example)
+        standing: list[Clause] = []
+        slipped: dict[int, set[frozenset]] = {}
+        worked: int | None = None
         for size in range(1, longest + 1):
-            standing = []
+            if worked is not None and size > worked + self._further:
+                break
+            slipped[size] = set()
             for chosen in combinations(offered, size):
                 if self._clock() >= deadline:
-                    return None
+                    return self._worth(standing, left)
+                body = frozenset(chosen)
+                if not self.worth_trying(body, slipped.get(size - 1)):
+                    continue
                 clause = Clause((Literal(REFUSED, ()), *(one.denied for one in chosen)))
-                if not self.slips(clause, index):
+                if self.slips(clause, index):
+                    slipped[size].add(body)
+                else:
                     standing.append(clause)
-            if standing:
-                return max(standing, key=lambda one: sum(1 for case in left if self.covers(one, case)))
-        return None
+            if standing and worked is None:
+                worked = size
+        return self._worth(standing, left)
+
+    def offered(self, example: Example) -> tuple[Literal, ...]:
+        """What a body may be built out of: the readings the candidate is in, and the questions it can be put.
+
+        **Two kinds of condition, and until now only one of them was ever proposed.** A reading is produced
+        when the position is read and lives in the case; a question is answered by computing when a clause is
+        checked. Everything that checks a clause has handled both since it was written — `covers` dispatches
+        them, `_in_order` puts them last for being dear, `computes` names them as a class. Nothing built one,
+        because a body is assembled out of what a case carries and a question is not carried.
+
+        The consequence was one class of rule outside the space and nothing saying so: the rules about what
+        could happen next. A king may not be left where it can be taken; a king may not castle across a square
+        an enemy could reach. Both were writable by hand and unfindable by search."""
+        asking = self._hypothetical.askable(example) if self._hypothetical is not None else ()
+        return (*self._readings.tied(example.literals), *asking)
+
+    def worth_trying(self, body: frozenset, slipped: set[frozenset] | None) -> bool:
+        """Whether that body is worth putting to the guard at all, given what slipped one condition shorter.
+
+        **A body containing a part that already passed is dominated and need never be asked about.** Conditions
+        only narrow, so it refuses no more than that part does, and it costs more to say — whatever the price,
+        the part wins. Only a body *every* shorter part of which turns away a legal move can beat what is
+        already standing, and that is exactly the body no shorter search reaches.
+
+        Said aloud beside `slips` because it is the other half of the same question and a searcher elsewhere
+        has to be able to make it too. Where nothing shorter was recorded, everything is worth trying.
+
+        This is what makes looking past the first working size affordable. Measured over twelve positions, the
+        wider search cost twice the time a position and the arm never accumulated a rule set; asking the guard
+        only about bodies whose every part slipped is the same search without the part of it that was never
+        going to win. It is the mirror of what the hypothesis table already keeps slipping bodies *for*."""
+        if slipped is None:
+            return True
+        return all(frozenset(part) in slipped for part in combinations(body, len(body) - 1))
+
+    def _worth(self, standing: Sequence[Clause], left: Sequence[Example]) -> Clause | None:
+        """Whichever of those refuses most of what is unaccounted for, for what it costs to say.
+
+        None where nothing stands, which is the caller's signal to try another case."""
+        if not standing:
+            return None
+        return max(standing, key=lambda one: sum(1 for case in left if self.covers(one, case)) / self.cost(one))
 
     def _recalled(
         self,
@@ -560,6 +653,11 @@ class RefusalLearner:
         since it may have been found from a case with readings this one has not got — which is a better answer
         by the measure being applied and not merely a cheaper one.
 
+        **It searches the same window the unshared search does**, `further` sizes past the first that works,
+        and chooses among everything reaching this case by coverage over price rather than by taking the
+        briefest. Two routes to the same rule that disagree about which rule is best are two learners, and
+        which one an agent got would depend on whether a table happened to be passed.
+
         Without a table it searches, exactly as before. That is not a fallback kept for tidiness: it is the
         thing the table has to be shown to agree with."""
         if table is None:
@@ -568,18 +666,23 @@ class RefusalLearner:
         if not held:
             # Nothing held reaches this case, so it is searched — and everything tried on the way is written
             # down, not only what won. What loses here is what another case will find already answered.
-            offered = self._readings.tied(example.literals)
+            offered = self.offered(example)
+            worked: int | None = None
             for size in range(1, longest + 1):
-                table.tell(self._tester.tried(offered, size, pool, index, deadline=deadline))
+                if worked is not None and size > worked + self._further:
+                    break
+                beyond = table.slipping(size - 1) if worked is not None else None
+                table.tell(self._tester.tried(offered, size, pool, index, deadline=deadline, beyond=beyond))
                 held = [one for one in table.useful() if self.covers(one.clause, example)]
-                if held or self._clock() >= deadline:
+                if held and worked is None:
+                    worked = size
+                if self._clock() >= deadline:
                     break
         if not held:
             return None
-        briefest = min(one.size for one in held)
         return max(
-            (one for one in held if one.size == briefest),
-            key=lambda one: sum(1 for case in left if self.covers(one.clause, case)),
+            held,
+            key=lambda one: sum(1 for case in left if self.covers(one.clause, case)) / self.cost(one.clause),
         ).clause
 
     def _outright(self, example: Example) -> Clause:
