@@ -43,6 +43,50 @@ class AccuracyScorer:
                 updated.append(self._score(knowledge, evidence.source.mechanism, context, evidence.value, truth, anchor_id))
         return tuple(updated)
 
+    def played(
+        self, knowledge: KnowledgeBase, mechanism_id: str, context: str, points: float, games: int
+    ) -> Belief:
+        """Scores a mechanism by what its games came to: the share of the points on offer that it took.
+
+        **A model is measured by playing, and this is where that becomes something the registry can read.**
+        Every finished game is already kept, with the model that played each side tagged on it, and none of it
+        reached the one belief anything selects on. Scored here, winning is the same kind of evidence as being
+        right about a value, and `best` needs to know nothing about games to prefer a model that wins them.
+
+        A win holds one of one, a draw half, a loss none, so the share is the usual share it got right with
+        the middle case allowed to exist. It leans on what the mechanism declared of itself exactly as the
+        settled kind does, so a model measured over three games is not trusted like one measured over three
+        hundred, and a model never played keeps no accuracy at all rather than a low one.
+
+        Added to what it already holds, since a match is more evidence about the same model and not a fresh
+        opinion of it."""
+        if games < 0 or points < 0 or points > games:
+            raise ValueError(f"{points} points of {games} games is not something that can have been played")
+        variable = ACCURACY.format(mechanism=mechanism_id)
+        held = knowledge.belief(variable, context)
+        tags = dict(held.tags) if held is not None else {}
+        scored = int(tags.get(SCORED, 0)) + games  # type: ignore[arg-type]
+        right = float(tags.get(RIGHT, 0)) + points  # type: ignore[arg-type]
+        mechanism = knowledge.mechanism_by_id(mechanism_id)
+        declared = 0.5 if mechanism is None or mechanism.declared_accuracy is None else mechanism.declared_accuracy
+        accuracy = self._statistics.leaning(right, scored, toward=declared, weight=PRIOR_CASES)
+        logger.info(
+            "%s took %.4g of %d points: accuracy %.3g over %d games",
+            knowledge.readable_mechanism(mechanism_id),
+            points,
+            games,
+            accuracy,
+            scored,
+        )
+        return knowledge.believe(
+            Belief(
+                variable,
+                context,
+                accuracy,
+                tags=((SCORED, scored), (RIGHT, right), ("mechanism", mechanism_id), ("played", games)),
+            )
+        )
+
     def accuracy(self, knowledge: KnowledgeBase, mechanism_id: str, context: str) -> float | None:
         """The mechanism's accuracy in that context: as measured, else as declared, else None: not known."""
         measured = knowledge.belief(ACCURACY.format(mechanism=mechanism_id), context)

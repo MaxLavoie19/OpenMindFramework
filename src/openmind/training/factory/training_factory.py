@@ -1,9 +1,9 @@
 from openmind.agent.factory.agent_factory import create_agent
 from openmind.agent.service.outfitter import Outfitter
+from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.model.service.model_timer import ModelTimer
 from openmind.rbs.factory.rbs_factory import create_rule_heuristic
-from openmind.training.service.arm_selector import ArmSelector
-from openmind.training.service.heuristic_ranker import HeuristicRanker
+from openmind.training.service.model_match import ModelMatch
 from openmind.agent.service.agent import Agent
 from openmind.search.factory.search_factory import create_monte_carlo_tree_search
 from openmind.training.mapper.position_row_mapper import PositionRowMapper
@@ -28,6 +28,9 @@ def create_value_distiller(agent: Agent | None = None, workers: int = 1) -> Valu
     return ValueDistiller(create_self_play(agent), create_position_row_mapper(), create_value_generator(workers))
 
 
-def create_heuristic_ranker(agent: Agent | None = None) -> HeuristicRanker:
-    """Ranking heuristics by playing them against each other, pairing them by UCB1."""
-    return HeuristicRanker(create_self_play(agent), ArmSelector(), Outfitter(create_rule_heuristic(), ModelTimer()))
+def create_model_match(agent: Agent | None = None) -> ModelMatch:
+    """Two models of one task played against each other, and the result written where the registry reads it.
+
+    Built with what plays the games, what loads a model into the port it fills, and what scores a mechanism.
+    No arm, no pairing rule: which two to play is the caller's question, and what came of it is a fact."""
+    return ModelMatch(create_self_play(agent), Outfitter(create_rule_heuristic(), ModelTimer()), AccuracyScorer())

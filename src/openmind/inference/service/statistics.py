@@ -52,12 +52,15 @@ class Statistics:
         total = of + self._before_holding + self._before_not
         return (value * (1.0 - value) / (total + 1.0)) ** 0.5
 
-    def leaning(self, held: int, of: int, toward: float, weight: float) -> float:
+    def leaning(self, held: float, of: int, toward: float, weight: float) -> float:
         """How often it holds, leaning on what was expected of it before anything was counted.
 
         A mechanism that says of itself how accurate it is has said something worth keeping until enough has
         been seen to say otherwise. `weight` is how many cases that claim is worth: two means the claim is
-        outvoted by the third observation, which is the right order for a claim nobody has checked."""
+        outvoted by the third observation, which is the right order for a claim nobody has checked.
+
+        `held` is a count for anything counted and a share for anything scored by degree: a drawn game holds
+        half of one, and half a game is a real thing rather than a rounding of it."""
         if of < 0 or held < 0 or held > of:
             raise ValueError(f"{held} of {of} is not something that can have been counted")
         return (held + toward * weight) / (of + weight)
