@@ -385,6 +385,33 @@ falls out of this rather than being separate work.
 **Three — moments.** A clause may be asserted at `now` or at `after(A)`. `Hypothetical`'s three questions are
 rewritten as clauses over moments and its special-case machinery goes.
 
+**Three and a half — what is missing before king safety can be *found*.** Stage three made it sayable. This
+is the checklist to make it findable, and writing it out changed the order.
+
+- [x] **An event is a change worth naming. Done.** A constraint body is positive only — `Clause._body` is the denied
+      literals un-denied, so every condition is something that must *hold*, and "my king is not there
+      afterwards" cannot be said. It has to be `happens(taken(Whose, what), W)`. That is why `TAKEN_AFTER` was
+      phrased as *taken* and not as *absent*, which its docstring says and I read past: *"what is general is
+      that something could happen next that one would rather did not, and happenings already have a language
+      here."* What a taking is, is already derivable — `LOSING` and `Change.losing` say which changes leave a
+      thing no longer standing where it stood.
+- [ ] **A candidate's later facts are read into its case**, as `happens(E, after(candidate))` literals.
+      Half done: `Hypothetical.happenings` produces them. Nothing puts them in a case yet.
+- [x] **Nothing else needs changing, if they are read rather than evaluated. Verified.** `covers` matches a ground
+      literal by looking it up in the case, and a moment is part of a literal's identity — so a clause
+      mentioning a later moment matches by lookup, with no branch for moments at all. The guard follows: a
+      legal move's case carries its own later facts, so `slips` works unchanged. Checked: a clause mentioning
+      a later moment matches a case that carries it and not one that does not, and the same reading said of
+      now and of later are two different literals.
+- [ ] **The cost decides where this can live, and it is the whole difficulty.** Reading a later fact is a ply
+      of lookahead. Eagerly, over a position's fourteen thousand candidates, that is unaffordable — which is
+      why `Hypothetical` evaluates lazily and why its answer is opaque. But the **sniper works on one
+      candidate and a pool of seventy-five**, where a ply each is nothing. So the first place this is
+      affordable is the sniper, not the bulk learner, and that is a better answer than making the bulk learner
+      cheaper.
+- [ ] **It rests on the predictor being right about what a move does**, because the later board comes from it.
+      That is question 36 and it is open.
+
 **Four — consequences become clauses.** `Consequence` is a clause at `after`, learned by the same learner. The
 predictor and the constraint learner become one learner given two kinds of target.
 

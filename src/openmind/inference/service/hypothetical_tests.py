@@ -3,12 +3,16 @@ from dataclasses import dataclass
 from openmind.inference.model.example import Example
 from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.inference.service.hypothetical import ALLOWED, TAKEN_AFTER, Hypothetical
+from openmind.statement.model.moment import HAPPENS
+from openmind.statement.model.drawn import column, other, place, row
+from openmind.world.service.changer import Changer
 from openmind.inference.service.refusal_learner import REFUSED, RefusalLearner
 from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
 from openmind.statement.model.consequence import Consequence
 from openmind.statement.model.clause import Clause
 from openmind.statement.model.literal import Literal
 from openmind.statement.model.term import Constant, Functor, Number, Variable
+from openmind.structure.model.cell_names import CellNames
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.kind import Kind
 from openmind.structure.model.record import Record
@@ -26,6 +30,8 @@ class Cell(Record):
 ROWS = Kind("row", values=(1, 2))
 CELL = Kind("cell", parts=(("row", ROWS), ("column", ROWS)), builds=Cell)
 MOVE = ActionKind("move", (("origin", CELL), ("destination", CELL)))
+NAMES = CellNames(("a", "b"), ("2", "1"))
+CELLS = ("a2", "b2", "a1", "b1")
 
 
 def a_position():
@@ -318,3 +324,79 @@ def test_a_predictor_saying_a_capture_as_a_move_is_asked_the_same_questions_as_o
     assert asked("Removed") == asked("Moved") == asked("Placed") == {"pawn", "king"}
 
 
+
+
+def asking_about_taking():
+    """A hypothetical that can draw a board and knows who acts: enough to put a question about what happens."""
+    readings = CandidateReadings(MOVE)
+    return Hypothetical(
+        readings, MOVE, ConsequenceDrawer(), Changer(),
+        doing=(
+            # row and column, not place: these parameters hold a square's name and not a record with parts,
+            # which is the distinction stage one found and this fixture first got wrong.
+            Consequence("Moved", "move", "grid", (row("origin"), column("origin")),
+                        (row("destination"), column("destination"))),
+            Consequence("Told", "move", "turn", value=other()),
+        ),
+        players=("white", "black"), domains={"origin": CELLS, "destination": CELLS},
+        acting=lambda state: state.model("turn").value,
+    )
+
+
+def a_board_where_something_can_be_taken():
+    """White's king sits where black's rook can reach it once white has moved. Two rows of two, white on move.
+
+    The move under test is white's pawn stepping aside; what matters is the board it leaves, where black is to
+    play and can take the king."""
+    return State.of(
+        grid=Grid.of([[Held("white", "king"), Held("black", "rook")], [Held("white", "pawn"), None]], NAMES),
+        turn="white",
+    )
+
+
+def test_what_could_be_taken_comes_back_as_readings_and_not_as_an_answer():
+    """The whole of it. An answer cannot be composed with another condition, denied, generalised, or proposed
+    by a search that has never seen one. A reading can."""
+    asking = asking_about_taking()
+    case = Example(asking._readings.read(a_board_where_something_can_be_taken(),  # noqa: SLF001
+                                        Action("move", (("origin", "a1"), ("destination", "b1")))),
+                   True, a_board_where_something_can_be_taken())
+
+    found = asking.happenings(case, lambda one: False)
+
+    assert all(one.predicate == HAPPENS for one in found)
+    assert all(one.when is not None for one in found), "each says when it would happen"
+
+
+def test_a_happening_says_whose_thing_and_what_kind():
+    asking = asking_about_taking()
+    where = a_board_where_something_can_be_taken()
+    case = Example(asking._readings.read(where, Action("move", (("origin", "a1"), ("destination", "b1")))),  # noqa: SLF001
+                   True, where)
+
+    found = asking.happenings(case, lambda one: False)
+
+    assert found, "black's rook can reach white's king once white has moved"
+    said = {tuple(str(getattr(part, "name", part)) for part in one.arguments[0].arguments) for one in found}
+    assert any(whose == "white" for whose, _ in said), "whose it is, is whoever was acting"
+
+
+def test_nothing_comes_back_where_the_question_cannot_be_put():
+    """No predictor, nobody known to be acting, a board that will not draw. A question that cannot be put is
+    not a question answered yes."""
+    where = a_board_where_something_can_be_taken()
+    bare = Hypothetical(CandidateReadings(MOVE), MOVE)
+
+    assert bare.happenings(Example((), True, where), lambda one: False) == ()
+    assert asking_about_taking().happenings(Example((), True, None), lambda one: False) == ()
+
+
+def test_what_the_rules_below_refuse_is_not_something_that_could_happen():
+    """The layering, and it is not optional. With nothing refusing the reply, every move there is counts as one
+    that could take the king — which is how king safety once refused all twenty legal moves of the opening."""
+    asking = asking_about_taking()
+    where = a_board_where_something_can_be_taken()
+    case = Example(asking._readings.read(where, Action("move", (("origin", "a1"), ("destination", "b1")))),  # noqa: SLF001
+                   True, where)
+
+    assert asking.happenings(case, lambda one: True) == (), "everything refused, so nothing can happen"

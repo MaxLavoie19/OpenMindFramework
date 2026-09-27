@@ -8,7 +8,8 @@ from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
 from openmind.world.service.changer import Changer
 from openmind.statement.model.clause import Clause
 from openmind.statement.model.literal import Literal
-from openmind.statement.model.term import Constant, Number, Term
+from openmind.statement.model.moment import HAPPENS, after
+from openmind.statement.model.term import Constant, Functor, Number, Term
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.record import Record
 from openmind.structure.model.schema import ActionKind
@@ -55,6 +56,23 @@ ALLOWED_AFTER = "allowed by the rules below, once this is done"
 #: And what that action would do, which is what the predictor has been learning all along. So the game-specific
 #: part shrinks to naming which change is the bad one, in the game's own declared words.
 TAKEN_AFTER = "taken from that player, once this is done, by something they could then do"
+
+#: A thing of somebody's being taken, as the kind of happening it is.
+#:
+#: **What a search can say, where the question above is only something it can be asked.** `TAKEN_AFTER` answers
+#: yes or no and nothing can look inside it: it cannot be composed with another condition, denied, generalised,
+#: or proposed by a search that has never seen one. Said as a happening at a moment it is an ordinary reading,
+#: and a case that carries it is matched by an ordinary lookup — a moment being part of what a literal is.
+#:
+#: Said as *taken* and not as *absent* because a constraint's body is positive: every condition in it is
+#: something that must hold, so "my king is not there afterwards" cannot be said at all. That is what this
+#: layer's own note meant — "what is general is that something could happen next that one would rather did
+#: not, and happenings already have a language here."
+TAKEN = "taken"
+
+#: The candidate this case is about, as the thing a later moment is later than. A case is about one candidate,
+#: so "once this has happened" needs no more of a name than that.
+THIS = "this"
 
 
 class Hypothetical:
@@ -222,6 +240,62 @@ class Hypothetical:
             if not refuses(Example(self._readings.read(after, candidate), False, after)):
                 return True
         return False
+
+    def happenings(self, example: Example, refuses: Callable[[Example], bool]) -> tuple[Literal, ...]:
+        """What could be taken from the mover once this candidate is done, as readings of the moment it happens.
+
+        **The same work the question does, handed over as vocabulary instead of as an answer.** `taken` asks
+        about one kind and says yes or no; this walks the board the candidate leads to once and says every kind
+        that could go, as `happens(taken(Whose, what), once this has happened)`. A case carrying those is
+        matched by lookup like any other reading, so a clause may mention one, deny the rest of its body around
+        it, generalise it, or be grown with it — none of which an answer permits.
+
+        One pass and not one per kind. Asked a kind at a time, chess walks fourteen thousand candidates six
+        times over to learn what one walk would have told it.
+
+        Empty where the question cannot be put: no predictor, nobody known to be acting, a board that will not
+        draw. A question that cannot be put is not a question answered yes."""
+        if self._domains is None or self._acting is None or example.where is None:
+            return ()
+        board = self.after(example)
+        if board is None:
+            return ()
+        whose, theirs = self._acting(example.where), self._acting(board)
+        found: set[Value] = set()
+        for candidate in self._readings.candidates(Evidence(board, self._action.name, ()), self._domains):
+            taking = self._taking(board, candidate, whose, theirs)
+            if not taking or taking <= found:
+                continue
+            if refuses(Example(self._readings.read(board, candidate), False, board)):
+                continue
+            found |= taking
+        when = after(Constant(THIS))
+        return tuple(
+            Literal(HAPPENS, (Functor(TAKEN, (Constant(whose), Constant(one))),), when=when)
+            for one in sorted(found, key=repr)
+        )
+
+    def _taking(self, state: State, action: Action, whose: Value, theirs: Value) -> set[Value]:
+        """Every kind of thing of that player's that doing this there would take away.
+
+        The set rather than one answer, so a walk of the board says everything it found rather than being asked
+        again per kind."""
+        if self._drawer is None:
+            return set()
+        found: set[Value] = set()
+        for one in self.doing:
+            change = self._drawer.drawn(one, state, action, theirs, self._players)
+            at = getattr(change, "losing", None)
+            if at is None:
+                continue
+            held = state.model(change.model)
+            standing = held.at(at) if isinstance(held, Grid) and held.inside(at) else None
+            if standing is None or standing == getattr(change, "value", None):
+                continue
+            parts = [one for _, one in standing.parts] if isinstance(standing, Record) else [standing]
+            if whose in parts:
+                found.update(one for one in parts if one != whose)
+        return found
 
     def _takes(self, state: State, action: Action, whose: Value, what: Value, theirs: Value) -> bool:
         """Whether doing that there takes away a thing of that player's, of that kind."""
