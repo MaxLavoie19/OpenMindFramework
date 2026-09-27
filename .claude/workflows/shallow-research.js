@@ -145,6 +145,38 @@ const claims = kept.flatMap((one) => one.claims)
 const killed = claims.filter((one) => one.refuted === true).length
 log(`${kept.length} of ${angles.length} angles came back; ${killed} of ${claims.length} claims refuted`)
 
+// The verdicts go to the synthesis whole and first, and the reports share what is left between them.
+//
+// **A flat cut of the joined reports is how a verdict goes missing.** Slicing one string of every angle put
+// together keeps the first angles entire and drops the last ones altogether, so a synthesis was written that
+// had seen two of four reports, said "nothing was refuted", and was right about the two it had — while three
+// claims had in fact been refuted in the angles it never received. The reader is then told the opposite of
+// what was measured, by a sentence that is locally true.
+//
+// Verdicts are a few hundred characters and are the most valuable thing here, so they are never cut. Each
+// report gets an equal share of the rest and is told where it was cut, so a synthesis can say a report was
+// shortened rather than quietly treating half of one as the whole of it.
+const ROOM = 120000
+const verdicts = kept.map((one) => ({
+  angle: one.angle,
+  claims: one.claims.map((held) => ({
+    claim: held.claim,
+    source: held.source,
+    refuted: held.refuted,
+    votes: held.votes,
+    why: held.why,
+  })),
+}))
+const said = JSON.stringify(verdicts, null, 1)
+const each = Math.max(2000, Math.floor((ROOM - said.length) / Math.max(1, kept.length)))
+const reports = kept
+  .map((one) => {
+    const report = String(one.report || '')
+    const shown = report.slice(0, each)
+    return `### ANGLE: ${one.angle}\n${shown}${report.length > each ? `\n\n[...this report was cut after ${each} of ${report.length} characters to fit; say so if it matters...]` : ''}`
+  })
+  .join('\n\n')
+
 phase('Synthesize')
 const synthesis = await agent(
   `Synthesize an answer to this question from the angle reports below.
@@ -155,15 +187,18 @@ ${QUESTION}
 Write for an expert reader who wants to know what is established, what is contested, and what to do about it. Structure it:
 
 1. WHAT IS ESTABLISHED — what survived the refutation checks, with figures and citations.
-2. WHAT DID NOT SURVIVE — name the refuted claims plainly and say why they fell. Do not quietly drop them; a reader who was told something last week deserves to hear it was wrong.
+2. WHAT DID NOT SURVIVE — name the refuted claims plainly and say why they fell. Do not quietly drop them; a reader who was told something last week deserves to hear it was wrong. Every claim marked refuted below belongs in this section, including ones whose angle's report was cut short.
 3. WHAT IS CONTESTED — where the angles disagree, say so rather than averaging them.
 4. THE LEADS WORTH FOLLOWING — ranked, one sentence each on why.
 5. WHAT NOBODY HAS DONE — where the asker would be generating evidence rather than consuming it.
 
-Cite. Give numbers. Do not pad, and do not restate the question back.
+Cite. Give numbers. Do not pad, and do not restate the question back. Where a report below says it was cut short, say so rather than treating what you were given as the whole of it.
+
+THE CLAIMS AND THEIR VERDICTS, whole and uncut — these are the measured part and none of them may be dropped:
+${said}
 
 THE ANGLE REPORTS:
-${JSON.stringify(kept, null, 1).slice(0, 120000)}`,
+${reports}`,
   { label: 'synthesize', phase: 'Synthesize' },
 )
 
