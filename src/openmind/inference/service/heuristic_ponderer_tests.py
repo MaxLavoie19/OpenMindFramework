@@ -5,7 +5,7 @@ import pytest
 
 from openmind.inference.factory.inference_factory import create_heuristic_ponderer
 from openmind.inference.model.ponder_settings import PonderSettings
-from openmind.inference.service.heuristic_ponderer import REASONED, SETTLED
+from openmind.inference.service.heuristic_ponderer import MOVES_SETTLED, REASONED, SETTLED
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.rule_based_game import RuleBasedGame
@@ -102,3 +102,47 @@ def test_the_owning_structure_is_found_from_the_vocabulary_and_never_deduced(gam
     seeds = ponderer._deriver.seeds(ponderer._deriver.holdings(ponderer._worth.reason(rules, positions)), vocabulary)
     assert seeds
     assert all("== me" in one.template or "== other" in one.template for one, _ in seeds), seeds
+
+
+def test_what_the_rules_settle_a_move_pays_gives_a_row_per_action(game: Game, knowledge: KnowledgeBase, caplog):
+    """The other half of what the rules settle: a position is worth one thing to each player, an action is
+    worth one thing to whoever takes it."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+    positions = ponderer._gatherer.gather(played, 12, 1)
+    tried = []
+
+    with caplog.at_level(logging.INFO):
+        rows = ponderer.moved(played, positions, settings(), tried)
+
+    assert rows, "the rules of tic-tac-toe settle what some moves pay within two plies"
+    assert all(row.player == played.acting_player(row.state) for row in rows), "valued for whoever acts"
+    assert all(row.action in played.actions(row.state) for row in rows)
+    assert any(one.source == MOVES_SETTLED.format(context=played.context) for one in tried), "it reports itself"
+
+
+def test_a_move_nothing_proves_gets_no_row_rather_than_a_zero(game: Game, knowledge: KnowledgeBase):
+    """Not knowing what a move pays is not the move paying nothing. A row saying zero would be a claim the
+    evidence never made, and the fit would take it for one."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+    positions = ponderer._gatherer.gather(played, 12, 1)
+
+    rows = ponderer.moved(played, positions, settings(), [])
+
+    for state in {row.state for row in rows}:
+        rated = {row.action for row in rows if row.state is state}
+        assert rated <= set(played.actions(state))
+
+
+def test_settling_moves_reports_itself_even_where_it_settles_nothing(game: Game, knowledge: KnowledgeBase):
+    """A way of valuing that taught nothing is a finding of its own, so it is in the labellings either way."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+    tried = []
+
+    rows = ponderer.moved(played, (), settings(), tried)
+
+    assert rows == ()
+    assert [one.source for one in tried] == [MOVES_SETTLED.format(context=played.context)]
+    assert tried[0].paid is False

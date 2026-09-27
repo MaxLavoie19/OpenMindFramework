@@ -100,3 +100,42 @@ def test_a_budget_of_nothing_is_refused_rather_than_quietly_proving_nothing(game
         create_position_deducer().deduce(played, played.start(), DeductionBudget(plies=0, seconds=5.0))
     with pytest.raises(ValueError, match="at least 1 ply"):
         create_position_deducer().deduce(played, played.start(), DeductionBudget(plies=2, seconds=0.0))
+
+
+def test_what_every_action_pays_is_deduced_not_only_the_best(game: Game) -> None:
+    """The same walk `deduce` does, with nothing thrown away: a move value wants what each action is worth,
+    and the rules already worked it out on the way to the best one."""
+    played = game("tictactoe")
+    state = placed(played, played.start(), (1, 1), (2, 1), (1, 2), (2, 2))
+
+    rated = create_position_deducer().deduce_moves(played, state, DeductionBudget(plies=1, seconds=5.0))
+
+    paid = dict(rated)
+    winning = Action("place", (("col", 1), ("row", 3)))
+    assert paid[winning] == (1.0, 0.0), "the win pays what the game pays there"
+    assert len(paid) < len(played.actions(state)), "one ply proves the win and not the rest"
+
+
+def test_what_every_action_pays_agrees_with_the_best_action_deduced(game: Game) -> None:
+    """Whatever `deduce` picks must be among the highest-paying `deduce_moves` found, or the two are reading
+    the same rules differently."""
+    played = game("tictactoe")
+    deducer = create_position_deducer()
+    for cells in ((), ((1, 1),), ((1, 1), (2, 2)), ((1, 1), (2, 2), (1, 2)), ((1, 1), (2, 1), (1, 2), (2, 2))):
+        state = placed(played, played.start(), *cells)
+        budget = DeductionBudget(plies=4, seconds=20.0)
+        deduced = deducer.deduce(played, state, budget)
+        rated = dict(deducer.deduce_moves(played, state, budget))
+        if not deduced.proven or not rated:
+            continue
+        mover = played.players().names.index(played.acting_player(state))
+        assert deduced.action in rated, "the action it chose is one it deduced a payoff for"
+        assert rated[deduced.action][mover] == max(one[mover] for one in rated.values())
+
+
+def test_deducing_what_every_action_pays_needs_a_legal_action_and_a_budget(game: Game) -> None:
+    played = game("tictactoe")
+    with pytest.raises(ValueError):
+        create_position_deducer().deduce_moves(played, played.start(), DeductionBudget(plies=0, seconds=5.0))
+    with pytest.raises(ValueError):
+        create_position_deducer().deduce_moves(played, played.start(), DeductionBudget(plies=1, seconds=0.0))

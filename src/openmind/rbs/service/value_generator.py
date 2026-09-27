@@ -7,8 +7,7 @@ import numpy as np
 from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.inference.constant.inference_constant import SINGLE_TARGET
 from openmind.knowledge.constant.knowledge_constant import INFERENCE
-from openmind.knowledge.constant.task_constant import POSITION_VALUE
-from openmind.knowledge.constant.rule_kind_constant import POSITION
+
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.model.source import Source
@@ -208,13 +207,13 @@ class ValueGenerator:
         )
         chosen = fitted[index]
         kept = sorted((at for at, weight in enumerate(chosen.weights) if weight != 0.0), key=lambda at: -abs(chosen.weights[at]))
-        declared = self._declared(target, POSITION_VALUE, chosen, terms, means, scales, label, fits[index].price)
+        declared = self._declared(target, target.task, chosen, terms, means, scales, label, fits[index].price)
         others: list[tuple[str, tuple[RuleRecord, ...]]] = []
         if settings.keep_every_price:
             for at, fit in enumerate(fitted):
                 if at == index:
                     continue
-                named = PRICED_RULESET.format(task=POSITION_VALUE, price=f"{fits[at].price:g}")
+                named = PRICED_RULESET.format(task=target.task, price=f"{fits[at].price:g}")
                 others.append((named, self._declared(target, named, fit, terms, means, scales, label, fits[at].price)))
             logger.info(
                 "%sKept every price as a heuristic of its own to be played: %s",
@@ -262,6 +261,11 @@ class ValueGenerator:
         """Declares a fitted position rule, open, and links it into that ruleset of the target's context at its
         weight; a rule of the same name already there is revised in place and its weight set anew.
 
+        **What task it is a model of and what kind its rules are come from the target.** They were constants
+        here, so a fit over what each action is worth would have been declared a position value and linked into
+        a position value's ruleset, where anything asking for a position value would have found it and believed
+        it. Nothing about fitting cares which of the two it is; only the naming did.
+
         **The ruleset is named because a context may hold several.** One model of a task was one ruleset while
         fitting kept one fit; several fits of the same task are several models, which is what the registry is
         for. The task each is a model of stays `position value`, so whatever asks for models of that task finds
@@ -272,14 +276,14 @@ class ValueGenerator:
         ruleset = knowledge_base.ruleset_named(context_id, ruleset_name)
         if ruleset is None:
             ruleset = knowledge_base.ruleset(
-                Ruleset(ruleset_name, context_id, POSITION_VALUE, Source(mechanism, (("method", "fit"),)), open=True)
+                Ruleset(ruleset_name, context_id, target.task, Source(mechanism, (("method", "fit"),)), open=True)
             )
             ModelRegistry(AccuracyScorer()).register_ruleset(knowledge_base, ruleset)
-        standing = next((held for held, _ in knowledge_base.ruleset_rules(ruleset.id, (POSITION,)) if held.name == name), None)
+        standing = next((held for held, _ in knowledge_base.ruleset_rules(ruleset.id, (target.kind,)) if held.name == name), None)
         declared = knowledge_base.declare(
             RuleRecord(
                 name,
-                POSITION,
+                target.kind,
                 rule,
                 Source(mechanism, (("method", "fit"), ("context", target.context))),
                 id="" if standing is None else standing.id,

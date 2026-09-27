@@ -14,6 +14,7 @@ from openmind.inference.service.worth_reasoner import WorthReasoner
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_game
 from openmind.rbs.model.heuristic_target import HeuristicTarget
+from openmind.rbs.model.move_row import MoveRow
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.game_relaxer import GameRelaxer
 from openmind.rbs.service.rule_based_game import RuleBasedGame
@@ -25,6 +26,11 @@ logger = logging.getLogger(__name__)
 #: What valuing a position without playing is called, named with the game the values were reasoned out in: what that
 #: game paid where it is over, and what its rules prove where they reach an end.
 SETTLED = "what the rules of {context} settle"
+
+#: What proving each action's payoff is called. The same deduction as `SETTLED` and a different question, so it
+#: reports itself separately: a game whose positions can be settled but whose moves cannot is a game where one
+#: of the two heuristics is worth fitting and the other is not, and nothing would say so if they shared a name.
+MOVES_SETTLED = "what the rules of {context} settle a move pays"
 
 #: What reasoning out the worth of things is called. It is not a way of valuing a position — it never looks at a
 #: payoff — but it is a way of paying for a search, and a way of paying reports itself beside the others or it is
@@ -224,6 +230,63 @@ class HeuristicPonderer:
         if any(isinstance(value, bool) or not isinstance(value, int | float) for value in values):
             return None
         return tuple(float(value) for value in values)  # type: ignore[arg-type]
+
+    def moved(
+        self,
+        game: RuleBasedGame,
+        positions: Sequence[State],
+        settings: PonderSettings,
+        tried: list[Labelling],
+    ) -> tuple[MoveRow, ...]:
+        """What the rules prove each action in those positions pays the player taking it.
+
+        **The other half of `_valued`, and the same deduction.** A position is valued by what the rules prove
+        it is worth; an action is valued by what the rules prove it pays, which the same walk already worked
+        out on the way to picking the best one and then threw away.
+
+        **One source and not two, which is a correction to the plan this came from.** That plan had a ladder
+        whose first rung was a successor being finished — worth what the game paid there — and whose second was
+        the rules proving it. They are the same rung: a deduction of one ply calls the decision at depth zero,
+        which finds no action and gives back the payoffs, so a finished successor is precisely what one ply
+        proves. Two names for one walk would have been two rungs reporting the same evidence twice.
+
+        Actions nothing could prove get no row, as positions nothing could settle get none: not knowing what a
+        move pays is not the same as the move paying nothing, and a row saying zero is a claim the evidence
+        never made.
+
+        It reports itself as a `Labelling` like every other way of valuing, so a way that settles nothing says
+        so rather than being silently absent."""
+        started = time.monotonic()
+        named = MOVES_SETTLED.format(context=game.context)
+        rows: list[MoveRow] = []
+        asked, answered = 0, 0
+        for state in positions:
+            acting = game.joint_actions(state)
+            if not acting or len(acting) > 1:
+                continue
+            asked += 1
+            player = game.acting_player(state)
+            rated = self._deducer.deduce_moves(
+                game, state, DeductionBudget(settings.plies, settings.deduction_seconds)
+            )
+            if not rated:
+                continue
+            answered += 1
+            at = game.players().names.index(player)
+            rows.extend(MoveRow(state, action, player, payoffs[at]) for action, payoffs in rated)
+        labelling = Labelling(named, answered, len({row.target for row in rows}), time.monotonic() - started)
+        tried.append(labelling)
+        logger.info(
+            "%s valued the moves of %d of %d positions it could ask about, %d actions in all, %d differently, "
+            "in %.1f seconds",
+            named,
+            answered,
+            asked,
+            len(rows),
+            labelling.values,
+            labelling.seconds,
+        )
+        return tuple(rows) if labelling.paid else ()
 
     def _proved(self, game: RuleBasedGame, state: State, settings: PonderSettings) -> tuple[float, ...] | None:
         """What a deduction proves the position is worth, or None where the plies don't reach an end.

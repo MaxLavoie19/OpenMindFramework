@@ -76,6 +76,53 @@ class PositionDeducer:
         )
         return Deduction(state, player, None, None, (), reached)
 
+    def deduce_moves(
+        self, rbs: RuleBasedGame, state: State, budget: DeductionBudget
+    ) -> tuple[tuple[Action, tuple[float, ...]], ...]:
+        """What each action here is proven to pay every player, for the actions proven within the budget.
+
+        **What the rules already know about a move, asked for instead of thrown away.** `deduce` walks every
+        action at the top and keeps the best, because it was asked which move to play. A move value wants what
+        each one is worth, which is the same walk with nothing discarded — so this costs at most one more full
+        decision, and usually far less, the two sharing a memo of states already decided.
+
+        Deepened a ply at a time like `deduce`, and an action proven at one depth is not searched again: a
+        proof is a proof, and the shortest is the cheapest. Actions nothing could prove are left out rather
+        than given a number, which is the difference between knowing nothing and believing zero.
+
+        Raises ValueError on a budget of fewer than 1 ply or no seconds, or a position with no legal action,
+        as `deduce` does."""
+        if budget.plies < 1 or budget.seconds <= 0.0:
+            raise ValueError(f"A deduction needs at least 1 ply and more than 0 seconds, not {budget}")
+        actions = rbs.actions(state)
+        if not actions:
+            raise ValueError("No legal action to deduce from")
+        deadline = self._clock() + budget.seconds
+        memo: dict[tuple[State, int], Proof | None] = {}
+        proven: dict[Action, tuple[float, ...]] = {}
+        reached = 0
+        for depth in range(1, budget.plies + 1):
+            try:
+                for action in actions:
+                    if action in proven:
+                        continue
+                    found = self._act(rbs, state, action, depth, budget.highest, deadline, memo)
+                    if found is not None:
+                        proven[action] = found[0]
+            except TimeoutError:
+                break
+            reached = depth
+            if len(proven) == len(actions):
+                break
+        logger.info(
+            "Deduced what %d of %d actions pay for %s within %d plies",
+            len(proven),
+            len(actions),
+            rbs.acting_player(state),
+            reached,
+        )
+        return tuple((action, proven[action]) for action in actions if action in proven)
+
     def _decide(
         self,
         rbs: RuleBasedGame,
