@@ -7,12 +7,14 @@ from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
 from openmind.world.service.changer import Changer
 from openmind.rule.model.clause import Clause
+from openmind.rule.model.literal import Literal
 from openmind.rule.model.term import Constant, Number, Term
+from openmind.structure.model.grid import Grid
 from openmind.structure.model.record import Record
 from openmind.structure.model.schema import ActionKind
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
-from openmind.world.model.change import Removed
+from openmind.world.model.change import LOSING
 from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)
@@ -135,6 +137,59 @@ class Hypothetical:
         )
         return self._changer.applied(example.where, changes) if changes else None
 
+    def askable(self, example: Example) -> tuple[Literal, ...]:
+        """The questions about what this candidate could cost, that a search may put into a body.
+
+        **What could be taken was answerable and unaskable.** A clause carrying one of these is checked
+        correctly and has been since it was written; nothing ever built one. A body is assembled out of the
+        readings a case *carries*, and this is not a reading — it is a question you can put to a case, about a
+        board that does not exist yet. So the one rule this whole layer was built for could be written by hand
+        and never found, and a search given every other rule of chess for free, both the moves it should refuse
+        and the moves it must not, came back with the halfmove clock and the colour of a square.
+
+        **One per kind of thing the game has, and whose it is is whoever is acting here.** Nothing says which
+        kind matters: losing a pawn is perfectly legal and losing the king is not, and which is which is what
+        the guard decides. Said ground, with this case's own mover, because that is how every other rule about
+        ownership has been found — ground per case, and turned into a variable by widening across cases whose
+        movers differ. It comes out as `turn(X), taken from X once this is done ... king`, which is the shape
+        the rule was written by hand in.
+
+        Empty where the question cannot be put at all: without a predictor there is no board to ask about, and
+        without knowing who acts there is nobody to ask it for."""
+        if self._drawer is None or self._acting is None or example.where is None:
+            return ()
+        whose = self._acting(example.where)
+        if whose is None:
+            return ()
+        return tuple(
+            Literal(TAKEN_AFTER, (Constant(whose), Constant(one))) for one in self._kinds(example.where, whose)
+        )
+
+    def _kinds(self, state: State, whose: Value) -> tuple[Value, ...]:
+        """What kinds of thing could be taken here, as the game declares them.
+
+        Read off the position rather than declared, since a game says what its values are by having them. The
+        players' own names are dropped: a record says whose a thing is and what it is in the same breath, and
+        `whose` is already being said by the other argument.
+
+        **Only what something has been seen to be lost from.** Chess keeps its squares' colours on a grid
+        beside its pieces, so asking every grid gives "taken from white, once this is done: a light square" — a
+        question nothing can ever answer yes, because nothing takes a square's colour away. It would never
+        stand as a constraint, having refused nothing, but it costs a whole pass over the board after every
+        candidate to find that out each time. Which models a thing can be lost from is what the predictor has
+        already worked out, and it is read here in the vocabulary the changes themselves declare — so a predictor
+        saying a capture one way and a predictor saying it another are asked the same questions."""
+        emptied = {one.model for one in self.doing if one.change in LOSING}
+        found = dict.fromkeys(
+            part
+            for name, model in state.models
+            if isinstance(model, Grid) and name in emptied
+            for standing in model.cells
+            if standing is not None
+            for part in ([held for _, held in standing.parts] if isinstance(standing, Record) else [standing])
+        )
+        return tuple(one for one in found if one != whose and one not in self._players)
+
     def taken(self, example: Example, whose: Value, what: Value, refuses: Callable[[Example], bool]) -> bool:
         """Whether the other side, once this candidate is done, has an allowed action that takes away a thing of
         theirs to lose — said as a change and never as a square.
@@ -174,11 +229,12 @@ class Hypothetical:
             return False
         for one in self.doing:
             change = self._drawer.drawn(one, state, action, theirs, self._players)
-            if not isinstance(change, Removed):
+            at = getattr(change, "losing", None)
+            if at is None:
                 continue
             held = state.model(change.model)
-            standing = held.at(change.at) if held.inside(change.at) else None
-            if standing is not None and self._is(standing, whose, what):
+            standing = held.at(at) if isinstance(held, Grid) and held.inside(at) else None
+            if standing is not None and standing != getattr(change, "value", None) and self._is(standing, whose, what):
                 return True
         return False
 

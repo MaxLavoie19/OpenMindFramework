@@ -4,6 +4,8 @@ from openmind.inference.model.example import Example
 from openmind.inference.service.candidate_readings import CandidateReadings
 from openmind.inference.service.hypothetical import ALLOWED, TAKEN_AFTER, Hypothetical
 from openmind.inference.service.refusal_learner import REFUSED, RefusalLearner
+from openmind.predictor.service.consequence_drawer import ConsequenceDrawer
+from openmind.rule.model.consequence import Consequence
 from openmind.rule.model.clause import Clause
 from openmind.rule.model.literal import Literal
 from openmind.rule.model.term import Constant, Functor, Number, Variable
@@ -186,3 +188,133 @@ def test_without_a_hypothetical_service_the_question_is_simply_not_answered():
         a_case(a_position(), Cell(1, 1), Cell(1, 2)),
         (refused_where_somebody_could_land_on_two_two(),),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Held(Record):
+    whose: str
+    what: str
+
+
+def a_board_of_things():
+    """Two rows of two holding two players' things, and beside them a grid of something nobody can take."""
+    return State.of(
+        grid=Grid.of([[Held("white", "pawn"), Held("black", "king")], [Held("white", "king"), None]]),
+        square_colour=Grid.of([["light", "dark"], ["dark", "light"]]),
+        turn="white",
+    )
+
+
+def taking():
+    """What a move does, as much of it as the questions need: it removes something from the board."""
+    return (Consequence("Removed", "move", "grid"),)
+
+
+def asking():
+    """A hypothetical that knows who acts and can draw a board, which is what makes a question puttable."""
+    return Hypothetical(
+        CandidateReadings(), MOVE, ConsequenceDrawer(), doing=taking(), players=("white", "black"),
+        acting=lambda state: state.model("turn").value,
+    )
+
+
+def test_a_question_about_what_this_could_cost_is_offered_for_every_kind_the_game_has():
+    """The one rule this layer was built for was answerable and unaskable: a clause carrying it is checked
+    correctly, and nothing ever built one. Nothing here says which kind matters — losing a pawn is legal and
+    losing the king is not, and which is which is the guard's to decide."""
+    where = a_board_of_things()
+
+    found = asking().askable(Example((), True, where))
+
+    assert {str(one.arguments[1].name) for one in found} == {"pawn", "king"}
+    assert all(one.predicate == TAKEN_AFTER for one in found)
+
+
+def test_whose_it_is_is_whoever_is_acting_in_that_case():
+    """Said ground with this case's own mover, because that is how every other rule about ownership has been
+    found: ground per case, and turned into a variable by widening across cases whose movers differ."""
+    found = asking().askable(Example((), True, a_board_of_things()))
+
+    assert {str(one.arguments[0].name) for one in found} == {"white"}
+
+
+def test_a_player_s_own_name_is_not_a_kind_of_thing_to_lose():
+    """A record says whose a thing is and what it is in the same breath, and whose is already being said."""
+    found = asking().askable(Example((), True, a_board_of_things()))
+
+    assert "black" not in {str(one.arguments[1].name) for one in found}
+
+
+def test_nothing_is_offered_where_the_question_cannot_be_put():
+    """Without a predictor there is no board to ask about, and without knowing who acts there is nobody to ask
+    it for. A question that cannot be put is not a question answered yes."""
+    where = a_board_of_things()
+
+    assert Hypothetical(CandidateReadings(), MOVE).askable(Example((), True, where)) == ()
+    assert asking().askable(Example((), True, None)) == ()
+
+
+def test_a_search_is_offered_the_questions_beside_the_readings():
+    """What was missing: a body is assembled out of what a case carries, and a question is not carried."""
+    readings = CandidateReadings()
+
+    held = RefusalLearner(
+        readings,
+        hypothetical=Hypothetical(
+            readings, MOVE, ConsequenceDrawer(), doing=taking(), players=("white", "black"),
+            acting=lambda state: state.model("turn").value,
+        ),
+    )
+    case = Example((Literal("turn", (Constant("white"),)),), True, a_board_of_things())
+
+    offered = held.offered(case)
+
+    assert any(one.predicate == TAKEN_AFTER for one in offered), "the question is among what a body may use"
+    assert any(one.predicate == "turn" for one in offered), "and the readings are still there"
+
+
+def test_a_learner_with_no_hypothetical_is_offered_the_readings_and_nothing_else():
+    """A game whose predictor has worked out nothing yet is not offered questions it cannot answer."""
+    case = Example((Literal("turn", (Constant("white"),)),), True, a_board_of_things())
+
+    assert all(one.predicate != TAKEN_AFTER for one in RefusalLearner(CandidateReadings()).offered(case))
+
+
+def test_a_kind_nothing_can_be_removed_from_is_not_asked_about():
+    """Chess keeps its squares' colours on a grid beside its pieces. Asking every grid gives "taken from white,
+    once this is done: a light square" — a question nothing can ever answer yes, which would never stand as a
+    constraint but costs a whole pass over the board to find out each time."""
+    found = asking().askable(Example((), True, a_board_of_things()))
+
+    assert {str(one.arguments[1].name) for one in found} == {"pawn", "king"}
+
+
+def test_nothing_is_asked_where_nothing_a_move_does_can_lose_anything():
+    """A game whose moves have only ever been seen to set a scalar has nothing to lose, as far as anybody
+    knows. Nothing stands on a scalar."""
+    telling = Hypothetical(
+        CandidateReadings(), MOVE, ConsequenceDrawer(), doing=(Consequence("Told", "move", "turn"),),
+        players=("white", "black"), acting=lambda state: state.model("turn").value,
+    )
+
+    assert telling.askable(Example((), True, a_board_of_things())) == ()
+
+
+def test_a_predictor_saying_a_capture_as_a_move_is_asked_the_same_questions_as_one_saying_it_as_a_removal():
+    """The two halves have to speak one language. A capture is sayable as a removal and then a move, or as the
+    move alone, and both make the same board out of every position — so nothing in fitting a predictor against
+    boards prefers either, and which one it settles on must not decide what can be asked."""
+    where = a_board_of_things()
+
+    def asked(change):
+        return {
+            str(one.arguments[1].name)
+            for one in Hypothetical(
+                CandidateReadings(), MOVE, ConsequenceDrawer(), doing=(Consequence(change, "move", "grid"),),
+                players=("white", "black"), acting=lambda state: state.model("turn").value,
+            ).askable(Example((), True, where))
+        }
+
+    assert asked("Removed") == asked("Moved") == asked("Placed") == {"pawn", "king"}
+
+
