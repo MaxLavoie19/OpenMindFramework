@@ -1,5 +1,6 @@
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,10 @@ logger = logging.getLogger(__name__)
 #: fixed name finds the one run nobody is watching.
 POSITION = "position"
 
+#: Where processes are looked for, taken as a parameter everywhere so a test can hand over a directory of its
+#: own rather than needing a process that really exists.
+PROC = Path("/proc")
+
 
 class ConstraintLearningReader:
     """Where the dashboard reads constraint-learning runs from.
@@ -26,22 +31,30 @@ class ConstraintLearningReader:
     walk with a change and without it — so they are launched together and write side by side. Reading a single
     name showed whichever run happened to carry it, which for two days was one that had already finished."""
 
-    def runs(self, directory: Path) -> tuple[ConstraintLearning, ...]:
+    def runs(self, directory: Path, proc: Path = PROC) -> tuple[ConstraintLearning, ...]:
         """Every run that has said anything in that directory, the one that spoke most recently first.
 
         Sorted by what each run says the time was rather than by the file's own, because a run writing to a
         share writes a file whose time belongs to the machine that holds it. Where a run says nothing about
-        when, its file's time stands in."""
+        when, its file's time stands in.
+
+        Each is told whether the process that wrote it is still there, by looking for the process rather than
+        by how long ago it last spoke. A run stuck on one position for an hour is still running and should say
+        so; a run killed a second ago is not, however fresh its snapshot."""
         found = Path(directory)
         if not found.is_dir():
             return ()
         held = [one for one in (self._read(at) for at in sorted(found.glob("*.json"))) if one is not None]
         held.sort(key=lambda one: one.at, reverse=True)
-        return tuple(held)
+        return tuple(replace(one, running=self.alive(one.pid, proc)) for one in held)
 
-    def latest(self, directory: Path, run: str = "") -> ConstraintLearning | None:
+    def alive(self, pid: int, proc: Path = PROC) -> bool:
+        """Whether that process is still there. A run that named no process is not known to be running."""
+        return bool(pid) and (Path(proc) / str(pid)).exists()
+
+    def latest(self, directory: Path, run: str = "", proc: Path = PROC) -> ConstraintLearning | None:
         """That run, or the one that spoke most recently, or None where none has said anything."""
-        held = self.runs(directory)
+        held = self.runs(directory, proc)
         if run:
             return next((one for one in held if one.run == run), None)
         return held[0] if held else None
@@ -67,6 +80,7 @@ class ConstraintLearningReader:
             seconds=float(held.get("seconds", 0.0)),
             readings=int(held.get("readings", 0)),
             run=where.stem,
+            pid=int(held.get("pid", 0) or 0),
             matching=int(held.get("matching", 0)),
             written_by_hand=int(held.get("written by hand", 0)),
             at=str(held.get("at", "")) or self._when(where),

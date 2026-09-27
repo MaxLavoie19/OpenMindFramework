@@ -23,7 +23,13 @@ class ConstraintLearning:
 
     `run` is which run said it, by the name of the file it writes. Several run at once and are meant to — an
     arm with a change against an arm without it is how anything here is decided — so a page showing one of them
-    and calling it *the* run shows whichever was named first and hides the comparison the runs exist for."""
+    and calling it *the* run shows whichever was named first and hides the comparison the runs exist for.
+
+    `pid` is the process that wrote it and `running` whether that process is still there. A run says which
+    process it is rather than being recognised by a string in its command line: the string only ever matched
+    the one entrypoint it was written for, so a page could watch four runs and report that nothing was
+    running. `pid` is zero for a run that does not say, and `running` is then false — *not said* reads as
+    *not known to be running*, never as stopped."""
 
     position: int
     fen: str
@@ -36,6 +42,8 @@ class ConstraintLearning:
     seconds: float
     readings: int
     run: str = ""
+    pid: int = 0
+    running: bool = False
     matching: int = 0
     written_by_hand: int = 0
     at: str = ""

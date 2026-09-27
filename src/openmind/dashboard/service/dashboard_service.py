@@ -2,6 +2,7 @@ from datetime import datetime
 
 from openmind.dashboard.model.dashboard_settings import DashboardSettings
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
+from openmind.dashboard.service.constraint_learning_reader import ConstraintLearningReader
 from openmind.dashboard.service.game_browser import GameBrowser
 from openmind.dashboard.service.log_progress_reader import LogProgressReader
 from openmind.dashboard.service.machine_reader import MachineReader
@@ -18,18 +19,27 @@ class DashboardService:
         machine_reader: MachineReader,
         model_score_reader: ModelScoreReader | None = None,
         game_browser: GameBrowser | None = None,
+        constraint_learning_reader: ConstraintLearningReader | None = None,
     ) -> None:
         self._game_browser = GameBrowser() if game_browser is None else game_browser
         self._model_score_reader = ModelScoreReader() if model_score_reader is None else model_score_reader
         self._log_progress_reader = log_progress_reader
         self._machine_reader = machine_reader
+        self._learning = ConstraintLearningReader() if constraint_learning_reader is None else constraint_learning_reader
 
     def snapshot(self, settings: DashboardSettings) -> DashboardSnapshot:
+        # Which processes the runs say are theirs, so the machine is read by what the runs declared rather than
+        # by a string in a command line that only ever named one entrypoint.
+        declared = {
+            one.pid: one.run
+            for one in self._learning.runs(settings.log_directory, settings.proc)
+            if one.pid
+        }
         return DashboardSnapshot(
             settings.domain,
             datetime.now().replace(microsecond=0).isoformat(sep=" "),
             self._log_progress_reader.progress(settings.log_directory / settings.domain),
-            self._machine_reader.status(settings.proc, settings.syslog),
+            self._machine_reader.status(settings.proc, settings.syslog, declared),
             self._log_progress_reader.played(),
             self._model_score_reader.scores(settings.knowledge_directory, settings.domain),
             self._game_browser.latest(settings.knowledge_directory, settings.domain),

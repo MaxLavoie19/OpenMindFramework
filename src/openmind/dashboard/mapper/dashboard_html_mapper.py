@@ -2,6 +2,7 @@ import html
 import json
 from collections.abc import Sequence
 
+from openmind.dashboard.constant.dashboard_constant import RUN, TRAINING, WORKER
 from openmind.dashboard.mapper.svg_chart_mapper import SvgChartMapper
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
 from openmind.dashboard.model.game_listing import GameListing
@@ -115,11 +116,16 @@ class DashboardHtmlMapper:
     def _progress(self, snapshot: DashboardSnapshot) -> str:
         progress = snapshot.progress
         processes = snapshot.machine.processes
-        training = next((process for process in processes if process.role == "training"), None)
-        workers = sum(1 for process in processes if process.role == "worker")
-        running = "running" if training is not None else "not running"
+        training = next((process for process in processes if process.role == TRAINING), None)
+        workers = sum(1 for process in processes if process.role == WORKER)
+        # A run that said which process it is counts as much as the one entrypoint the old string matched.
+        # Without this the page read "not running" while four learners had been going for a day and a half.
+        runs = tuple(process for process in processes if process.role == RUN)
+        eldest = training or (max(runs, key=lambda one: one.seconds) if runs else None)
+        running = "running" if eldest is not None else "not running"
         cards = [
-            ("Training", f"{running}, {self._duration(training.seconds)}" if training else running),
+            ("Learning", f"{running}, {self._duration(eldest.seconds)}" if eldest else running),
+            ("Runs", str(len(runs) + (1 if training is not None else 0))),
             ("Workers", str(workers)),
         ]
         if progress is not None:
@@ -150,14 +156,24 @@ class DashboardHtmlMapper:
             f"{machine.memory_total / GIGABYTE:.1f} GB ({available:.0%})</b></div>"
             f"<div class='card'>Swap free<b>{machine.swap_free / GIGABYTE:.1f} of {machine.swap_total / GIGABYTE:.1f} GB "
             f"({swap_free:.0%})</b></div>"
-            f"<div class='card'>Training processes' memory<b>"
+            f"<div class='card'>Learning processes' memory<b>"
             f"{sum(process.rss_bytes for process in machine.processes) / GIGABYTE:.1f} GB</b></div>"
         )
         rows = [
-            (str(process.pid), process.role, f"{process.rss_bytes / GIGABYTE:.2f}", self._duration(process.seconds))
+            (
+                str(process.pid),
+                process.run or "",
+                process.role,
+                f"{process.rss_bytes / GIGABYTE:.2f}",
+                self._duration(process.seconds),
+            )
             for process in machine.processes
         ]
-        table = self._table(("process", "role", "memory (GB)", "running for"), rows) if rows else "<p>No training process.</p>"
+        table = (
+            self._table(("process", "run", "role", "memory (GB)", "running for"), rows)
+            if rows
+            else "<p>Nothing learning. A run says which process is its own; one that does not is not seen here.</p>"
+        )
         kills = (
             f"<h2>earlyoom's latest kills</h2><pre>{html.escape(chr(10).join(machine.earlyoom))}</pre>"
             if machine.earlyoom
@@ -322,11 +338,15 @@ class DashboardHtmlMapper:
         game refuses and the constraints do not."""
         if len(runs) < 2:
             return ""
-        head = ("run", "position", "constraints", "readings", "let through", "wrongly refused", "seconds", "last said")
+        head = (
+            "run", "still going", "position", "constraints", "readings", "let through", "wrongly refused",
+            "seconds", "last said",
+        )
         rows = "".join(
             "<tr>"
             f"<td><a href='{CONSTRAINTS_PATH}/{html.escape(one.run)}'>{html.escape(one.run)}</a>"
             f"{' &larr;' if one.run == showing.run else ''}</td>"
+            f"<td>{self._going(one)}</td>"
             f"<td class='count'>{one.position}</td>"
             f"<td class='count'>{len(one.rules)}</td>"
             f"<td class='count'>{one.readings}</td>"
@@ -342,8 +362,18 @@ class DashboardHtmlMapper:
             "<h2>The runs</h2><div class='scroll'>"
             f"<table><tr>{headings}</tr>{rows}</table></div>"
             "<p class='muted'>Each run writes its own snapshot; they are launched together so that an arm with "
-            "a change can be read against one without it.</p>"
+            "a change can be read against one without it. Whether one is still going is its own process being "
+            "looked for, not how long ago it last spoke.</p>"
         )
+
+    def _going(self, learning: ConstraintLearning) -> str:
+        """Whether that run is still going, in words rather than a mark, and honest about not knowing.
+
+        A run that named no process is not known to be running, which is not the same as stopped: an older run
+        wrote no process and saying it had stopped would be a claim nothing here can make."""
+        if learning.running:
+            return "<b>yes</b>"
+        return "<span class='muted'>not said</span>" if not learning.pid else "no"
 
     def _consequences(self, learning: ConstraintLearning) -> str:
         """What the predictor has worked out a move does, drawn from the action rather than from the position it

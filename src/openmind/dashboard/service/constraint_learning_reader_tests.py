@@ -56,7 +56,27 @@ def test_a_run_that_does_not_say_when_is_timed_by_its_file(tmp_path: Path) -> No
     assert found[0].at, "a run that says nothing about when is timed by its file rather than left blank"
 
 
-def _wrote(where: Path, position: int, at: str) -> None:
+def test_a_run_is_still_going_when_its_own_process_is_there(tmp_path: Path) -> None:
+    """Read from the process it named, not from how long ago it spoke: a run stuck on one position for an hour
+    is still running, and a run killed a second ago is not however fresh its snapshot."""
+    proc = tmp_path / "proc"
+    (proc / "4242").mkdir(parents=True)
+    _wrote(tmp_path / "going.json", position=9, at="2026-09-27 17:00:00", pid=4242)
+    _wrote(tmp_path / "gone.json", position=9, at="2026-09-27 17:00:01", pid=4243)
+    found = {one.run: one for one in ConstraintLearningReader().runs(tmp_path, proc)}
+    assert found["going"].running is True
+    assert found["gone"].running is False, "the fresher snapshot is the one that stopped"
+
+
+def test_a_run_that_names_no_process_is_not_claimed_to_be_stopped(tmp_path: Path) -> None:
+    """Not said is not known to be running, which is not the same as stopped — the page must be able to tell
+    them apart, so the process id it would have to know by stays zero."""
+    _wrote(tmp_path / "quiet.json", position=3, at="2026-09-27 17:00:00")
+    found = ConstraintLearningReader().runs(tmp_path, tmp_path / "proc")
+    assert (found[0].pid, found[0].running) == (0, False)
+
+
+def _wrote(where: Path, position: int, at: str, pid: int = 0) -> None:
     where.write_text(
         json.dumps(
             {
@@ -70,6 +90,7 @@ def _wrote(where: Path, position: int, at: str) -> None:
                 "readings": 30,
                 "seconds": 113.2,
                 "at": at,
+                **({"pid": pid} if pid else {}),
             }
         )
     )

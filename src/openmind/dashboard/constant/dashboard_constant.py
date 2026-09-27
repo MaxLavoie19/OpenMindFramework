@@ -25,12 +25,19 @@ DEDUCTION_LOGGER = "openmind.inference.service.position_deducer"
 
 #: How a training's processes are recognized from their command lines: the training entrypoint, the script looping
 #: over trainings, and the worker processes a training starts.
+#:
+#: **A fallback, kept only for what does not say who it is.** Recognising a process by a string in its command line
+#: recognises the one entrypoint the string was written for: three constraint learners and a heuristics finder ran
+#: for a day and a half while this panel reported no training process at all. A run that writes its own process id
+#: into its snapshot is known without any of this, which is how a run should say so. `train_values` does not yet,
+#: and until it does these stay.
 TRAINING_MODULE = "openmind.entrypoint.train_values"
 LOOP_SCRIPT = "continue_training"
 WORKER_MARK = "multiprocessing.spawn"
 
-#: The roles a training process can have on the page.
-LOOP, TRAINING, WORKER = "loop", "training", "worker"
+#: The roles a training process can have on the page. `RUN` is a run that said which process it is, named after
+#: itself on the page rather than by a role it was guessed into.
+LOOP, TRAINING, WORKER, RUN = "loop", "training", "worker", "run"
 
 #: How a chart is drawn: the box it is drawn in, the room left around it for its labels, the colours its parts take in
 #: order, and the colour of the band a line chart draws between a low and a high.

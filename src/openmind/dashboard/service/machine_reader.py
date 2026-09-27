@@ -1,11 +1,13 @@
 import os
 from collections import deque
+from collections.abc import Mapping
 from pathlib import Path
 
 from openmind.dashboard.constant.dashboard_constant import (
     EARLYOOM_LINES,
     LOOP,
     LOOP_SCRIPT,
+    RUN,
     TRAINING,
     TRAINING_MODULE,
     WORKER,
@@ -27,7 +29,7 @@ class MachineReader:
         self._clock_ticks = clock_ticks
         self._earlyoom: deque[str] = deque(maxlen=EARLYOOM_LINES)
 
-    def status(self, proc: Path, syslog: Path | None) -> MachineStatus:
+    def status(self, proc: Path, syslog: Path | None, declared: Mapping[int, str] | None = None) -> MachineStatus:
         memory = self._meminfo(proc / "meminfo")
         if syslog is not None:
             self._earlyoom.extend(
@@ -38,7 +40,7 @@ class MachineReader:
             memory.get("MemAvailable", 0),
             memory.get("SwapTotal", 0),
             memory.get("SwapFree", 0),
-            self._processes(proc),
+            self._processes(proc, declared or {}),
             tuple(self._earlyoom),
         )
 
@@ -51,7 +53,13 @@ class MachineReader:
                 values[name] = int(parts[0]) * (1024 if len(parts) > 1 and parts[1] == "kB" else 1)
         return values
 
-    def _processes(self, proc: Path) -> tuple[ProcessStatus, ...]:
+    def _processes(self, proc: Path, declared: Mapping[int, str]) -> tuple[ProcessStatus, ...]:
+        """Every process worth showing: the runs that said which process they are, whatever they started, and
+        whatever the command-line fallback still recognises.
+
+        A run that declares itself is taken at its word and shown under its own name. Everything descending
+        from one is its worker, found by walking parents rather than by a marker, so a run that starts its
+        workers any other way is not missed."""
         uptime = float((proc / "uptime").read_text(encoding="utf-8").split()[0])
         found: dict[int, tuple[str, int, int, float]] = {}
         for directory in proc.iterdir():
@@ -68,9 +76,15 @@ class MachineReader:
             rss = next((int(line.split()[1]) * 1024 for line in status.splitlines() if line.startswith("VmRSS:")), 0)
             found[int(directory.name)] = (command, parent, rss, uptime - started)
         trainings = {pid for pid, (command, _, _, _) in found.items() if TRAINING_MODULE in command}
+        parents = {pid: held[1] for pid, held in found.items()}
         processes: list[ProcessStatus] = []
         for pid, (command, parent, rss, seconds) in sorted(found.items()):
-            if LOOP_SCRIPT in command and command.startswith("bash"):
+            named = declared.get(pid) or declared.get(self._descends(pid, parents, declared))
+            if pid in declared:
+                role = RUN
+            elif named:
+                role = WORKER
+            elif LOOP_SCRIPT in command and command.startswith("bash"):
                 role = LOOP
             elif pid in trainings:
                 role = TRAINING
@@ -78,6 +92,20 @@ class MachineReader:
                 role = WORKER
             else:
                 continue
-            processes.append(ProcessStatus(pid, role, rss, seconds, command))
-        order = {LOOP: 0, TRAINING: 1, WORKER: 2}
-        return tuple(sorted(processes, key=lambda process: (order[process.role], process.pid)))
+            processes.append(ProcessStatus(pid, role, rss, seconds, command, named or ""))
+        order = {LOOP: 0, RUN: 1, TRAINING: 2, WORKER: 3}
+        return tuple(sorted(processes, key=lambda process: (order[process.role], process.run, process.pid)))
+
+    def _descends(self, pid: int, parents: Mapping[int, int], declared: Mapping[int, str]) -> int:
+        """Which declared run this process came from, or zero where none did.
+
+        Walks up by parent rather than looking for a marker in the command line, and stops at whatever it has
+        already seen so that a parent loop cannot hold the page up."""
+        seen: set[int] = set()
+        at = parents.get(pid, 0)
+        while at and at not in seen:
+            if at in declared:
+                return at
+            seen.add(at)
+            at = parents.get(at, 0)
+        return 0
