@@ -367,9 +367,16 @@ it six times.
 
 Each is a component and goes through the usual two stops.
 
-**One — `Drawn` becomes `Term`.** The nine drawing classes become functor shapes. No behaviour changes, and
-afterwards a drawing and a reading's argument are the same kind of thing. This is the precondition for
-everything else and cannot be done halfway later.
+**One — `Drawn` becomes `Term`. Done.** The nine drawing classes are functor shapes, with builders and a
+reader beside them. They unify; the consequence mapper drops its own name-to-class map, its own reading of a
+dataclass's fields, and its own third route through the value mapper. Both suites unchanged at 1464 and 63.
+
+Two things it found. **`Row` and `Column` do not fold into `Place`**, although both docstrings implied it:
+`Place` takes the named part of whatever a parameter holds, while `Row` resolves a name the game gave a square
+through the grid's own aliases. A game whose parameters hold records needs one and a game whose parameters
+hold square names needs the other, so both stay. And **the drawings had three ways of being written down** —
+this mapper's own, the term mapper's, and the value mapper's for a record inside one — which is the same
+shape as question 36 one level down.
 
 **Two — readings take terms.** `CandidateReadings` emits `reads(T, V)` where T is a term, and the flat
 predicates become the projection. `lands on` and `holds` merge. Question 31's fold of the two reading stacks
