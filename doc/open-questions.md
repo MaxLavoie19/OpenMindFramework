@@ -309,6 +309,36 @@ questions by number.
     - **Undecided.**
 
 
+37. **A question about what the other side could do is answered by rules that are not yet good enough to
+    answer it.** (found running the sniper at king safety once the vocabulary could say it)
+    The layering says the question goes to the rules that ask no such question themselves, and that is right.
+    What it does not say is that those rules have to be *complete enough* for the answer to mean anything.
+    Measured, with eighty-eight learned constraints as the layer below:
+
+    ```
+    mover: black
+    a move that leaves the king attacked  [bishop, king, knight, pawn, queen, rook]
+    a legal move (a8a6)                   [bishop, king, knight, pawn, queen, rook]
+    a legal move (a8a7)                   [bishop, king, knight, pawn, queen, rook]
+    a legal move (b6b5)                   [bishop, king, knight, pawn, queen, rook]
+    ```
+
+    **Every kind can be taken after every move**, so the reading discriminates nothing and no body built from
+    it can refuse a check violation without refusing every legal move. The constraints leave roughly a hundred
+    of fourteen thousand candidates standing; among a hundred surviving replies there is always one landing on
+    the king's square, so the answer is yes everywhere.
+    **The circularity is the point.** The rule that would tighten the constraints cannot be learned until the
+    constraints are tight. Everything else in the chain works: the reading is produced, offered, and
+    combinable, and a search finds it where it discriminates — pinned on a case with nothing of chess in it.
+    What fails is the evidence the question rests on.
+    - **Options:** undrafted. What is visible: whether the question should be put to the *game* rather than to
+      the rules while the rules are young, which is truthful but is asking an oracle and teaches nothing;
+      whether a reading should say how much it is trusted, so a question resting on loose rules is a weak
+      reading rather than a false one; and whether this is simply an ordering — king safety is the last rule
+      to learn, not the first, and the honest move is to say so and come back.
+    - **Undecided.**
+
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
