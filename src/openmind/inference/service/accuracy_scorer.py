@@ -44,9 +44,15 @@ class AccuracyScorer:
         return tuple(updated)
 
     def played(
-        self, knowledge: KnowledgeBase, mechanism_id: str, context: str, points: float, games: int
+        self, knowledge: KnowledgeBase, subject_id: str, context: str, points: float, games: int
     ) -> Belief:
-        """Scores a mechanism by what its games came to: the share of the points on offer that it took.
+        """Scores a subject by what its games came to: the share of the points on offer that it took.
+
+        **The subject is whatever played, and for a model that is the model and not its mechanism.** A
+        mechanism is how a thing was made — two rulesets fitted the same way share one, legitimately — so
+        scoring a match onto the mechanism puts both sides of it on one belief, where the winner's points and
+        the loser's sum to exactly the games played and the two come out identical. Caught by a match one
+        model won 2.5 to 1.5, after which the registry preferred the one that lost.
 
         **A model is measured by playing, and this is where that becomes something the registry can read.**
         Every finished game is already kept, with the model that played each side tagged on it, and none of it
@@ -62,17 +68,17 @@ class AccuracyScorer:
         opinion of it."""
         if games < 0 or points < 0 or points > games:
             raise ValueError(f"{points} points of {games} games is not something that can have been played")
-        variable = ACCURACY.format(mechanism=mechanism_id)
+        variable = ACCURACY.format(mechanism=subject_id)
         held = knowledge.belief(variable, context)
         tags = dict(held.tags) if held is not None else {}
         scored = int(tags.get(SCORED, 0)) + games  # type: ignore[arg-type]
         right = float(tags.get(RIGHT, 0)) + points  # type: ignore[arg-type]
-        mechanism = knowledge.mechanism_by_id(mechanism_id)
+        mechanism = knowledge.mechanism_by_id(subject_id)
         declared = 0.5 if mechanism is None or mechanism.declared_accuracy is None else mechanism.declared_accuracy
         accuracy = self._statistics.leaning(right, scored, toward=declared, weight=PRIOR_CASES)
         logger.info(
             "%s took %.4g of %d points: accuracy %.3g over %d games",
-            knowledge.readable_mechanism(mechanism_id),
+            subject_id,
             points,
             games,
             accuracy,
@@ -83,7 +89,7 @@ class AccuracyScorer:
                 variable,
                 context,
                 accuracy,
-                tags=((SCORED, scored), (RIGHT, right), ("mechanism", mechanism_id), ("played", games)),
+                tags=((SCORED, scored), (RIGHT, right), ("subject", subject_id), ("played", games)),
             )
         )
 

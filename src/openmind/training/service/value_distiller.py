@@ -43,9 +43,14 @@ class ValueDistiller:
         play: SelfPlaySettings,
         values: ValueSettings,
         held_out_games: int = 0,
+        name: str = "",
     ) -> Distillation:
         """Plays, fits, and declares what held up. `held_out_games` are played after the rest and kept back, so the
-        rules are chosen on games they were not fitted on."""
+        rules are chosen on games they were not fitted on.
+
+        `name` is the ruleset the rules are written into, empty for the one named after the task. A caller
+        distilling round after round names each round, or the second overwrites the first and there is one
+        model where there were two attempts — nothing to play against anything."""
         started = time.monotonic()
         played = self._self_play.play(knowledge_base, game, guidance, play)
         held_out = (
@@ -70,7 +75,7 @@ class ValueDistiller:
             logger.info("Nothing to learn from %d games of %s: none of them paid anyone", len(played), game.context)
             return Distillation(game.context, (), len(played), decisive, 0, 0, time.monotonic() - started)
         generated = self._generator.generate(
-            game, training, kept_back, values, HeuristicTarget(knowledge_base, game.context)
+            game, training, kept_back, values, HeuristicTarget(knowledge_base, game.context, name=name)
         )
         logger.info(
             "Distilled %d rules of %s from %d games, %d of them decisive: %d rows, %d held back",

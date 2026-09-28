@@ -1,10 +1,12 @@
 import logging
+from collections.abc import Sequence
 from dataclasses import replace
 
 from openmind.agent.service.outfitter import Outfitter
 from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.knowledge.constant.task_constant import MOVE_VALUE, POSITION_VALUE
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.model.service.model_registry import ModelRegistry
 from openmind.knowledge.model.model_record import ModelRecord
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.search.model.guidance import Guidance
@@ -42,10 +44,56 @@ class ModelMatch:
         self_play: SelfPlay,
         outfitter: Outfitter,
         accuracy_scorer: AccuracyScorer | None = None,
+        model_registry: ModelRegistry | None = None,
     ) -> None:
         self._self_play = self_play
         self._outfitter = outfitter
         self._scorer = AccuracyScorer() if accuracy_scorer is None else accuracy_scorer
+        self._registry = ModelRegistry(self._scorer) if model_registry is None else model_registry
+
+    def among(
+        self,
+        knowledge_base: KnowledgeBase,
+        game: RuleBasedGame,
+        task: str,
+        settings: SelfPlaySettings,
+        models: Sequence[ModelRecord] | None = None,
+    ) -> tuple[Match, ...]:
+        """Every registered model of that task played against every other, and what came of each.
+
+        **This is what closes the loop.** A model is produced, registered, and until it has played it is only
+        a claim; `ModelRegistry.best` prefers whichever was registered first among models nothing has
+        measured. Playing them settles it, and the settling is written where `best` reads.
+
+        Every pair once, in the order the registry gives them, so a run of three models is three matches and a
+        run of one is none — a model with nobody to play cannot be measured by playing, and saying nothing
+        about it is right.
+        """
+        found = tuple(models) if models is not None else self._registry.of_task(knowledge_base, game.context_id, task)
+        if len(found) < 2:
+            logger.info(
+                "No matches at %s in %s: %d model%s, and a match needs two",
+                task,
+                game.context,
+                len(found),
+                "" if len(found) == 1 else "s",
+            )
+            return ()
+        played = [
+            match
+            for at, one in enumerate(found)
+            for other in found[at + 1 :]
+            if (match := self.play(knowledge_base, game, one, other, settings)) is not None
+        ]
+        logger.info(
+            "Played %d match%s at %s in %s, over %d models",
+            len(played),
+            "" if len(played) == 1 else "es",
+            task,
+            game.context,
+            len(found),
+        )
+        return tuple(played)
 
     def play(
         self,
@@ -98,9 +146,12 @@ class ModelMatch:
         if not played:
             logger.info("No match between %s and %s: no game of theirs finished", one.name, other.name)
             return None
-        # Both played every game, one on each side of it, so both are scored over the same count.
+        # Both played every game, one on each side of it, so both are scored over the same count. Scored
+        # onto the model and not onto its mechanism: two rulesets fitted the same way share a mechanism, and
+        # putting both sides of a match on one belief makes the winner's points and the loser's sum to the
+        # games played, so the two come out identical and the registry prefers whichever came first.
         for model, took in ((one, points[0]), (other, points[1])):
-            self._scorer.played(knowledge_base, model.mechanism, model.context, took, played)
+            self._scorer.played(knowledge_base, model.id, model.context, took, played)
         match = Match(game.context, task, one.name, other.name, played, (points[0], points[1]), (sides[0], sides[1]))
         logger.info(
             "%s took %.4g and %s took %.4g of %d games of %s at %s",

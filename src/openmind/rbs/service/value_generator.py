@@ -212,13 +212,13 @@ class ValueGenerator:
         index = self._chosen(fits, widths, label)
         chosen = fitted[index]
         kept = sorted((at for at, weight in enumerate(chosen.weights) if weight != 0.0), key=lambda at: -abs(chosen.weights[at]))
-        declared = self._declared(target, target.task, chosen, terms, means, scales, label, fits[index].price)
+        declared = self._declared(target, target.ruleset, chosen, terms, means, scales, label, fits[index].price)
         others: list[tuple[str, tuple[RuleRecord, ...]]] = []
         if settings.keep_every_price:
             for at, fit in enumerate(fitted):
                 if at == index:
                     continue
-                named = PRICED_RULESET.format(task=target.task, price=f"{fits[at].price:g}")
+                named = PRICED_RULESET.format(task=target.ruleset, price=f"{fits[at].price:g}")
                 others.append((named, self._declared(target, named, fit, terms, means, scales, label, fits[at].price)))
             logger.info(
                 "%sKept every price as a heuristic of its own to be played: %s",

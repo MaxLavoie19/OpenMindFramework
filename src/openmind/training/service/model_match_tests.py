@@ -23,18 +23,21 @@ PLAY = SelfPlaySettings(games=4, seconds=0.003, seed=1)
 
 def test_a_model_never_played_has_no_accuracy_and_one_that_played_does(game: Game, knowledge: KnowledgeBase, heuristic: Linked):
     """The whole point of the link: games were kept and the one belief anything selects on never heard of
-    them, so a model could win everything and `best` would go on preferring whichever was registered first."""
+    them, so a model could win everything and `best` would go on preferring whichever was registered first.
+
+    Measured on the model and not on its mechanism. Two rulesets fitted the same way share a mechanism, so
+    both sides of a match would land on one belief and their points would sum to the games played."""
     played = game("tictactoe")
     scorer = AccuracyScorer()
     one = _registered(knowledge, heuristic, "taking the centre", "1.0 if cell[2, 2] == me else 0.0")
     other = _registered(knowledge, heuristic, "avoiding the centre", "0.0 if cell[2, 2] == me else 1.0")
 
-    assert scorer.accuracy(knowledge, one.mechanism, one.context) is None, "never measured is not a low score"
+    assert scorer.accuracy(knowledge, one.id, one.context) is None, "never measured is not a low score"
 
     create_model_match().play(knowledge, played, one, other, PLAY)
 
-    assert scorer.accuracy(knowledge, one.mechanism, one.context) is not None
-    assert scorer.accuracy(knowledge, other.mechanism, other.context) is not None
+    assert scorer.accuracy(knowledge, one.id, one.context) is not None
+    assert scorer.accuracy(knowledge, other.id, other.context) is not None
 
 
 def test_the_points_of_a_match_come_to_the_games_played(game: Game, knowledge: KnowledgeBase, heuristic: Linked):
@@ -121,3 +124,47 @@ def _registered(
     context = knowledge.context_named("tictactoe")
     ruleset = knowledge.ruleset_named(context.id, name)  # type: ignore[union-attr]
     return create_model_registry().register_ruleset(knowledge, ruleset, name)  # type: ignore[arg-type]
+
+
+def test_every_registered_model_of_a_task_plays_every_other(game: Game, knowledge: KnowledgeBase, heuristic: Linked):
+    """What closes the loop: a model registered and never played is only a claim, and best prefers whichever
+    was registered first among models nothing has measured."""
+    played = game("tictactoe")
+    _registered(knowledge, heuristic, "taking the centre", "1.0 if cell[2, 2] == me else 0.0")
+    _registered(knowledge, heuristic, "avoiding the centre", "0.0 if cell[2, 2] == me else 1.0")
+    _registered(knowledge, heuristic, "counting marks", "sum(1 for at in cell if cell[at] == me)")
+
+    matches = create_model_match().among(knowledge, played, POSITION_VALUE, PLAY)
+
+    assert len(matches) == 3, "three models make three pairs"
+    assert {one.task for one in matches} == {POSITION_VALUE}
+    assert all(one.games > 0 for one in matches)
+
+
+def test_a_model_with_nobody_to_play_is_not_measured_by_playing(game: Game, knowledge: KnowledgeBase, heuristic: Linked):
+    """Saying nothing about it is right: it has not been beaten and it has not won."""
+    played = game("tictactoe")
+    alone = _registered(knowledge, heuristic, "taking the centre", "1.0 if cell[2, 2] == me else 0.0")
+
+    assert create_model_match().among(knowledge, played, POSITION_VALUE, PLAY) == ()
+    assert AccuracyScorer().accuracy(knowledge, alone.id, alone.context) is None
+
+
+def test_playing_them_all_is_what_lets_the_registry_choose(game: Game, knowledge: KnowledgeBase, heuristic: Linked):
+    """Before the matches every model is unmeasured and best falls back on the order they were registered.
+    After them it answers from the games."""
+    played = game("tictactoe")
+    registry = ModelRegistry(AccuracyScorer())
+    first = _registered(knowledge, heuristic, "taking the centre", "1.0 if cell[2, 2] == me else 0.0")
+    _registered(knowledge, heuristic, "avoiding the centre", "0.0 if cell[2, 2] == me else 1.0")
+
+    before = registry.best(knowledge, played.context_id, POSITION_VALUE)
+    assert before is not None and before.id == first.id, "unmeasured, so the first registered"
+
+    matches = create_model_match().among(knowledge, played, POSITION_VALUE, PLAY)
+    after = registry.best(knowledge, played.context_id, POSITION_VALUE)
+
+    assert after is not None
+    assert AccuracyScorer().accuracy(knowledge, after.id, after.context) is not None, "chosen on games now"
+    if matches and matches[0].decisive:
+        assert after.name == matches[0].winner

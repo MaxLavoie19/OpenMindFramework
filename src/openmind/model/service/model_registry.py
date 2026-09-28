@@ -91,10 +91,16 @@ class ModelRegistry:
         return chosen
 
     def measured(self, knowledge_base: KnowledgeBase, model: ModelRecord) -> ModelMeasure:
-        """What the model has been measured at in its own context."""
+        """What the model has been measured at in its own context.
+
+        **The model's own accuracy where it has one, and its mechanism's otherwise.** Models made the same way
+        share a mechanism, so a mechanism's accuracy is what that way of making things is worth and not what
+        this model is worth. Playing measures the model; where nothing has played it, how well its mechanism
+        has done is the best that can be said."""
         timing = knowledge_base.belief(PROCESSING_TIME.format(model=model.id), model.context)
+        own = self._accuracy_scorer.accuracy(knowledge_base, model.id, model.context)
         return ModelMeasure(
-            self._accuracy_scorer.accuracy(knowledge_base, model.mechanism, model.context),
+            own if own is not None else self._accuracy_scorer.accuracy(knowledge_base, model.mechanism, model.context),
             self._accuracy_scorer.spread(knowledge_base, model.mechanism, model.context),
             None if timing is None else float(timing.value),  # type: ignore[arg-type]
             0 if timing is None else int(dict(timing.tags).get(READINGS, 0)),  # type: ignore[arg-type]
