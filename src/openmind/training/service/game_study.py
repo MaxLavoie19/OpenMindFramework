@@ -3,6 +3,7 @@ import logging
 from openmind.agent.service.game_memory import GameMemory
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.service.rule_based_game import RuleBasedGame
+from openmind.training.model.studied import Studied
 from openmind.training.service.game_replayer import GameReplayer
 from openmind.world.model.state import State
 
@@ -30,14 +31,19 @@ class GameStudy:
     def __init__(self, game_replayer: GameReplayer | None = None) -> None:
         self._replayer = GameReplayer() if game_replayer is None else game_replayer
 
-    def positions(
+    def studied(
         self,
         knowledge_base: KnowledgeBase,
         game: RuleBasedGame,
         kind: str | None = None,
         most: int | None = None,
-    ) -> tuple[State, ...]:
-        """Every position of every game remembered there, in the order they were played.
+    ) -> tuple[Studied, ...]:
+        """Every position of every game remembered there, in the order they were played, each carrying what
+        the game it came from came to.
+
+        **The position without its game has lost what makes it worth learning from.** Who played it and how
+        it ended are facts about the position as much as about the game, and both were already written down
+        when the game ended — a position handed back bare threw them away on the way out.
 
         `kind` keeps to games of one kind, and `most` to the last so many games — the last, because a game
         played recently was played with whatever is believed now.
@@ -47,7 +53,7 @@ class GameStudy:
         have its chances drawn again."""
         summaries = GameMemory(knowledge_base).games(kind)
         wanted = summaries if most is None else summaries[-most:]
-        found: list[State] = []
+        found: list[Studied] = []
         replayed = 0
         for summary in wanted:
             try:
@@ -58,12 +64,35 @@ class GameStudy:
             if len(states) < 2:
                 continue
             replayed += 1
-            found.extend(states)
+            found.extend(
+                Studied(
+                    state,
+                    ply,
+                    summary.label,
+                    tuple(summary.players),
+                    tuple(one.name for one in summary.models),
+                    tuple(summary.payoffs),
+                    summary.ending or "",
+                )
+                for ply, state in enumerate(states)
+            )
         logger.info(
-            "Studied %d of %d games remembered of %s: %d positions to learn from",
+            "Studied %d of %d games remembered of %s: %d positions to learn from, %d of games that ended %s",
             replayed,
             len(wanted),
             game.context,
             len(found),
+            sum(1 for one in found if one.ending),
+            ", ".join(sorted({one.ending for one in found if one.ending})) or "in no stated way",
         )
         return tuple(found)
+
+    def positions(
+        self,
+        knowledge_base: KnowledgeBase,
+        game: RuleBasedGame,
+        kind: str | None = None,
+        most: int | None = None,
+    ) -> tuple[State, ...]:
+        """The same, as bare positions, for a caller that wants only the boards."""
+        return tuple(one.state for one in self.studied(knowledge_base, game, kind, most))

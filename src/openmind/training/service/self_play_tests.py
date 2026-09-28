@@ -5,6 +5,7 @@ from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.search.model.guidance import Guidance
 from openmind.training.factory.training_factory import create_self_play
+from openmind.training.service.self_play import CUT_SHORT, UNSTATED
 from openmind.training.model.self_play_settings import SelfPlaySettings
 from openmind.training.service.game_replayer import GameReplayer
 
@@ -94,3 +95,20 @@ def test_each_side_is_remembered_with_the_heuristic_it_actually_played(
     assert [model.name for model in summary.models] == ["the centre one", "the corner one"]
     assert summary.models[0].id != summary.models[1].id
     assert "cell[2, 2] == me" in summary.models[0].text and "cell[1, 1] == me" in summary.models[1].text  # the rules, readable
+
+
+def test_a_game_says_why_it_stopped_even_where_its_rules_do_not(game: Game, knowledge: KnowledgeBase) -> None:
+    """Three ways to stop and they were one word between them, which was no word at all. A game cut short did
+    not end, and reading it as one that did is how a run of abandoned games looks like a run of played-out
+    ones."""
+    played = game("tictactoe")
+
+    whole = create_self_play().play_game(knowledge, played, Guidance("X"), SelfPlaySettings(seconds=0.003, seed=1))
+    cut = create_self_play().play_game(
+        knowledge, played, Guidance("X"), SelfPlaySettings(seconds=0.003, seed=1, steps=2)
+    )
+
+    assert cut.ending == CUT_SHORT, "the caller stopped it, and the game did not"
+    assert cut.steps == 2
+    assert whole.ending == UNSTATED, "it ended, and tic-tac-toe's rules say nothing about why"
+    assert whole.steps > 2

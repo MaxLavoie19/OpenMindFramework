@@ -22,6 +22,13 @@ from openmind.world.service.world import World
 
 logger = logging.getLogger(__name__)
 
+#: Why a game stopped where its own rules do not say.
+#:
+#: A game cut short by the steps it was given did not end, and a game that left nobody an action did. Both were
+#: recorded as nothing, so a run of games abandoned in the middlegame read as a run of games played out.
+CUT_SHORT = "the steps given ran out"
+UNSTATED = "nobody was left an action"
+
 #: What a game's two seeds are drawn from.
 SEEDS = 2**32
 
@@ -115,10 +122,29 @@ class SelfPlay:
             tuple(states),
             tuple(actions),
             self._payoffs(game, world.current()),
-            game.ended(world.current()),
+            self._ended(game, world.current(), len(actions), settings.steps),
             agent_seed,
             outcome_seed,
         )
+
+    def _ended(self, game: RuleBasedGame, state: State, played: int, steps: int | None) -> str | None:
+        """Why the game stopped, the game's own word for it where it has one.
+
+        **Three ways to stop and they were one word between them, which was no word at all.** A game whose
+        rules say why it ended says so. A game that left nobody an action ended, and the rules simply have
+        nothing to add. A game that was cut short because the steps given ran out *did not end*, and calling
+        that the same thing as the other two is how a run of games cut short reads as a run of games played
+        out. Nothing downstream could tell them apart: a position from a game abandoned in the middlegame is
+        not evidence about what wins, and it looked exactly like one from a game somebody won.
+
+        The last of the three is not the game's to say, which is why it was never said: the game did not stop,
+        the caller did."""
+        said = game.ended(state)
+        if said is not None:
+            return said
+        if steps is not None and played >= steps:
+            return CUT_SHORT
+        return UNSTATED if not game.joint_actions(state) else None
 
     def _chosen(
         self,

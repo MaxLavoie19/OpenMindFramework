@@ -62,3 +62,43 @@ def test_a_kind_of_game_can_be_studied_on_its_own(game: Game, knowledge: Knowled
 
     assert study.positions(knowledge, played, kind="nothing of that kind") == ()
     assert study.positions(knowledge, played) != ()
+
+
+def test_a_studied_position_carries_who_played_and_how_it_ended(game: Game, knowledge: KnowledgeBase) -> None:
+    """Both were written down when the game ended and a bare position threw them away on the way out. A
+    position from a game one heuristic won is evidence about that heuristic."""
+    played = game("tictactoe")
+    create_self_play().play(knowledge, played, Guidance("X"), PLAY)
+
+    studied = create_game_study().studied(knowledge, played)
+
+    assert studied
+    assert all(one.players == played.players().names for one in studied), "who sat where"
+    assert all(len(one.played_with) == len(one.players) for one in studied), "and what each played with"
+    assert all(one.ending for one in studied), "every game says why it stopped, in one of three ways"
+    assert {one.game for one in studied}, "each knows which game it came from"
+
+
+def test_a_position_knows_how_far_into_its_game_it_is(game: Game, knowledge: KnowledgeBase) -> None:
+    """So the openings of a thousand games can be told from the endings without replaying anything."""
+    played = game("tictactoe")
+    create_self_play().play(knowledge, played, Guidance("X"), SelfPlaySettings(games=1, seconds=0.003, seed=1))
+
+    studied = create_game_study().studied(knowledge, played)
+
+    assert [one.ply for one in studied] == list(range(len(studied))), "counted from the start at nought"
+    assert studied[0].state == played.start()
+
+
+def test_what_the_winner_played_with_is_read_off_the_position(game: Game, knowledge: KnowledgeBase) -> None:
+    """The whole reason each side's own heuristic is remembered: a game between two of them says which won."""
+    played = game("tictactoe")
+    create_self_play().play(knowledge, played, Guidance("X"), PLAY)
+
+    studied = create_game_study().studied(knowledge, played)
+
+    for one in studied:
+        if one.decisive:
+            assert one.won_by() in one.played_with
+        else:
+            assert one.won_by() == "", "a drawn game names no winner rather than naming the first player"

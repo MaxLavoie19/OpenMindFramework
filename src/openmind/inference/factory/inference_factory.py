@@ -1,3 +1,4 @@
+from openmind.inference.service.choice_fitter import ChoiceFitter
 from openmind.inference.service.heuristic_deriver import HeuristicDeriver
 from openmind.inference.service.heuristic_ponderer import HeuristicPonderer
 from openmind.inference.service.position_deducer import PositionDeducer
@@ -16,6 +17,12 @@ from openmind.world.service.state_reader import StateReader
 def create_position_deducer() -> PositionDeducer:
     """Reasoning about one position with nothing but the game's own rules."""
     return PositionDeducer(StateReader(), ActionTextMapper())
+
+
+def create_choice_fitter() -> ChoiceFitter:
+    """What fits a preference to what somebody chose, where nobody said what anything was worth. Stateless,
+    so it takes nothing."""
+    return ChoiceFitter()
 
 
 def create_heuristic_ponderer(knowledge_base: KnowledgeBase, workers: int = 1) -> HeuristicPonderer:
