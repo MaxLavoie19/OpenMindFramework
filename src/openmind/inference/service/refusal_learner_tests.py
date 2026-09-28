@@ -366,3 +366,44 @@ def test_the_prune_does_not_change_what_is_learned():
     first = learned[0]
     assert {one.predicate for one in first.body} == {"wide", "paired"}
     assert sum(1 for one in reaching_further() if one.holds and learner.covers(first, one)) == 5
+
+
+def test_a_reading_every_candidate_carries_is_not_offered_as_a_condition() -> None:
+    """It cannot tell one candidate here from another, so the only thing it can do for a body is narrow the
+    constraint to positions like this one — which is how a constraint escapes the guard by saying where it
+    was fitted rather than why a move is refused."""
+    learner = RefusalLearner()
+    here = Literal("halfmove clock", (Constant(0),))
+    mine = Literal("x", (Constant(1),))
+    yours = Literal("x", (Constant(2),))
+    examples = (
+        Example((here, mine), True, None),
+        Example((here, yours), False, None),
+    )
+
+    everywhere = learner._everywhere(examples)
+
+    assert here in everywhere, "both candidates carry it"
+    assert mine not in everywhere and yours not in everywhere
+    assert here not in learner.offered(examples[0], everywhere)
+    assert mine in learner.offered(examples[0], everywhere)
+
+
+def test_leaving_them_out_never_leaves_nothing() -> None:
+    """A body of nothing is not an improvement on a body that says where it was fitted."""
+    learner = RefusalLearner()
+    only = Literal("halfmove clock", (Constant(0),))
+    examples = (Example((only,), True, None), Example((only,), False, None))
+
+    everywhere = learner._everywhere(examples)
+
+    assert only in everywhere
+    assert learner.offered(examples[0], everywhere) == learner.offered(examples[0])
+
+
+def test_one_candidate_shares_nothing_because_there_is_nothing_to_tell_apart() -> None:
+    learner = RefusalLearner()
+    one = Example((Literal("x", (Constant(1),)),), True, None)
+
+    assert learner._everywhere((one,)) == frozenset()
+    assert learner._everywhere(()) == frozenset()

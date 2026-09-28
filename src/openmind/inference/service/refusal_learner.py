@@ -150,6 +150,13 @@ class RefusalLearner:
         # Deduped, because a caller that accumulates the guard has this position's legal moves in it already and
         # should not have to reason about that. A case read identically twice guards nothing twice.
         index = CaseIndex(tuple(dict.fromkeys((*allowed, *guard))))
+        # **What every candidate here shares tells none of them apart here.** A reading true of all of them
+        # cannot separate what the game refuses from what it allows in this position; put in a body it only
+        # narrows the constraint to positions like this one, which is how a constraint escapes the guard by
+        # saying where it was fitted rather than why a move is refused. The distiller counts these and calls
+        # them postcodes, and says three ways of removing them afterwards were tried and failed. This is the
+        # fourth: not offering them.
+        everywhere = self._everywhere(examples)
         found: list[Clause] = list(starting)
         held = self.coverage(found, examples) if coverage is None else coverage
         accounted = frozenset().union(*held.values(), frozenset())
@@ -159,7 +166,9 @@ class RefusalLearner:
             if self._clock() >= deadline:
                 stopped = "the time ran out"
                 break
-            grown, used, replaced = self._widened(left, index, deadline, found, positions, table, examples)
+            grown, used, replaced = self._widened(
+                left, index, deadline, found, positions, table, examples, everywhere
+            )
             if grown is None:
                 stopped = "nothing further could be generalised"
                 break
@@ -180,6 +189,21 @@ class RefusalLearner:
             len(found), given, len(refused) - len(left), len(refused), wrongly, len(allowed), stopped,
         )
         return tuple(found)
+
+    def _everywhere(self, examples: Sequence[Example]) -> frozenset[Literal]:
+        """The readings every one of those candidates carries, which is what says where they are rather than
+        which of them is which.
+
+        Empty for fewer than two candidates, where there is nothing to tell apart and so nothing that fails to
+        tell it."""
+        if len(examples) < 2:
+            return frozenset()
+        shared = set(examples[0].literals)
+        for one in examples[1:]:
+            shared &= set(one.literals)
+            if not shared:
+                break
+        return frozenset(shared)
 
     def computes(self, predicate: str) -> bool:
         """Whether that reading is answered by computing rather than by a case having it."""
@@ -439,6 +463,7 @@ class RefusalLearner:
         positions: int,
         table: HypothesisTable | None = None,
         pool: Sequence[Example] = (),
+        everywhere: frozenset[Literal] = frozenset(),
     ) -> tuple[Clause | None, list[Example], Clause | None]:
         """One constraint, generalised from a case as far as what the game allows will let it go.
 
@@ -463,7 +488,7 @@ class RefusalLearner:
         for number, one in enumerate(left):
             if self._clock() >= deadline:
                 break
-            briefest = self._recalled(one, left, pool, index, deadline, table)
+            briefest = self._recalled(one, left, pool, index, deadline, table, everywhere)
             if briefest is not None:
                 start, clause = number, briefest
                 break
@@ -534,6 +559,7 @@ class RefusalLearner:
         index: CaseIndex,
         deadline: float,
         longest: int = 4,
+        everywhere: frozenset[Literal] = frozenset(),
     ) -> Clause | None:
         """The shortest thing sayable from that case which refuses it and refuses nothing the game allows.
 
@@ -565,7 +591,7 @@ class RefusalLearner:
         case no brief rule fits is a case something longer has to account for. Where the clock runs out with
         something already standing, that is returned rather than nothing: it passed the same guard, and a
         constraint found is worth more to the caller than the search it did not finish."""
-        offered = self.offered(example)
+        offered = self.offered(example, everywhere)
         standing: list[Clause] = []
         slipped: dict[int, set[frozenset]] = {}
         worked: int | None = None
@@ -588,7 +614,7 @@ class RefusalLearner:
                 worked = size
         return self._worth(standing, left)
 
-    def offered(self, example: Example) -> tuple[Literal, ...]:
+    def offered(self, example: Example, everywhere: frozenset[Literal] = frozenset()) -> tuple[Literal, ...]:
         """What a body may be built out of: the readings the candidate is in, and the questions it can be put.
 
         **Two kinds of condition, and until now only one of them was ever proposed.** A reading is produced
@@ -608,7 +634,20 @@ class RefusalLearner:
         of the candidate. Nothing has to be worked out about whether it is linked."""
         asking = self._hypothetical.askable(example) if self._hypothetical is not None else ()
         later = tuple(one for one in example.literals if one.when is not None)
-        return (*self._readings.tied(example.literals), *later, *asking)
+        held = (*self._readings.tied(example.literals), *later, *asking)
+        # **A reading that holds for every candidate here tells no candidate from another here.** It cannot
+        # separate what the game refuses from what it allows in this position, so the only thing it can do for
+        # a body is make the constraint inapplicable elsewhere — which is how a constraint buys safety from
+        # the guard by shrinking to the position it was fitted to. The distiller counts those and calls them
+        # postcodes; this is where they stop being offered. The arithmetic is the same as the one that drops a
+        # column constant within a decision from a preference fit: it adds the same thing to every candidate.
+        #
+        # Left alone where leaving them out would leave nothing, since a body of nothing is not an improvement
+        # on a body that says where it was fitted.
+        if not everywhere:
+            return held
+        apart = tuple(one for one in held if one not in everywhere)
+        return apart or held
 
     def worth_trying(self, body: frozenset, slipped: set[frozenset] | None) -> bool:
         """Whether that body is worth putting to the guard at all, given what slipped one condition shorter.
@@ -645,6 +684,7 @@ class RefusalLearner:
         index: CaseIndex,
         deadline: float,
         table: HypothesisTable | None,
+        everywhere: frozenset[Literal] = frozenset(),
         longest: int = 4,
     ) -> Clause | None:
         """The briefest thing that refuses that case, taken from what has already been tried where it can be.
@@ -668,12 +708,12 @@ class RefusalLearner:
         Without a table it searches, exactly as before. That is not a fallback kept for tidiness: it is the
         thing the table has to be shown to agree with."""
         if table is None:
-            return self._briefest(example, left, index, deadline)
+            return self._briefest(example, left, index, deadline, everywhere=everywhere)
         held = [one for one in table.useful() if self.covers(one.clause, example)]
         if not held:
             # Nothing held reaches this case, so it is searched — and everything tried on the way is written
             # down, not only what won. What loses here is what another case will find already answered.
-            offered = self.offered(example)
+            offered = self.offered(example, everywhere)
             worked: int | None = None
             for size in range(1, longest + 1):
                 if worked is not None and size > worked + self._further:
