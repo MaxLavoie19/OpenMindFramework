@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from openmind.statement.model.term import Functor, Term, Variable
+from openmind.statement.model.term import Constant, Functor, Number, Term, Variable
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +57,19 @@ class Literal:
         """The same thing said the other way, of the same moment."""
         return Literal(self.predicate, self.arguments, not self.negated, self.when)
 
+    @property
+    def readable(self) -> str:
+        """The literal said as itself: `takes(rook)`, `not holds(1, 2, grid, nothing)`.
+
+        **A literal that cannot name itself is a literal nothing can label a column with.** Saying one lived
+        inside `Clause`, privately, because a clause was the only thing that ever printed one — so anything
+        else wanting the words had to wrap a single literal in a clause to get at them. The rendering belongs
+        to the thing being rendered."""
+        negated = "not " if self.negated else ""
+        if not self.arguments:
+            return f"{negated}{self.predicate}"
+        return f"{negated}{self.predicate}({', '.join(_said(one) for one in self.arguments)})"
+
     def said_of(self, when: Term | None) -> "Literal":
         """The same thing said of that moment."""
         return Literal(self.predicate, self.arguments, self.negated, when)
@@ -80,3 +93,15 @@ def _hashed(held: Literal) -> int:
 # The dataclass writes a hash of its own for a frozen class, so the cached one is put in afterwards rather than in
 # the body, where it would be overwritten.
 Literal.__hash__ = _hashed  # type: ignore[assignment,method-assign]
+
+
+def _said(term: object) -> str:
+    """A term as words: a functor with its arguments, a constant by its name, a number plainly."""
+    arguments = getattr(term, "arguments", None)
+    if arguments is not None:
+        return f"{getattr(term, 'name', '?')}({', '.join(_said(one) for one in arguments)})"
+    if isinstance(term, Constant):
+        return "nothing" if term.name is None else str(term.name)
+    if isinstance(term, Number):
+        return f"{term.value:g}" if isinstance(term.value, float) else str(term.value)
+    return str(getattr(term, "name", term))

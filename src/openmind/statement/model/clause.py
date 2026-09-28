@@ -99,17 +99,5 @@ class Clause:
         return f"{said}{self._said(head)} :- " + ", ".join(self._said(one) for one in body)
 
     def _said(self, literal: Literal) -> str:
-        negated = "not " if literal.negated else ""
-        if not literal.arguments:
-            return f"{negated}{literal.predicate}"
-        return f"{negated}{literal.predicate}({', '.join(self._term(one) for one in literal.arguments)})"
-
-    def _term(self, term: object) -> str:
-        arguments = getattr(term, "arguments", None)
-        if arguments is not None:
-            return f"{getattr(term, 'name', '?')}({', '.join(self._term(one) for one in arguments)})"
-        if isinstance(term, Constant):
-            return "nothing" if term.name is None else str(term.name)
-        if isinstance(term, Number):
-            return f"{term.value:g}" if isinstance(term.value, float) else str(term.value)
-        return str(getattr(term, "name", term))
+        """That literal in words, which the literal itself knows how to say."""
+        return literal.readable
