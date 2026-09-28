@@ -165,6 +165,21 @@ class ModelMatch:
         )
         return match
 
+    def guidance(
+        self, knowledge_base: KnowledgeBase, player: str, task: str, model: ModelRecord | None
+    ) -> Guidance:
+        """That player guided by that model, in the slot its task belongs to, or by nothing where there is no
+        model or it will not load.
+
+        **What a caller needs to play *with* a registered model rather than to compare two.** Loading one and
+        putting it in the right slot is two steps that have to agree with each other, and a caller that gets
+        the slot wrong gets a player guided by nothing and no complaint. A round of improving plays with
+        whatever is winning, which is exactly this."""
+        filled = self._outfitter.filled(knowledge_base, model)
+        if model is None or filled is None:
+            return Guidance(player)
+        return self._guided(player, task, filled)
+
     def _shared(self, one: ModelRecord, other: ModelRecord) -> str | None:
         """The heuristic task both are models of, or None where there is none.
 
