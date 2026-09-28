@@ -1,5 +1,6 @@
 from openmind.statement.model.clause import Clause
 from openmind.statement.model.literal import Literal
+from openmind.structure.mapper.value_json_mapper import ValueJsonMapper
 from openmind.statement.model.term import Constant, Functor, Number, Term, Variable
 
 
@@ -43,6 +44,10 @@ class ClauseJsonMapper:
             bool(data.get("negated", False)),
         )
 
+    def __init__(self, value_json_mapper: ValueJsonMapper | None = None) -> None:
+        # What writes a record down and reads it back, since a constant may hold one.
+        self._values = ValueJsonMapper() if value_json_mapper is None else value_json_mapper
+
     def term_to_data(self, term: Term) -> dict[str, object]:
         if isinstance(term, Variable):
             return {"variable": term.name, "sort": term.sort}
@@ -50,7 +55,14 @@ class ClauseJsonMapper:
             return {"number": term.value}
         if isinstance(term, Functor):
             return {"functor": term.name, "arguments": [self.term_to_data(one) for one in term.arguments]}
-        return {"constant": term.name}
+        # **A constant's value is whatever the game's records are made of, and that need not be a string.**
+        # A chess square holds a `Piece`, and writing it raw fails at the point of writing with "Object of
+        # type Piece is not JSON serializable" — which killed a training run at its twelfth position after
+        # the same fault had been fixed for consequences and left here. The value mapper is what knows how to
+        # write a record down and read it back, and there is one of it rather than one per caller because
+        # two ways of writing one thing is how the halves of this system came to disagree about what a
+        # capture is.
+        return {"constant": self._values.to_data(term.name)}
 
     def term_to_term(self, data: dict[str, object]) -> Term:
         if "variable" in data:
@@ -61,5 +73,5 @@ class ClauseJsonMapper:
             arguments = data.get("arguments") or ()
             return Functor(str(data["functor"]), tuple(self.term_to_term(one) for one in arguments))  # type: ignore[arg-type]
         if "constant" in data:
-            return Constant(data["constant"])  # type: ignore[arg-type]
+            return Constant(self._values.from_data(data["constant"]))  # type: ignore[arg-type]
         raise ValueError(f"A term has to say which kind it is; this one carries {sorted(data)}")
