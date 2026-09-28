@@ -398,6 +398,35 @@ questions by number.
           is paying for it every pass.
 
 
+38. **A term that never varies along a walk is not a term that carries nothing.** (found measuring whether
+    steadiness earns its keep, having built it on the claim that it does)
+    Steadiness — a term's spread across a game over its step between neighbours — was built on the reasoning
+    that dropping a column which never varies is arithmetic rather than judgement, since a constant tells no
+    position from another and the fit has its own constant already. Measured over three seeds of tic-tac-toe,
+    held-out loss on positions no arm fitted on:
+
+    ```
+    seed  not measured  ordered  budgeted to the steadiest four
+       1        0.0057   0.0264                          0.1486
+       2        0.0018   0.0484                          0.1159
+       3        0.0241   0.0323                          0.1111
+    mean        0.0105   0.0357                          0.1252
+    ```
+
+    Worse every seed and worse the more steadiness was allowed to do. **The reasoning was wrong about its own
+    sample.** A walk of tic-tac-toe is about nine positions from the opening; the fit runs on eighty gathered
+    positions. A term that never varies *along a walk* may vary freely over the positions being fitted, so the
+    column being constant was a fact about the walk and never about the term. It was an opinion dressed as
+    arithmetic.
+    - **What is visible, and none of it is chosen:** whether the two variances should be measured over
+      different sets — the spread over the gathered positions, which is the distribution the fit and the
+      held-out rows live in, and the step between neighbours over the walks, which is the only place steps
+      exist — so that "carries nothing" and "cannot be steered by" stop being read off one narrow sample;
+      whether walks should instead start from gathered positions rather than from the opening, which would
+      widen the sample without separating the two measures; and whether the whole thing is worth keeping,
+      since ordering alone cost 3.4 times the loss and the only thing it can buy is reaching a term sooner.
+    - **Undecided.** Turned off by default meanwhile, so nothing is quietly given a measured regression.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.

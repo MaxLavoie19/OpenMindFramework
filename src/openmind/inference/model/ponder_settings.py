@@ -20,10 +20,18 @@ class PonderSettings:
     values: ValueSettings
     positions: int = 200
     held_out: int = 50
-    #: How many walks to measure steadiness over, and how long each may run. A walk is cheap and short
-    #: walks say little, so both are here to be set rather than assumed; no walks at all measures nothing
-    #: and orders nothing, which is what a caller that does not want this asks for.
-    walks: int = 3
+    #: How many walks to measure steadiness over, and how long each may run. No walks measures nothing,
+    #: orders nothing and drops nothing, and that is the default because measuring it made things worse.
+    #:
+    #: **Off because it was measured, not because it was untried.** Over three seeds of tic-tac-toe, held-out
+    #: loss went from 0.0105 measuring nothing, to 0.0357 ordering by steadiness, to 0.1252 keeping only the
+    #: four steadiest — worse every seed and worse the more it was allowed to do. The reason is the sample:
+    #: a walk of tic-tac-toe is about nine positions from the opening while the fit runs on eighty gathered
+    #: ones, so a term that never varies *along a walk* can vary plenty over the positions being fitted, and
+    #: dropping it throws away something the fit wanted. Measuring the spread over the gathered positions and
+    #: only the step between neighbours over the walks would separate "carries nothing" from "cannot be
+    #: steered by"; until that is done and measured, this stays where a caller has to ask for it.
+    walks: int = 0
     walk_steps: int = 40
     #: How many of the steadiest terms to let the search take up, None for all of them.
     #:

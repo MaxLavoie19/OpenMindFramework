@@ -203,6 +203,18 @@ def test_the_rows_held_back_are_gathered_positions_and_not_nodes_from_a_tree(
     assert all(row.state in asked for row in held_out), "every row held back is a position that was gathered"
 
 
+def test_steadiness_is_measured_only_where_it_is_asked_for(game: Game, knowledge: KnowledgeBase, caplog):
+    """Off by default, because measuring it made held-out loss worse on every seed tried. A caller that wants
+    it asks for walks; one that does not is not quietly given it."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+
+    with caplog.at_level(logging.INFO):
+        ponderer.ponder(knowledge, played, settings())
+
+    assert not [one for one in caplog.records if "kept and" in one.message], "nothing measured, nothing dropped"
+
+
 def test_a_term_that_never_varies_never_reaches_the_search(game: Game, knowledge: KnowledgeBase, caplog):
     """Dropped rather than ordered last, and the search is told so it spends nothing on it or on anything
     grown from it."""
@@ -210,7 +222,7 @@ def test_a_term_that_never_varies_never_reaches_the_search(game: Game, knowledge
     ponderer = create_heuristic_ponderer(knowledge)
 
     with caplog.at_level(logging.INFO):
-        pondered = ponderer.ponder(knowledge, played, settings())
+        pondered = ponderer.ponder(knowledge, played, settings(walks=3))
 
     assert pondered is not None
     said = [one.message for one in caplog.records if "kept and" in one.message]
@@ -224,7 +236,7 @@ def test_the_steadiest_budget_lets_fewer_terms_through(game: Game, knowledge: Kn
     ponderer = create_heuristic_ponderer(knowledge)
 
     with caplog.at_level(logging.INFO):
-        ponderer.ponder(knowledge, played, settings(steadiest=2))
+        ponderer.ponder(knowledge, played, settings(walks=3, steadiest=2))
 
     kept = [one.message for one in caplog.records if "kept and" in one.message]
     assert kept, "it reports the split"
