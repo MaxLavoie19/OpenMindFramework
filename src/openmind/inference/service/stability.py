@@ -29,16 +29,21 @@ class Stability:
     out like any other.
 
     **Dropping is a claim, and it is made only where the arithmetic makes it.** A term whose value never
-    varies over everything walked carries no information about which position is which — not *probably*
-    useless, but carrying nothing, since a constant column and the fit's own constant say the same thing
-    twice. Beyond that, `keeping` is a caller's budget: the steadiest so many, because a search has only so
-    many generations and spending them on terms nobody can steer by is spending them on nothing. That is a
-    judgement, so it is the caller's and it is off unless asked for.
+    varies *over the positions it will be fitted on* carries no information about which of them is which —
+    not probably useless, but carrying nothing, since a constant column and the fit's own constant say the
+    same thing twice. Which positions those are is the whole of what makes this true: measured along a walk
+    instead, it was a claim about nine opening positions and it threw away terms the fit wanted. Beyond that,
+    `keeping` is a caller's budget: the steadiest so many, because a search has only so many generations.
+    That is a judgement, so it is the caller's and it is off unless asked for.
 
     Nothing here knows a game. It is handed numbers in the order a walk produced them and gives a number
     back."""
 
-    def of(self, runs: Sequence[Sequence[Sequence[float]]]) -> tuple[float, ...]:
+    def of(
+        self,
+        runs: Sequence[Sequence[Sequence[float]]],
+        over: Sequence[Sequence[float]] = (),
+    ) -> tuple[float, ...]:
         """How steady each term is, in the terms' order.
 
         `runs` is one entry per walk, each a list of positions in the order they were walked, each of those
@@ -46,24 +51,53 @@ class Stability:
         step from the last position of a game to the first of the next is not a step anything took, and
         counting it would make every term look wilder than it is.
 
-        A term that never varies over the walks is worth nothing to steer by, however steady, and is given
-        nothing rather than a division by zero dressed up as a large number."""
+        **`over` is where the spread is measured, and the walks are only where the steps are.** The two halves
+        of this ratio are facts about different things. How much a term varies is a fact about the positions
+        the heuristic will meet, which is the positions it is fitted on. How much it moves in one step is a
+        fact about steps, and steps only exist along a walk. Measuring both along the walk was wrong and was
+        measured to be wrong: a walk of tic-tac-toe is nine positions from the opening while the fit runs on
+        eighty gathered ones, so a term constant across the opening read as carrying nothing when it varied
+        freely over the positions being fitted. Given no `over`, the walks stand in for it, which is what the
+        first version did and what its numbers were.
+
+        A term that never varies over those positions is worth nothing to steer by, however steady, and is
+        given nothing rather than a division by zero dressed up as a large number."""
         counted = self._counted(runs)
         if counted is None:
             return ()
-        total, between, steps = counted
+        walked, between, steps = counted
+        total = self._spread(over, len(walked)) if over else walked
+        if total is None:
+            total = walked
         found = []
         for at, spread in enumerate(total):
             moved = between[at] / steps if steps else 0.0
             found.append(UNVARYING if spread <= 0.0 else (spread / moved if moved > 0.0 else spread))
         return tuple(found)
 
-    def steadiest(self, runs: Sequence[Sequence[Sequence[float]]], terms: Sequence[object]) -> tuple[object, ...]:
+    def _spread(self, over: Sequence[Sequence[float]], width: int) -> list[float] | None:
+        """How much each term varies over those positions; None where they do not line up with the walks."""
+        held = [one for one in over if len(one) == width]
+        if len(held) != len(over) or len(held) < 2:
+            return None
+        found = []
+        for term in range(width):
+            values = [float(one[term]) for one in held]
+            middle = sum(values) / len(values)
+            found.append(sum((one - middle) ** 2 for one in values) / len(values))
+        return found
+
+    def steadiest(
+        self,
+        runs: Sequence[Sequence[Sequence[float]]],
+        terms: Sequence[object],
+        over: Sequence[Sequence[float]] = (),
+    ) -> tuple[object, ...]:
         """Those terms, steadiest first, every one of them kept.
 
         The order alone, for a caller that wants the search to reach the steady ones sooner and to go on
         reaching all of them."""
-        steady = self.of(runs)
+        steady = self.of(runs, over)
         if len(steady) != len(terms):
             logger.debug("Ordering nothing by steadiness: %d terms against %d measured", len(terms), len(steady))
             return tuple(terms)
@@ -75,6 +109,7 @@ class Stability:
         runs: Sequence[Sequence[Sequence[float]]],
         terms: Sequence[object],
         keeping: int | None = None,
+        over: Sequence[Sequence[float]] = (),
     ) -> tuple[tuple[object, ...], tuple[object, ...]]:
         """Those terms split into the ones worth a generation and the ones that are not, steadiest first.
 
@@ -84,7 +119,7 @@ class Stability:
         `keeping` is how many of the rest to keep, the steadiest first, None for all of them. It is a budget
         and not a threshold: how steady is steady enough has no answer that travels between games, and how
         many generations there are to spend is something the caller knows."""
-        steady = self.of(runs)
+        steady = self.of(runs, over)
         if len(steady) != len(terms):
             logger.debug("Keeping every term: %d terms against %d measured", len(terms), len(steady))
             return tuple(terms), ()

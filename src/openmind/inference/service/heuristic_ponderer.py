@@ -269,13 +269,14 @@ class HeuristicPonderer:
             tried[-1].seconds,
             "" if worth.settled else " — resting on nothing, since no position bore out that doing less is worse",
         )
-        steady, dropped = self._steady(game, vocabulary, settings, tried)
+        steady, dropped = self._steady(game, vocabulary, positions, settings, tried)
         return (*seeds, *steady), dropped
 
     def _steady(
         self,
         game: RuleBasedGame,
         vocabulary: object,
+        positions: Sequence[State],
         settings: PonderSettings,
         tried: list[Labelling],
     ) -> tuple[tuple[Expression, ...], tuple[str, ...]]:
@@ -287,26 +288,45 @@ class HeuristicPonderer:
         a number that would have jumped anyway. Knowing that before the search spends a generation on it is
         the point.
 
-        A term whose value never varied over everything walked is dropped outright, and that is arithmetic
-        rather than an opinion: a column the same everywhere tells no position from another, and the fit
-        already has its own constant. Beyond that `settings.steadiest` is a budget — the steadiest so many
-        kept — and it is off unless asked for, because how steady is steady enough has no answer that travels
-        between games.
+        **Nothing is dropped unless `settings.steadiest` asks for it**, and that is measured rather than
+        argued. Dropping the leaves whose columns never vary was defended twice — first as arithmetic, since a
+        constant tells no position from another, then as arithmetic over the right sample once the spread was
+        read from the fitted positions. Both defences were about a term's worth *on its own*, and the search's
+        whole business is combining them: a leaf constant everywhere can be the half of a difference that is
+        not. Dropping a twentieth of the candidates cost between two and thirteen times the held-out loss.
 
         What is kept is carried without a weight, because steadiness is not a claim about what a term is
         worth. A weight says where the fit should start; this says only where to look first.
 
-        Walks and not gathered positions: gathering skips a position it has seen and starts afresh when a game
-        ends, so two of its positions side by side need not be a move apart, and the whole measure is about
-        what one move changes."""
+        The spread is read over the positions being fitted, and the step between neighbours over the walks.
+        They are facts about different things: what a term varies over is what the heuristic will meet, and a
+        step exists only along a walk. Gathering skips a position it has seen and starts afresh when a game
+        ends, so two of its positions side by side need not be a move apart — which is why the steps need
+        walks — and a walk is a narrow slice of a game, which is why the spread must not come from one."""
         started = time.monotonic()
         leaves = self._expressions.leaves(vocabulary)  # type: ignore[arg-type]
         if not leaves or settings.walks < 1 or settings.walk_steps < 2:
             return (), ()
         runs = self._gatherer.walk(game, settings.walk_steps, settings.seed, settings.walks)
         read = tuple(self._read(game, run, leaves) for run in runs)
-        ordered, dropped = self._stability.kept(read, leaves, settings.steadiest)
-        steady = self._stability.of(read)
+        # How much a term varies is a fact about the positions it will be fitted on, and how much it moves in
+        # one step is a fact about steps, which only a walk has. Measuring both along the walk read a term
+        # constant across nine opening positions as carrying nothing, when it varied freely over the eighty
+        # being fitted — which is what made the first version of this worse than not having it.
+        over = self._read(game, positions, leaves)
+        # **Ordered always, dropped only where a budget asks.** Measured three ways over three seeds of
+        # tic-tac-toe, held-out loss: untouched 0.0131, 0.0035, 0.0227; ordered and nothing dropped 0.0076,
+        # 0.0035, 0.0227; ordered with the constant leaves dropped 0.0277, 0.0472, 0.0541. Ordering is free
+        # and once better. Dropping costs 2.1, 13.5 and 2.4 times, and it costs that while removing only a
+        # twentieth of the candidates — because a leaf that carries nothing by itself carries plenty as a
+        # part, and dropping it takes everything the search would have grown from it. A column being constant
+        # makes a term useless, not a building block useless.
+        ordered, dropped = (
+            (self._stability.steadiest(read, leaves, over), ())
+            if settings.steadiest is None
+            else self._stability.kept(read, leaves, settings.steadiest, over)
+        )
+        steady = self._stability.of(read, over)
         tried.append(
             Labelling(
                 STEADY.format(context=game.context),

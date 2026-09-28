@@ -378,91 +378,33 @@ questions by number.
     `king` after six of six moves refused for check and after none of sixteen legal moves. The rule is a body
     of one condition. **So only the loose half of this question was ever real**, and what it costs is settled:
     the hard rule is cheap exactly to the degree the easy ones are right.
-    - **Decided (Maxime): iteratively.** Improve the ruleset until it is stable but for the harder rules still
-      missing, then dig deeper, and each pass uncovers more hypotheses until the set is coherent. The ordering
-      option, made a loop rather than a one-off schedule.
+    - **Decided (Maxime): iteratively, and there is nothing to detect.** Improve the ruleset until it is
+      stable but for the harder rules still missing, then dig deeper, each pass uncovering more hypotheses
+      until the set is coherent. **Stability is not a thing to measure and wait for — it happens**, as more
+      data arrives and the rules are reconciled against it. And depth is not raised on a signal either: the
+      maximum is raised when the search stops finding better solutions.
+      That removes two of the three things listed below as open. There is no definition of stable to settle,
+      because nothing waits on stability; and there is no stopping rule to find, because deeper is tried
+      exactly when shallower has stopped paying. What is left is the middle one.
     - **What that leaves open, and none of it is started:**
-        - **What stable means.** Not "the rules stopped changing" — the one measured case in the literature
-          (Komachi et al., EMNLP 2008) found a per-step confidence threshold delays drift rather than
-          preventing it, and what worked was stopping at a *measured peak*. So stability wants measuring on
-          held-out let-through, not on the rules. **Whether a stable point exists at all is unmeasured.**
         - **What deeper opens.** A reading that rests on the rules below is offered unconditionally today.
           Under a loop it would be earned — withheld while the layer below is loose, since offering it early
-          is what produced the yes-everywhere answer above.
-        - **When to stop.** The sniper already terminates with either the briefest body or a proof that no
-          combination of readings separates a candidate. That second outcome is the one signal telling
-          "dig deeper" apart from "a reading is missing", and no published system reports it. It is the
-          natural termination test for the loop and has never been run on a king-safety residual.
+          is what produced the yes-everywhere answer above. This is the one sub-question the decision above
+          does not dissolve, because raising the depth says nothing about which readings become askable at
+          which depth.
         - **Consequences do not outlive their run.** `plain2` and `sides2` persist none; `windowed` cannot be
           loaded at all, holding the pre-rewrite spelling. A loop that re-learns what a move does every pass
-          is paying for it every pass.
+          is paying for it every pass. Plumbing rather than a question, and unstarted.
 
-
-38. **A term that never varies along a walk is not a term that carries nothing.** (found measuring whether
-    steadiness earns its keep, having built it on the claim that it does)
-    Steadiness — a term's spread across a game over its step between neighbours — was built on the reasoning
-    that dropping a column which never varies is arithmetic rather than judgement, since a constant tells no
-    position from another and the fit has its own constant already. Measured over three seeds of tic-tac-toe,
-    held-out loss on positions no arm fitted on:
-
-    ```
-    seed  not measured  ordered  budgeted to the steadiest four
-       1        0.0057   0.0264                          0.1486
-       2        0.0018   0.0484                          0.1159
-       3        0.0241   0.0323                          0.1111
-    mean        0.0105   0.0357                          0.1252
-    ```
-
-    Worse every seed and worse the more steadiness was allowed to do. **The reasoning was wrong about its own
-    sample.** A walk of tic-tac-toe is about nine positions from the opening; the fit runs on eighty gathered
-    positions. A term that never varies *along a walk* may vary freely over the positions being fitted, so the
-    column being constant was a fact about the walk and never about the term. It was an opinion dressed as
-    arithmetic.
-    - **What is visible, and none of it is chosen:** whether the two variances should be measured over
-      different sets — the spread over the gathered positions, which is the distribution the fit and the
-      held-out rows live in, and the step between neighbours over the walks, which is the only place steps
-      exist — so that "carries nothing" and "cannot be steered by" stop being read off one narrow sample;
-      whether walks should instead start from gathered positions rather than from the opening, which would
-      widen the sample without separating the two measures; and whether the whole thing is worth keeping,
-      since ordering alone cost 3.4 times the loss and the only thing it can buy is reaching a term sooner.
-    - **Undecided.** Turned off by default meanwhile, so nothing is quietly given a measured regression.
-
-39. **The price sweep chooses between models it cannot tell apart, and always takes the largest.** (found
-    asking why the number of rules kept swings, which turned out to be a different question)
-    The price is chosen by the lowest held-out loss, ties going to the fewest terms. The tie never happens,
-    because it needs two floats to be exactly equal. What happens instead, over three seeds of tic-tac-toe
-    with four prices:
-
-    ```
-    seed  trained on         rows  pool  0.1          0.01         0.001         0.0
-       1  gathered only        84  3411  0.1694 · 6   0.0624 · 45  0.0619 · 2709  0.0617 · 3411
-       2  gathered only        80  3659  0.0853 · 4   0.0629 · 34  0.0630 · 2864  0.0629 · 3659
-       3  gathered only        82  3580  0.1123 · 4   0.0540 · 52  0.0552 · 2847  0.0566 · 3580
-       1  and the tree nodes 2754   215  0.0870 · 2   0.0494 · 7   0.0240 · 54    0.0239 · 215
-       2  and the tree nodes 2600   212  0.0657 · 2   0.0252 · 6   0.0116 · 57    0.0116 · 212
-       3  and the tree nodes 2838   229  0.0853 · 2   0.0503 · 4   0.0184 · 56    0.0183 · 229
-    ```
-
-    Seed 1 separates 2709 terms from 3411 by 0.0002 of held-out loss. Seed 3's tree arm separates 56 terms
-    from 229 by 0.0001. Those losses are measured on twenty rows. **A difference in the fifth significant
-    figure is deciding a difference of four to sixteen times in model size**, and it decides it the same way
-    every time: take more. The extreme of it is the first row — 3411 terms fitted to 84 training rows, judged
-    on 20 held-out rows, and every one of the 3411 kept.
-    Two things this is not. It is not the price failing to bind because the proof-tree rows arrived: the
-    gathered-only arm picks the cheapest price too, on two seeds of three. And it is not instability in the
-    fit — the winning price is the same across seeds and the losses are orderly.
-    - **What is visible, and none of it is chosen:** whether the sweep should prefer fewer terms where the
-      losses are indistinguishable rather than only where they are equal, and if so what indistinguishable
-      means — the standard error of the held-out loss is derivable from the residuals and the row count
-      rather than being a number somebody picked, which is the only reason to prefer it; whether twenty
-      held-out rows can adjudicate anything at all between models of this size, which is a question about the
-      budget rather than the rule; and whether a pool of 3411 terms over 84 rows should have been generated
-      in the first place, which is a question for the search rather than the sweep.
-    - **Undecided.**
 
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
+
+- **38.** A term flat along a walk is not a term that carries nothing — and neither is a term flat over the
+  positions being fitted. Order by steadiness, drop nothing.
+- **39.** The price sweep could not tell its models apart. Near enough now counts as equal, by the standard
+  error of the loss.
 
 - **A1.** Default tactic
 - **A2.** Accuracy and precision

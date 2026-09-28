@@ -1,3 +1,4 @@
+import math
 import numpy as np
 
 from openmind.rbs.model.sparse_fit import SparseFit
@@ -53,3 +54,21 @@ class SparseFitter:
         """The mean squared error, (columns · weights + bias - target)², without the price."""
         predicted = columns @ np.asarray(weights, dtype=float) + bias
         return float(np.mean((predicted - targets) ** 2))
+
+    def uncertainty(
+        self, columns: np.ndarray, targets: np.ndarray, weights: tuple[float, ...], bias: float
+    ) -> float:
+        """How far the mean squared error could be out, being a mean of that many rows: the standard error.
+
+        **A loss is an estimate and estimates have a width.** Two fits whose losses differ by less than this
+        have not been told apart by the rows they were measured on, however many decimal places the
+        difference occupies. Without it a fit of three thousand terms beats one of forty by two
+        ten-thousandths of a loss measured over twenty rows, and is preferred every time.
+
+        Derived from the rows rather than chosen: the spread of the squared errors over the root of how many
+        there are. Nought for fewer than two rows, where a spread cannot be had."""
+        if len(targets) < 2:
+            return 0.0
+        predicted = columns @ np.asarray(weights, dtype=float) + bias
+        errors = (predicted - targets) ** 2
+        return float(np.std(errors, ddof=1) / math.sqrt(len(errors)))

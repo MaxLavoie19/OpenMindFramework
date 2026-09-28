@@ -175,6 +175,8 @@ class ValueGenerator:
 
         fits: list[ValueFit] = []
         fitted: list[SparseFit] = []
+        # How far each price's loss could be out, being a mean over so many rows. What it is for is below.
+        widths: list[float] = []
         start: SparseFit | None = None
         for price in prices:
             fit = self._sparse_fitter.fit(standard, targets, price, settings.max_steps, settings.tolerance, start, costs)
@@ -186,6 +188,11 @@ class ValueGenerator:
                 fit.settled,
                 self._sparse_fitter.loss(standard, targets, fit.weights, fit.bias),
                 self._sparse_fitter.loss(held_standard, held_out_targets, fit.weights, fit.bias) if has_held_out else None,
+            )
+            width = (
+                self._sparse_fitter.uncertainty(held_standard, held_out_targets, fit.weights, fit.bias)
+                if has_held_out
+                else self._sparse_fitter.uncertainty(standard, targets, fit.weights, fit.bias)
             )
             logger.info(
                 "%sPrice %s: %d of %d terms kept in %d steps, %s; training loss %s, held-out loss %s",
@@ -200,14 +207,9 @@ class ValueGenerator:
             )
             fits.append(value_fit)
             fitted.append(fit)
+            widths.append(width)
 
-        index = min(
-            range(len(fits)),
-            key=lambda at: (
-                fits[at].training_loss if fits[at].held_out_loss is None else fits[at].held_out_loss,
-                fits[at].terms_kept,
-            ),
-        )
+        index = self._chosen(fits, widths, label)
         chosen = fitted[index]
         kept = sorted((at for at, weight in enumerate(chosen.weights) if weight != 0.0), key=lambda at: -abs(chosen.weights[at]))
         declared = self._declared(target, target.task, chosen, terms, means, scales, label, fits[index].price)
@@ -257,6 +259,46 @@ class ValueGenerator:
             bias,
         )
         return tuple(rules)
+
+    def _chosen(self, fits: Sequence[ValueFit], widths: Sequence[float], label: str) -> int:
+        """Which price to keep: the fewest terms among the fits nothing told apart from the best.
+
+        **A loss is a mean over rows and a mean has a width.** Preferring the lowest loss outright made a fit
+        of three thousand terms beat one of forty by two ten-thousandths, measured over twenty rows, every
+        time — a difference in the fifth significant figure deciding a difference of eighty times in size. The
+        tie-break on fewest terms was there and never fired, because it waited for two floats to be exactly
+        equal and floats never are.
+
+        So near enough counts as equal: a fit whose loss is within the best fit's standard error has not been
+        told apart from it by the rows it was measured on, and among those the smallest is kept. The width is
+        derived from the rows rather than chosen, which is the only reason to trust it — nobody picked a
+        tolerance, the evidence said how much it could resolve."""
+        best = min(
+            range(len(fits)),
+            key=lambda at: (fits[at].training_loss if fits[at].held_out_loss is None else fits[at].held_out_loss),
+        )
+        lowest = fits[best].training_loss if fits[best].held_out_loss is None else fits[best].held_out_loss
+        within = lowest + widths[best]
+        alike = [
+            at
+            for at in range(len(fits))
+            if (fits[at].training_loss if fits[at].held_out_loss is None else fits[at].held_out_loss) <= within
+        ]
+        chosen = min(alike, key=lambda at: (fits[at].terms_kept, at))
+        if chosen != best:
+            logger.info(
+                "%sPrice %s keeps %d terms where price %s keeps %d, and %g of loss does not tell them apart "
+                "(within %g, what %d rows can resolve)",
+                label,
+                fits[chosen].price,
+                fits[chosen].terms_kept,
+                fits[best].price,
+                fits[best].terms_kept,
+                abs((fits[chosen].held_out_loss or fits[chosen].training_loss) - lowest),
+                widths[best],
+                len(fits),
+            )
+        return chosen
 
     def _link(
         self, target: HeuristicTarget, ruleset_name: str, name: str, rule: PythonRule, weight: float

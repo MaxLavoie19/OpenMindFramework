@@ -215,9 +215,10 @@ def test_steadiness_is_measured_only_where_it_is_asked_for(game: Game, knowledge
     assert not [one for one in caplog.records if "kept and" in one.message], "nothing measured, nothing dropped"
 
 
-def test_a_term_that_never_varies_never_reaches_the_search(game: Game, knowledge: KnowledgeBase, caplog):
-    """Dropped rather than ordered last, and the search is told so it spends nothing on it or on anything
-    grown from it."""
+def test_walking_orders_the_terms_and_drops_none_of_them(game: Game, knowledge: KnowledgeBase, caplog):
+    """A leaf that carries nothing by itself carries plenty as a part, and dropping it takes everything the
+    search would have grown from it. Measured, that cost between two and thirteen times the held-out loss
+    while removing a twentieth of the candidates, so nothing is dropped unless a budget asks."""
     played = game("tictactoe")
     ponderer = create_heuristic_ponderer(knowledge)
 
@@ -226,8 +227,8 @@ def test_a_term_that_never_varies_never_reaches_the_search(game: Game, knowledge
 
     assert pondered is not None
     said = [one.message for one in caplog.records if "kept and" in one.message]
-    assert said, "it says how many it kept and how many it dropped"
-    assert any("dropped" in one for one in said)
+    assert said, "it reports what it did"
+    assert " 0 dropped" in said[0], said[0]
 
 
 def test_the_steadiest_budget_lets_fewer_terms_through(game: Game, knowledge: KnowledgeBase, caplog):
