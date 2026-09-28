@@ -25,6 +25,13 @@ class PonderSettings:
     #: and orders nothing, which is what a caller that does not want this asks for.
     walks: int = 3
     walk_steps: int = 40
+    #: How many of the steadiest terms to let the search take up, None for all of them.
+    #:
+    #: A budget and not a threshold. How steady is steady enough has no answer that travels between games, and
+    #: how many generations there are to spend is something the caller knows and this cannot. A term that never
+    #: varied at all is dropped whatever this says, which is arithmetic rather than a judgement: a column the
+    #: same everywhere tells no position from another, and the fit has its own constant already.
+    steadiest: int | None = None
     plies: int = 4
     deduction_seconds: float = 1.0
     relaxations: bool = True

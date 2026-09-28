@@ -114,9 +114,15 @@ class HeuristicPonderer:
             return Pondering(game.context, (), len(positions), tuple(tried), time.monotonic() - started)
         training, held_out = self._split(rows, settings.held_out)
         valued_by = tried[-1].source
-        seeds = self._seeded(game, training, settings, tried)
+        seeds, dropped = self._seeded(game, training, settings, tried)
         generated = self._generator.generate(
-            game, training, held_out, settings.values, HeuristicTarget(knowledge_base, game.context), seeds
+            game,
+            training,
+            held_out,
+            settings.values,
+            HeuristicTarget(knowledge_base, game.context),
+            seeds,
+            dropped,
         )
         logger.info(
             "Pondered %s for %.1f seconds: %d rules from %d positions valued by %s, %d terms seeded",
@@ -222,8 +228,8 @@ class HeuristicPonderer:
         training: Sequence[PositionRow],
         settings: PonderSettings,
         tried: list[Labelling],
-    ) -> tuple[tuple[Expression, float], ...]:
-        """The terms the rules imply are worth trying, each with the weight they imply it should start at.
+    ) -> tuple[tuple[tuple[Expression, float] | Expression, ...], tuple[str, ...]]:
+        """The terms worth trying first, and the templates of the terms not worth trying at all.
 
         **Only the positions that will be fitted on.** The held-out rows decide which price is kept, so a seed
         reasoned partly out of them would make that choice partly a choice about rows it had already seen. It
@@ -263,7 +269,8 @@ class HeuristicPonderer:
             tried[-1].seconds,
             "" if worth.settled else " — resting on nothing, since no position bore out that doing less is worse",
         )
-        return (*seeds, *self._steady(game, vocabulary, settings, tried))
+        steady, dropped = self._steady(game, vocabulary, settings, tried)
+        return (*seeds, *steady), dropped
 
     def _steady(
         self,
@@ -271,19 +278,23 @@ class HeuristicPonderer:
         vocabulary: object,
         settings: PonderSettings,
         tried: list[Labelling],
-    ) -> tuple[Expression, ...]:
-        """Every leaf the vocabulary allows, steadiest first, so the search reaches the steady ones sooner.
+    ) -> tuple[tuple[Expression, ...], tuple[str, ...]]:
+        """The leaves worth a generation, steadiest first, and the templates of those that are not.
 
-        **Ordering and not choosing.** A term that varies a lot across a game and little between one position
-        and the next is something to steer by; one that leaps about between neighbours says something nobody
-        can act on, since a move cannot be chosen for its effect on a number that would have jumped anyway.
-        That is worth knowing before the search spends a generation finding out. It is not worth *deciding*
-        with: this design admits no plausibility filter, so every leaf goes in and the price, the held-out
-        rows and the games settle which survive. All this buys is the order, and a leaf already seeded by the
-        rules keeps the place the rules gave it.
+        **Ordering, and dropping what the arithmetic says is nothing.** A term that varies a lot across a
+        game and little between one position and the next is something to steer by; one that leaps about
+        between neighbours says something nobody can act on, since a move cannot be chosen for its effect on
+        a number that would have jumped anyway. Knowing that before the search spends a generation on it is
+        the point.
 
-        Carried without a weight, because steadiness is not a claim about what a term is worth. A weight says
-        where the fit should start; this says only where to look first.
+        A term whose value never varied over everything walked is dropped outright, and that is arithmetic
+        rather than an opinion: a column the same everywhere tells no position from another, and the fit
+        already has its own constant. Beyond that `settings.steadiest` is a budget — the steadiest so many
+        kept — and it is off unless asked for, because how steady is steady enough has no answer that travels
+        between games.
+
+        What is kept is carried without a weight, because steadiness is not a claim about what a term is
+        worth. A weight says where the fit should start; this says only where to look first.
 
         Walks and not gathered positions: gathering skips a position it has seen and starts afresh when a game
         ends, so two of its positions side by side need not be a move apart, and the whole measure is about
@@ -291,10 +302,10 @@ class HeuristicPonderer:
         started = time.monotonic()
         leaves = self._expressions.leaves(vocabulary)  # type: ignore[arg-type]
         if not leaves or settings.walks < 1 or settings.walk_steps < 2:
-            return ()
+            return (), ()
         runs = self._gatherer.walk(game, settings.walk_steps, settings.seed, settings.walks)
         read = tuple(self._read(game, run, leaves) for run in runs)
-        ordered = self._stability.steadiest(read, leaves)
+        ordered, dropped = self._stability.kept(read, leaves, settings.steadiest)
         steady = self._stability.of(read)
         tried.append(
             Labelling(
@@ -305,15 +316,18 @@ class HeuristicPonderer:
             )
         )
         logger.info(
-            "%s: %d terms over %d positions walked, %d told apart, steadiest %s, in %.1f seconds",
+            "%s: %d terms over %d positions walked, %d told apart, %d kept and %d dropped, steadiest %s, "
+            "in %.1f seconds",
             STEADY.format(context=game.context),
             len(leaves),
             sum(len(one) for one in runs),
             tried[-1].values,
+            len(ordered),
+            len(dropped),
             ordered[0].template if ordered else "none",
             tried[-1].seconds,
         )
-        return ordered  # type: ignore[return-value]
+        return ordered, tuple(one.template for one in dropped)  # type: ignore[return-value]
 
     def _read(self, game: RuleBasedGame, run: Sequence[State], leaves: Sequence[Expression]) -> tuple[tuple[float, ...], ...]:
         """What each term reads at each position of that walk, in the walk's order.

@@ -53,3 +53,52 @@ def test_nothing_walked_measures_nothing() -> None:
 def test_a_single_position_has_no_step_to_measure() -> None:
     """One position is a walk of no steps, so nothing moved between neighbours and nothing varied across it."""
     assert Stability().of([[(3.0, 4.0)]]) == (UNVARYING, UNVARYING)
+
+
+def test_a_term_that_never_varied_is_dropped_whatever_the_budget_says() -> None:
+    """Arithmetic and not an opinion: a column the same everywhere tells no position from another, and the
+    fit has its own constant already."""
+    walk = [[(0.0, 9.0), (1.0, 9.0), (2.0, 9.0), (3.0, 9.0)]]
+
+    kept, dropped = Stability().kept(walk, ("varies", "constant"))
+
+    assert kept == ("varies",)
+    assert dropped == ("constant",)
+
+
+def test_the_budget_keeps_the_steadiest_and_drops_the_rest() -> None:
+    """How steady is steady enough has no answer that travels between games, so what is asked for is a count
+    the caller chose and not a level this picked."""
+    crawling = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+    leaping = [0.0, 5.0, 1.0, 4.0, 2.0, 3.0]
+    walk = [[(crawling[at], leaping[at]) for at in range(len(crawling))]]
+
+    kept, dropped = Stability().kept(walk, ("crawling", "leaping"), keeping=1)
+
+    assert kept == ("crawling",)
+    assert dropped == ("leaping",), "kept nothing against it but the budget"
+
+
+def test_no_budget_keeps_everything_that_varies() -> None:
+    """Off unless asked for: the only thing dropped without a budget is what carries nothing."""
+    walk = [[(0.0, 5.0, 9.0), (1.0, 0.0, 9.0), (2.0, 5.0, 9.0)]]
+
+    kept, dropped = Stability().kept(walk, ("a", "b", "constant"))
+
+    assert set(kept) == {"a", "b"}
+    assert dropped == ("constant",)
+
+
+def test_a_budget_of_none_of_them_drops_all_but_nothing_is_lost() -> None:
+    """Every term is in one side or the other, whatever the budget, so a caller can always account for them."""
+    walk = [[(0.0, 5.0), (1.0, 0.0), (2.0, 5.0)]]
+
+    kept, dropped = Stability().kept(walk, ("a", "b"), keeping=0)
+
+    assert kept == ()
+    assert set(dropped) == {"a", "b"}
+
+
+def test_terms_that_could_not_be_measured_are_all_kept() -> None:
+    """Measuring nothing is no grounds for dropping anything."""
+    assert Stability().kept([], ("a", "b")) == (("a", "b"), ())

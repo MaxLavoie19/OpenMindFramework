@@ -1,6 +1,6 @@
 import logging
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 
 import numpy as np
 
@@ -67,6 +67,7 @@ class ValueGenerator:
         settings: ValueSettings,
         target: HeuristicTarget,
         seeds: Sequence[Expression | tuple[Expression, float]] = (),
+        dropped: Collection[str] = (),
     ) -> ValueGenerationResult:
         """Without held-out rows, the fit with the lowest training loss is kept; ties go to the fewest terms. The search
         runs at the middle price of the sweep, trying the seeds first.
@@ -75,7 +76,7 @@ class ValueGenerator:
         payoffs = np.array([row.target for row in training], dtype=float)
         held_out_payoffs = np.array([row.target for row in held_out], dtype=float)
         return self.generate_for_targets(
-            rbs, training, held_out, {SINGLE_TARGET: (payoffs, held_out_payoffs)}, settings, target, seeds
+            rbs, training, held_out, {SINGLE_TARGET: (payoffs, held_out_payoffs)}, settings, target, seeds, dropped
         )[
             SINGLE_TARGET
         ]
@@ -89,6 +90,7 @@ class ValueGenerator:
         settings: ValueSettings,
         target: HeuristicTarget,
         seeds: Sequence[Expression | tuple[Expression, float]] = (),
+        dropped: Collection[str] = (),
     ) -> dict[str, ValueGenerationResult]:
         """Each target's result, in the targets' order. A target is its values on the training and held-out rows, scaled
         from its lowest to its highest training value; one that never varies has nothing to fit and isn't searched. No
@@ -120,6 +122,7 @@ class ValueGenerator:
                 settings.tolerance,
                 SearchBudget(settings.seconds, settings.memory_bytes, settings.candidates),
                 seeds,
+                dropped,
             )
             for name, (values, held_out_values) in scaled.items():
                 results[name] = self._sweep(

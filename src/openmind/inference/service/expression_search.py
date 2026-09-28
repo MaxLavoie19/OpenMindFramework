@@ -6,7 +6,7 @@ import math
 from types import MappingProxyType
 import time
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 
 import numpy as np
 from scipy.special import expit
@@ -101,10 +101,16 @@ class ExpressionSearch:
         tolerance: float,
         budget: SearchBudget,
         seeds: Sequence[Expression | tuple[Expression, float]] = (),
+        dropped: Collection[str] = (),
     ) -> ExpressionSearchResult:
         """Targets are the training rows' payoffs scaled from 0 to 1, or several such targets by name. Seeds, expressions
         given to start from, are tried in the first generation before the leaves, in their order. No target
         raises ValueError.
+
+        `dropped` are templates the search must not take up: a caller that has measured something about a term
+        which makes it not worth a generation says so here, and nothing is spent on it or on anything grown
+        from it. The search measures nothing of the kind itself — what to drop is the caller's finding, and
+        this only honours it. Dropping nothing, which is the default, is the search as it was.
 
         **A seed may carry the weight the rules imply, and then the weight is half of what it gives.** A linear
         heuristic values a position as the sum of its weighted readings, so the weight on "how many knights I
@@ -141,7 +147,7 @@ class ExpressionSearch:
         expanded: set[bytes] = set()
         combined: dict[bytes, set[bytes]] = {}
         passed_over: list[tuple[Expression, float]] = []
-        leaves = generator.leaves(vocabulary)
+        leaves = tuple(one for one in generator.leaves(vocabulary) if one.template not in dropped)
         sown = [one if isinstance(one, tuple) else (one, 0.0) for one in seeds]
         # What the rules said each seeded term is worth, by the template that carries it — so a term dropped,
         # evicted or never admitted simply never asks for it, and nothing has to be kept in step by hand.
@@ -150,13 +156,14 @@ class ExpressionSearch:
             {expression.template: expression for expression in (*(one for one, _ in sown), *leaves)}.values()
         )
         logger.info(
-            "Searching expressions for %s seconds within %d bytes, trying %s candidates: %d seeds, %d leaves, %d training "
-            "rows, %d screened",
+            "Searching expressions for %s seconds within %d bytes, trying %s candidates: %d seeds, %d leaves "
+            "(%d dropped), %d training rows, %d screened",
             budget.seconds,
             budget.memory_bytes,
             "any number of" if budget.candidates is None else f"at most {budget.candidates}",
             len(seeds),
             len(leaves),
+            len(dropped),
             len(training),
             len(screen_rows),
         )

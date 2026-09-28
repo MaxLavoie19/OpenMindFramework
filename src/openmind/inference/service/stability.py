@@ -22,10 +22,18 @@ class Stability:
     between neighbours, and the ratio of those two variances is that, in one number.
 
     Clune's general game player measured this and called such terms *stable*, and used the measure to choose
-    which features to keep. **Here it chooses no term's fate.** The design admits no plausibility filter —
-    only a price per term, held-out rows, and games decide what survives — so what this buys is the order the
-    search reaches things in, which is the same thing the reasoned seeds buy. A steady term that earns
-    nothing is priced out exactly like any other.
+    which features to keep. It is used both ways here, and the two are not the same claim.
+
+    **Ordering costs nothing to be wrong about.** Every term still reaches the search; steadiness only decides
+    which it reaches first, exactly as the reasoned seeds do, and a steady term that earns nothing is priced
+    out like any other.
+
+    **Dropping is a claim, and it is made only where the arithmetic makes it.** A term whose value never
+    varies over everything walked carries no information about which position is which — not *probably*
+    useless, but carrying nothing, since a constant column and the fit's own constant say the same thing
+    twice. Beyond that, `keeping` is a caller's budget: the steadiest so many, because a search has only so
+    many generations and spending them on terms nobody can steer by is spending them on nothing. That is a
+    judgement, so it is the caller's and it is off unless asked for.
 
     Nothing here knows a game. It is handed numbers in the order a walk produced them and gives a number
     back."""
@@ -51,16 +59,41 @@ class Stability:
         return tuple(found)
 
     def steadiest(self, runs: Sequence[Sequence[Sequence[float]]], terms: Sequence[object]) -> tuple[object, ...]:
-        """Those terms, steadiest first, and the rest of them after in the order they came.
+        """Those terms, steadiest first, every one of them kept.
 
-        Ordering and not choosing: every term given comes back, because what is measured here decides where
-        the search looks first and never what it is allowed to look at."""
+        The order alone, for a caller that wants the search to reach the steady ones sooner and to go on
+        reaching all of them."""
         steady = self.of(runs)
         if len(steady) != len(terms):
             logger.debug("Ordering nothing by steadiness: %d terms against %d measured", len(terms), len(steady))
             return tuple(terms)
         order = sorted(range(len(terms)), key=lambda at: -steady[at])
         return tuple(terms[at] for at in order)
+
+    def kept(
+        self,
+        runs: Sequence[Sequence[Sequence[float]]],
+        terms: Sequence[object],
+        keeping: int | None = None,
+    ) -> tuple[tuple[object, ...], tuple[object, ...]]:
+        """Those terms split into the ones worth a generation and the ones that are not, steadiest first.
+
+        A term that never varied is always dropped, and that is arithmetic rather than an opinion: a column
+        that is the same everywhere tells nothing apart, and the fit already has a constant.
+
+        `keeping` is how many of the rest to keep, the steadiest first, None for all of them. It is a budget
+        and not a threshold: how steady is steady enough has no answer that travels between games, and how
+        many generations there are to spend is something the caller knows."""
+        steady = self.of(runs)
+        if len(steady) != len(terms):
+            logger.debug("Keeping every term: %d terms against %d measured", len(terms), len(steady))
+            return tuple(terms), ()
+        order = sorted(range(len(terms)), key=lambda at: -steady[at])
+        varying = [at for at in order if steady[at] > UNVARYING]
+        flat = [at for at in order if steady[at] <= UNVARYING]
+        held = varying if keeping is None else varying[: max(0, keeping)]
+        left = set(held)
+        return tuple(terms[at] for at in held), tuple(terms[at] for at in (*varying, *flat) if at not in left)
 
     def _counted(
         self, runs: Sequence[Sequence[Sequence[float]]]

@@ -201,3 +201,31 @@ def test_the_rows_held_back_are_gathered_positions_and_not_nodes_from_a_tree(
     assert held_out, "something is held back"
     asked = set(positions)
     assert all(row.state in asked for row in held_out), "every row held back is a position that was gathered"
+
+
+def test_a_term_that_never_varies_never_reaches_the_search(game: Game, knowledge: KnowledgeBase, caplog):
+    """Dropped rather than ordered last, and the search is told so it spends nothing on it or on anything
+    grown from it."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+
+    with caplog.at_level(logging.INFO):
+        pondered = ponderer.ponder(knowledge, played, settings())
+
+    assert pondered is not None
+    said = [one.message for one in caplog.records if "kept and" in one.message]
+    assert said, "it says how many it kept and how many it dropped"
+    assert any("dropped" in one for one in said)
+
+
+def test_the_steadiest_budget_lets_fewer_terms_through(game: Game, knowledge: KnowledgeBase, caplog):
+    """A budget the caller set, not a level this picked: asked for two, the search is told about the rest."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+
+    with caplog.at_level(logging.INFO):
+        ponderer.ponder(knowledge, played, settings(steadiest=2))
+
+    kept = [one.message for one in caplog.records if "kept and" in one.message]
+    assert kept, "it reports the split"
+    assert " 2 kept and " in kept[0], kept[0]
