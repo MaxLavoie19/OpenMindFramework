@@ -20,6 +20,11 @@ class PonderSettings:
     values: ValueSettings
     positions: int = 200
     held_out: int = 50
+    #: How many walks to measure steadiness over, and how long each may run. A walk is cheap and short
+    #: walks say little, so both are here to be set rather than assumed; no walks at all measures nothing
+    #: and orders nothing, which is what a caller that does not want this asks for.
+    walks: int = 3
+    walk_steps: int = 40
     plies: int = 4
     deduction_seconds: float = 1.0
     relaxations: bool = True

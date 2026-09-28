@@ -47,6 +47,40 @@ class PositionGatherer:
         logger.info("Gathered %d positions of %s by playing it", len(gathered), game.context)
         return tuple(gathered)
 
+    def walk(self, game: RuleBasedGame, steps: int, seed: int = 0, walks: int = 1) -> tuple[tuple[State, ...], ...]:
+        """That many walks of the game, each the positions it went through in the order it went through them.
+
+        **Neighbours, which `gather` does not give.** Gathering skips a position it has seen before and starts
+        again when a game ends, so two of its positions next to each other need not be a move apart. Anything
+        asking what changes between one position and the next — how steady a term is, what a move costs —
+        needs the steps themselves, and a walk is where they are.
+
+        A walk is as long as the game lets it be: one that ends before the steps run out comes back short
+        rather than being stitched to a fresh game, because the step from the end of one game to the start of
+        the next is not a step anything took."""
+        found: list[tuple[State, ...]] = []
+        for number in range(max(0, walks)):
+            rng = random.Random(seed + number)
+            state = game.start()
+            run = [state]
+            while len(run) < steps:
+                joint = self._played(game, state, rng)
+                if joint is None:
+                    break
+                outcomes = game.joint_outcomes(state, joint).outcomes
+                if not outcomes:
+                    break
+                state = rng.choices([one for one, _ in outcomes], weights=[chance for _, chance in outcomes])[0]
+                run.append(state)
+            found.append(tuple(run))
+        logger.info(
+            "Walked %s %d times: %s positions in order",
+            game.context,
+            len(found),
+            ", ".join(str(len(one)) for one in found) or "no",
+        )
+        return tuple(found)
+
     def _played(self, game: RuleBasedGame, state: State, rng: random.Random) -> JointAction | None:
         """One action drawn for every player who can act here, taken together: all players play at once, so a walk
         that moved one of them at a time would ask a game what half a turn leads to. None where nobody can act."""

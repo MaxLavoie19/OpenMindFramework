@@ -10,13 +10,16 @@ from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.heuristic_deriver import HeuristicDeriver
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.inference.service.position_gatherer import PositionGatherer
+from openmind.inference.service.stability import Stability
 from openmind.inference.service.worth_reasoner import WorthReasoner
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_game
+from openmind.rbs.factory.term_evaluator_factory import create_term_evaluator
 from openmind.rbs.model.heuristic_target import HeuristicTarget
 from openmind.rbs.model.move_row import MoveRow
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.game_relaxer import GameRelaxer
+from openmind.rbs.service.term_evaluator import TermEvaluator
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.service.value_generator import ValueGenerator
 from openmind.world.model.state import State
@@ -36,6 +39,10 @@ MOVES_SETTLED = "what the rules of {context} settle a move pays"
 #: payoff — but it is a way of paying for a search, and a way of paying reports itself beside the others or it is
 #: judged on nothing.
 REASONED = "what the rules of {context} imply things are worth"
+
+#: What measuring how steady each term is is called. Like the reasoned worths it values no position and pays for
+#: a search all the same, so it reports itself beside them or it is judged on nothing.
+STEADY = "how steadily the terms of {context} read"
 
 
 class HeuristicPonderer:
@@ -71,6 +78,8 @@ class HeuristicPonderer:
         heuristic_deriver: HeuristicDeriver,
         worth_reasoner: WorthReasoner,
         expression_generator: ExpressionGenerator,
+        term_evaluator: TermEvaluator | None = None,
+        stability: Stability | None = None,
     ) -> None:
         self._gatherer = position_gatherer
         self._deducer = position_deducer
@@ -79,6 +88,10 @@ class HeuristicPonderer:
         self._deriver = heuristic_deriver
         self._worth = worth_reasoner
         self._expressions = expression_generator
+        # What reads a term at a position, and what turns a walk of those readings into how steady each
+        # term is. Both stateless, and given here so a caller may hand over its own.
+        self._evaluator = create_term_evaluator() if term_evaluator is None else term_evaluator
+        self._stability = Stability() if stability is None else stability
 
     def ponder(self, knowledge_base: KnowledgeBase, game: RuleBasedGame, settings: PonderSettings) -> Pondering:
         """What it deduced, and what every way of deducing was worth."""
@@ -250,7 +263,69 @@ class HeuristicPonderer:
             tried[-1].seconds,
             "" if worth.settled else " — resting on nothing, since no position bore out that doing less is worse",
         )
-        return seeds
+        return (*seeds, *self._steady(game, vocabulary, settings, tried))
+
+    def _steady(
+        self,
+        game: RuleBasedGame,
+        vocabulary: object,
+        settings: PonderSettings,
+        tried: list[Labelling],
+    ) -> tuple[Expression, ...]:
+        """Every leaf the vocabulary allows, steadiest first, so the search reaches the steady ones sooner.
+
+        **Ordering and not choosing.** A term that varies a lot across a game and little between one position
+        and the next is something to steer by; one that leaps about between neighbours says something nobody
+        can act on, since a move cannot be chosen for its effect on a number that would have jumped anyway.
+        That is worth knowing before the search spends a generation finding out. It is not worth *deciding*
+        with: this design admits no plausibility filter, so every leaf goes in and the price, the held-out
+        rows and the games settle which survive. All this buys is the order, and a leaf already seeded by the
+        rules keeps the place the rules gave it.
+
+        Carried without a weight, because steadiness is not a claim about what a term is worth. A weight says
+        where the fit should start; this says only where to look first.
+
+        Walks and not gathered positions: gathering skips a position it has seen and starts afresh when a game
+        ends, so two of its positions side by side need not be a move apart, and the whole measure is about
+        what one move changes."""
+        started = time.monotonic()
+        leaves = self._expressions.leaves(vocabulary)  # type: ignore[arg-type]
+        if not leaves or settings.walks < 1 or settings.walk_steps < 2:
+            return ()
+        runs = self._gatherer.walk(game, settings.walk_steps, settings.seed, settings.walks)
+        read = tuple(self._read(game, run, leaves) for run in runs)
+        ordered = self._stability.steadiest(read, leaves)
+        steady = self._stability.of(read)
+        tried.append(
+            Labelling(
+                STEADY.format(context=game.context),
+                sum(len(one) for one in runs),
+                len({round(one, 9) for one in steady}),
+                time.monotonic() - started,
+            )
+        )
+        logger.info(
+            "%s: %d terms over %d positions walked, %d told apart, steadiest %s, in %.1f seconds",
+            STEADY.format(context=game.context),
+            len(leaves),
+            sum(len(one) for one in runs),
+            tried[-1].values,
+            ordered[0].template if ordered else "none",
+            tried[-1].seconds,
+        )
+        return ordered  # type: ignore[return-value]
+
+    def _read(self, game: RuleBasedGame, run: Sequence[State], leaves: Sequence[Expression]) -> tuple[tuple[float, ...], ...]:
+        """What each term reads at each position of that walk, in the walk's order.
+
+        A row per position with nobody's name and no target on it: what is wanted is the column, and the
+        player and the payoff are what a row carries for a fit that is not happening here."""
+        rows = [PositionRow(state, "", 0.0) for state in run]
+        columns = self._evaluator.columns(game, rows, [self._expressions.source(one) for one in leaves])
+        return tuple(
+            tuple(0.0 if columns[term] is None else float(columns[term][at]) for term in range(len(leaves)))  # type: ignore[index]
+            for at in range(len(rows))
+        )
 
     def _payoffs(self, game: RuleBasedGame, state: State, players: Sequence[str]) -> tuple[float, ...] | None:
         """What the position paid, where it is one the game is over in."""

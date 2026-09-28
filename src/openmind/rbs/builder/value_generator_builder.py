@@ -5,7 +5,7 @@ from openmind.inference.service.expression_search import ExpressionSearch
 from openmind.parallel.model.memory_cap import MemoryCap
 from openmind.parallel.service.memory_meter import MemoryMeter
 from openmind.parallel.service.task_runner import TaskRunner
-from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
+from openmind.rbs.factory.term_evaluator_factory import create_term_evaluator
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rbs.service.reading_cache import ReadingCache
 from openmind.rule.service.rule_compiler import RuleCompiler
@@ -33,14 +33,7 @@ class ValueGeneratorBuilder:
         return self
 
     def build(self) -> ValueGenerator:
-        compiler, runner, library = RuleCompiler(), RuleRunner(StateNamespaceMapper()), ConsequenceLibraryBuilder().build()
-        evaluator = TermEvaluator(
-            compiler,
-            runner,
-            library,
-            TaskRunner(self._workers, self._memory_cap),
-            ReadingCache(compiler, runner, library, MemoryMeter()),
-        )
+        evaluator = create_term_evaluator(self._workers, self._memory_cap)
         generator, fitter = ExpressionGenerator(), SparseFitter()
         search = ExpressionSearch(generator, evaluator, fitter, MemoryMeter())
         return ValueGenerator(search, generator, fitter)
