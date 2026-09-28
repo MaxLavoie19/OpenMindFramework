@@ -427,6 +427,39 @@ questions by number.
       since ordering alone cost 3.4 times the loss and the only thing it can buy is reaching a term sooner.
     - **Undecided.** Turned off by default meanwhile, so nothing is quietly given a measured regression.
 
+39. **The price sweep chooses between models it cannot tell apart, and always takes the largest.** (found
+    asking why the number of rules kept swings, which turned out to be a different question)
+    The price is chosen by the lowest held-out loss, ties going to the fewest terms. The tie never happens,
+    because it needs two floats to be exactly equal. What happens instead, over three seeds of tic-tac-toe
+    with four prices:
+
+    ```
+    seed  trained on         rows  pool  0.1          0.01         0.001         0.0
+       1  gathered only        84  3411  0.1694 · 6   0.0624 · 45  0.0619 · 2709  0.0617 · 3411
+       2  gathered only        80  3659  0.0853 · 4   0.0629 · 34  0.0630 · 2864  0.0629 · 3659
+       3  gathered only        82  3580  0.1123 · 4   0.0540 · 52  0.0552 · 2847  0.0566 · 3580
+       1  and the tree nodes 2754   215  0.0870 · 2   0.0494 · 7   0.0240 · 54    0.0239 · 215
+       2  and the tree nodes 2600   212  0.0657 · 2   0.0252 · 6   0.0116 · 57    0.0116 · 212
+       3  and the tree nodes 2838   229  0.0853 · 2   0.0503 · 4   0.0184 · 56    0.0183 · 229
+    ```
+
+    Seed 1 separates 2709 terms from 3411 by 0.0002 of held-out loss. Seed 3's tree arm separates 56 terms
+    from 229 by 0.0001. Those losses are measured on twenty rows. **A difference in the fifth significant
+    figure is deciding a difference of four to sixteen times in model size**, and it decides it the same way
+    every time: take more. The extreme of it is the first row — 3411 terms fitted to 84 training rows, judged
+    on 20 held-out rows, and every one of the 3411 kept.
+    Two things this is not. It is not the price failing to bind because the proof-tree rows arrived: the
+    gathered-only arm picks the cheapest price too, on two seeds of three. And it is not instability in the
+    fit — the winning price is the same across seeds and the losses are orderly.
+    - **What is visible, and none of it is chosen:** whether the sweep should prefer fewer terms where the
+      losses are indistinguishable rather than only where they are equal, and if so what indistinguishable
+      means — the standard error of the held-out loss is derivable from the residuals and the row count
+      rather than being a number somebody picked, which is the only reason to prefer it; whether twenty
+      held-out rows can adjudicate anything at all between models of this size, which is a question about the
+      budget rather than the rule; and whether a pool of 3411 terms over 84 rows should have been generated
+      in the first place, which is a question for the search rather than the sweep.
+    - **Undecided.**
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
