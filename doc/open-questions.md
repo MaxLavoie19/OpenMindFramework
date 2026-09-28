@@ -397,6 +397,31 @@ questions by number.
           is paying for it every pass. Plumbing rather than a question, and unstarted.
 
 
+40. **Nothing measures whether advice helped.** (found deciding what a coaching comparison should be, and
+    being told rightly that OMF should decide it)
+    Advice is the difference between two models: what a player would do, and what would be better. What
+    *better* is has two candidates and they are not the same claim — the optimal model, which says what is
+    theoretically better, and a stronger player's predictive model, which says what somebody rated well above
+    them actually does differently. Both are buildable from what exists and the database carries the ratings
+    the second needs.
+    **Which is better advice is not for anybody here to pick**, and that is settled: it is the same shape as
+    which rater goes first, and `CascadeOrder` already refuses to privilege a candidate for being what it is.
+    The currency is the caller's and the measurement decides.
+    **The gap is that there is no currency to give it.** Every other choice in this design is settled by
+    evidence the system can gather: a heuristic is judged by games it plays, a predictive model by how little
+    it was surprised, a fit by held-out rows. Advice is judged by whether the person who took it got better,
+    and that is months away, outside the system, and confounded by everything else they did in the meantime.
+    A cascade ordered on a currency nobody can measure is ordered on nothing.
+    - **What is visible, and none of it is chosen:** whether the proxy should be agreement — does following
+      the advice move the player's choices toward the stronger model's, measured on their later games, which
+      is gatherable but measures compliance rather than improvement; whether it should be the player's own
+      result over time, which is the real thing and is slow and noisy enough that a season of it may not
+      settle one comparison; whether advice should be scored the way a rule is, by how much of the gap it
+      accounts for, which measures the explanation rather than its effect; and whether the honest answer is
+      that this one is not the system's to settle and the two comparisons are both offered, named, with what
+      each rests on, for a person to judge.
+    - **Undecided.** Nothing is built on either comparison meanwhile.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
