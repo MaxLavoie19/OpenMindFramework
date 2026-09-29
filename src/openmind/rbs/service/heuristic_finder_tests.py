@@ -121,3 +121,59 @@ def test_taking_the_same_rules_in_twice_revises_them_rather_than_doubling_them(
     context = knowledge.context_named("tictactoe")
     landed = knowledge.ruleset_rules(knowledge.ruleset_named(context.id, "what a worker settled").id)
     assert len(landed) == len(fitted)
+
+
+def test_without_an_economy_every_term_the_fit_kept_is_written(game: Game, knowledge: KnowledgeBase) -> None:
+    """The gate is something a caller turns on. Off, this writes what it wrote before there was a budget, so
+    nothing that was working starts depending on an economy nobody asked for."""
+    played = game("tictactoe")
+    training, held_out = rows(played)
+
+    generated = create_heuristic_finder().generate(
+        played, training, held_out, settings(), HeuristicTarget(knowledge, "tictactoe")
+    )
+
+    assert len(generated.rules) - 1 == generated.chosen.terms_kept, "the constant, and every term the fit kept"
+
+
+def test_on_a_thousandth_of_a_bit_a_round_only_the_constant_is_written(
+    game: Game, knowledge: KnowledgeBase
+) -> None:
+    """The second gate, after the price sweep. L1 decides what a term weighs; the budget decides whether it is
+    admitted — so a fit that kept terms can still write none of them.
+
+    The cheapest rule there is costs 1.5 bits to say, so at a thousandth of a bit a round no signal can ever
+    afford anything, whatever the search happened to find. That is what makes this an exact claim rather than
+    one that depends on a time-budgeted search turning something up."""
+    played = game("tictactoe")
+    training, held_out = rows(played)
+
+    poor = create_heuristic_finder(allowance=0.001).generate(
+        played, training, held_out, settings(), HeuristicTarget(knowledge, "tictactoe")
+    )
+
+    assert len(poor.rules) == 1, "the constant, and nothing anybody could pay for"
+
+
+def test_a_budget_nothing_could_exhaust_writes_what_the_fit_kept(game: Game, knowledge: KnowledgeBase) -> None:
+    """The other end of the same knob, and the proof the gate is wired rather than merely present: given more
+    than every candidate costs put together, the economy writes exactly what there was no economy before.
+
+    **How much comes through in between is pinned in `rule_admission_tests.py`, not here.** The search runs on
+    a one-second budget and finds thirty-nine terms on an idle machine and none on a loaded one, so a test
+    that asserted an ordering over allowances would be measuring the machine. Measured idle, for the record:
+    twelve bits a round wrote two terms, thirty wrote seven, a hundred wrote sixteen and a thousand wrote all
+    thirty-nine."""
+    played = game("tictactoe")
+    training, held_out = rows(played)
+
+    rich = create_heuristic_finder().generate(
+        played, training, held_out, settings(), HeuristicTarget(knowledge, "tictactoe")
+    )
+    spent = create_knowledge_base("unlimited", Path(mkdtemp()))
+    lavish = create_heuristic_finder(allowance=1_000_000.0).generate(
+        played, training, held_out, settings(), HeuristicTarget(spent, "tictactoe")
+    )
+
+    assert lavish.chosen.terms_kept == rich.chosen.terms_kept, "the same fit either way"
+    assert len(lavish.rules) == lavish.chosen.terms_kept + 1, "and every term of it was bought"

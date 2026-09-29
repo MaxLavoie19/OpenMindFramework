@@ -200,8 +200,9 @@ weight each coefficient's penalty rather than charge them all alike. It is not a
 
 ## The vouching mechanism
 
-`RuleBudget` and `RulePrice` are built. What is not is the thing that spends: who bids, where the gate sits,
-and what pays the signals back. This section is the one waiting for an OK.
+**Built.** `RuleBudget`, `RulePrice`, `RuleSignal` and its four implementations, and `RuleAdmission`, wired
+into `HeuristicFinder` behind an allowance that is nought by default. What is *not* built is the thing that
+pays the signals back — see "The loop is not closed" below.
 
 ### Where the gate sits
 
@@ -265,20 +266,36 @@ best heuristic for a problem is weighted more than others", and here that weight
 | `went with winning` | terms whose readings line up with the payoff on the rows they fired on | beats-chance |
 | `moved the fit` | terms whose absence costs the most held-out loss — leave-one-out, arithmetic over readings already taken | marginal contribution |
 | `says something new` | terms least explained by the terms already admitted | novelty |
-| `fires often enough to know` | terms that fired on enough rows for their record to mean something | confidence |
+| `fires often enough to know` | terms that fired on enough rows for their record to mean something | coverage |
 
-**The fourth one needs saying out loud, because it looks like the error this project has a standing rule
-against.** "Coverage is reported beside the score and never folded into it" — a mate detector marked down for
-being rare is precisely the mistake. A signal that prefers common terms does not mark anything down: it
-declines to spend, and three other signals are still free to buy the mate detector. If preferring common terms
-is a bad way to pick rules, this signal earns less and buys less, which is the economy working. **If you would
-rather it were not there at all, say so and it goes** — the other three stand without it.
+**Decided (Maxime): the coverage signal stays, and a variety is the point.** Both kinds of rule are wanted —
+the specific rule that speaks once and decides a game, and the generic one that speaks every position and is a
+little right each time. The three sharpness signals all reward a term for being right where it fired, which is
+what a specific rule is good at; without the fourth, nothing in the economy asks for the rule that holds an
+ordinary position together.
 
-### What pays them
+It is not coverage folded into a score. The standing rule is that a rule is never marked *down* for firing
+rarely, and nothing here marks anything down: this signal declines to spend, and the other three are free to
+buy the rare term with their own budget. **A rule needs one voucher, not four.**
 
-After a heuristic has played and been judged, `earned` is called once with each signal's share of that
-ruleset and the ruleset's worth. That is `_judged` in the chess repo, which already computes `mass` against
-`offered` per position. Nothing new is measured.
+### The loop is not closed, and this is where it breaks
+
+After a heuristic has played and been judged, `earned` should be called once with each signal's share of that
+ruleset — `RuleAdmission.shares` gives exactly that — and the ruleset's worth, which `_judged` in the chess
+repo already computes as `mass` against `offered`. Nothing new would need measuring.
+
+**It cannot be called from where it would have to be.** The admission runs inside the ponder, and a player
+worker ponders in a temporary store of its own that `_forget_game` deletes the moment it has read its fit back
+out — because a second writer to the run's store is a corrupted store. So a budget earned during a ponder dies
+with the ponder, every signal starts every game on one round's income, and nothing ever differentiates them.
+
+The ledger has to cross back the way the rules already do, which means the worker hands back who vouched for
+what alongside what it fitted, and the parent pays the signals when it judges. That is a change to what a
+worker returns and to `_judged`, in the chess repo, and it is the next stop rather than something to assume.
+
+**Until it is made, the economy is a gate and not yet an economy.** The allowance still decides how many rules
+come through and the four signals still decide which, which is most of what was asked for; what is missing is
+the part where being right about rules earns a signal more of a say.
 
 ## The tuning knob
 

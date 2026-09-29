@@ -505,6 +505,22 @@ not follow is that allowing more is being worth more, and that step is where eac
     - **Undecided.** The player's store is bounded meanwhile, so nothing is filling a disk today; the run's
       own store still grows this way and nothing has measured how fast over a full night.
 
+43. **A signal earns nothing, because the store it earned it in is thrown away.**
+    - **What is true.** `RuleAdmission` writes each signal's budget as a belief, so it outlives the run that
+      learned it — that is tested. But the admission runs inside the ponder, and a player worker ponders in a
+      temporary store of its own, which `_forget_game` deletes the moment it has read its fit back out. A
+      second writer to the run's store is a corrupted store, so the temporary store is not a mistake to undo.
+    - **What follows.** Every signal starts every game on one round's income and nothing ever differentiates
+      them. The allowance still decides how many rules come through and the four signals still decide which,
+      so the gate works; what does not work is the part where being right about rules earns a signal more of
+      a say. The economy is a gate and not yet an economy.
+    - **The shape of the answer, unchosen.** The ledger crosses back the way the rules already do: a worker
+      hands back who vouched for what alongside what it fitted, and the parent pays the signals when it
+      judges, where the worth is measured. That is a change to what a worker returns and to `_judged`, both in
+      the chess repo, and nobody has agreed to it.
+    - **Why it is not filled here.** What a signal is paid on is the thing the whole economy turns on, and
+      guessing it would be choosing the answer rather than measuring it.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.

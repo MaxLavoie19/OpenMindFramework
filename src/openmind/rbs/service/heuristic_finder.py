@@ -11,7 +11,10 @@ from openmind.knowledge.constant.knowledge_constant import INFERENCE
 from openmind.knowledge.model.rule_record import RuleRecord
 from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.model.source import Source
+from openmind.model.model.rule_candidate import RuleCandidate
+from openmind.model.model.rule_signal import RuleSignal
 from openmind.model.service.model_registry import ModelRegistry
+from openmind.model.service.rule_admission import RuleAdmission
 from openmind.inference.model.expression import Expression
 from openmind.inference.model.expression_search_result import ExpressionSearchResult
 from openmind.inference.model.search_budget import SearchBudget
@@ -54,10 +57,20 @@ class HeuristicFinder:
         expression_search: ExpressionSearch,
         expression_generator: ExpressionGenerator,
         sparse_fitter: SparseFitter,
+        rule_admission: RuleAdmission | None = None,
+        rule_signals: Sequence[RuleSignal] = (),
     ) -> None:
         self._expression_search = expression_search
         self._expression_generator = expression_generator
         self._sparse_fitter = sparse_fitter
+        #: Who has to vouch for a term before it is written into a ruleset, and with what budget.
+        #:
+        #: **Without one, every term the fit kept is linked, which is what this did before there was an
+        #: economy.** The gate is a second one after the price sweep: L1 decides what a term *weighs* and the
+        #: budget decides whether it is *admitted*, so a term the fit zeroed never reaches a signal and the
+        #: budget can only ever let through fewer rules than the fit kept.
+        self._rule_admission = rule_admission
+        self._rule_signals = tuple(rule_signals)
 
     def generate(
         self,
@@ -212,14 +225,25 @@ class HeuristicFinder:
         index = self._chosen(fits, widths, label)
         chosen = fitted[index]
         kept = sorted((at for at, weight in enumerate(chosen.weights) if weight != 0.0), key=lambda at: -abs(chosen.weights[at]))
-        declared = self._declared(target, target.ruleset, chosen, terms, means, scales, label, fits[index].price)
+        declared = self._declared(
+            target, target.ruleset, chosen, terms, means, scales, label, fits[index].price,
+            expressions, found.training, targets,
+        )
         others: list[tuple[str, tuple[RuleRecord, ...]]] = []
         if settings.keep_every_price:
             for at, fit in enumerate(fitted):
                 if at == index:
                     continue
                 named = PRICED_RULESET.format(task=target.ruleset, price=f"{fits[at].price:g}")
-                others.append((named, self._declared(target, named, fit, terms, means, scales, label, fits[at].price)))
+                others.append(
+                    (
+                        named,
+                        self._declared(
+                            target, named, fit, terms, means, scales, label, fits[at].price,
+                            expressions, found.training, targets,
+                        ),
+                    )
+                )
             logger.info(
                 "%sKept every price as a heuristic of its own to be played: %s",
                 label,
@@ -240,10 +264,16 @@ class HeuristicFinder:
         scales: Sequence[float],
         label: str,
         price: float,
+        expressions: Sequence[Expression] = (),
+        columns: Sequence[np.ndarray] = (),
+        targets: np.ndarray | None = None,
     ) -> tuple[RuleRecord, ...]:
-        """One fit written into a ruleset of its own: its non-zero terms at their weights on the values as read,
-        and the constant left when every term reads nothing."""
+        """One fit written into a ruleset of its own: the terms that were vouched for, at their weights on the
+        values as read, and the constant left when every term reads nothing."""
         kept = sorted((at for at, weight in enumerate(fit.weights) if weight != 0.0), key=lambda at: -abs(fit.weights[at]))
+        kept = self._vouched(target, kept, fit, terms, expressions, columns, targets, label)
+        # After the vouching and not before: the constant is what is left once the terms that are staying have
+        # been taken out, so a term nobody bought has to leave its share of the value behind.
         bias = fit.bias - math.fsum(fit.weights[at] * float(means[at]) / float(scales[at]) for at in kept)
         rules = [self._link(target, ruleset_name, CONSTANT_RULE, PythonRule(CONSTANT_SOURCE), bias)]
         for at in kept:
@@ -259,6 +289,50 @@ class HeuristicFinder:
             bias,
         )
         return tuple(rules)
+
+    def _vouched(
+        self,
+        target: HeuristicTarget,
+        kept: Sequence[int],
+        fit: SparseFit,
+        terms: Sequence[PythonRule],
+        expressions: Sequence[Expression],
+        columns: Sequence[np.ndarray],
+        targets: np.ndarray | None,
+        label: str,
+    ) -> list[int]:
+        """Which of the terms the fit kept a signal was willing to stake its budget on.
+
+        **Everything a signal reads is already in hand at this line**, so asking four of them what they make of
+        a hundred candidates is arithmetic over the columns the fitting took anyway, not a second pass over the
+        positions.
+
+        With no admission, or nothing to read the candidates from, every term the fit kept goes through. That
+        is not the gate being permissive: it is there being no economy, and an economy is something a caller
+        turns on."""
+        if self._rule_admission is None or not self._rule_signals:
+            return list(kept)
+        if targets is None or not expressions or len(columns) != len(terms):
+            return list(kept)
+        knowledge_base = target.knowledge_base
+        context_id = knowledge_base.ensure_context(target.context).id
+        candidates = [
+            RuleCandidate(expressions[at], terms[at], float(fit.weights[at]), columns[at], targets) for at in kept
+        ]
+        admitted = self._rule_admission.admitted(
+            knowledge_base, context_id, candidates, self._rule_signals, len(terms)
+        )
+        if not admitted:
+            logger.info("%sNo signal could afford any of the %d terms the fit kept", label, len(kept))
+            return []
+        logger.info(
+            "%s%d of the fit's %d terms were vouched for: %s",
+            label,
+            len(admitted),
+            len(kept),
+            "; ".join(f"{terms[kept[at]].source} by {', '.join(who)}" for at, who in sorted(admitted.items())),
+        )
+        return [kept[at] for at in sorted(admitted)]
 
     def _chosen(self, fits: Sequence[ValueFit], widths: Sequence[float], label: str) -> int:
         """Which price to keep: the fewest terms among the fits nothing told apart from the best.

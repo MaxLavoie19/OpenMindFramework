@@ -3,6 +3,7 @@ from openmind.game.service.game_registry import GameRegistry
 from openmind.knowledge.constant.task_constant import MOVE_VALUE, POSITION_VALUE, SIMULATION
 from openmind.knowledge.model.ruleset import Ruleset
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.model.factory.model_factory import create_rule_admission, create_rule_signals
 from openmind.predictor.factory.predictor_factory import create_rule_predictor
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.heuristic.service.rule_heuristic import RuleHeuristic
@@ -14,10 +15,17 @@ from openmind.rbs.service.heuristic_finder import HeuristicFinder
 from openmind.rule.factory.rule_factory import create_rule_caller
 
 
-def create_heuristic_finder(workers: int = 1) -> HeuristicFinder:
+def create_heuristic_finder(workers: int = 1, allowance: float = 0.0) -> HeuristicFinder:
     """A heuristic finder with its term generator, term evaluator and sparse fitter, evaluating terms in that many worker
-    processes."""
-    return HeuristicFinderBuilder().with_workers(workers).build()
+    processes.
+
+    With an allowance above nought it also gets an economy: the four signals, each given that many bits a round
+    to vouch for the terms it wants, and a term nobody bought is not written into the ruleset. At nought there
+    is no economy and every term the fit keeps is written."""
+    builder = HeuristicFinderBuilder().with_workers(workers)
+    if allowance > 0:
+        builder = builder.with_admission(create_rule_admission(allowance), create_rule_signals())
+    return builder.build()
 
 
 def create_rule_heuristic() -> RuleHeuristic:
