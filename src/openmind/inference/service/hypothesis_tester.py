@@ -15,6 +15,11 @@ if TYPE_CHECKING:  # The learner imports this one, so naming it back at run time
 
 logger = logging.getLogger(__name__)
 
+#: How many cases a body is put to between readings of the clock. Reading it costs a system call and asking a
+#: case costs anything from a dictionary lookup to drawing fourteen thousand boards, so checking every case
+#: would be most of the work where the asking is cheap and checking never would let one body run for hours.
+CLOCK_EVERY = 64
+
 
 class HypothesisTester:
     """Tries candidate bodies and says what each came to.
@@ -82,12 +87,38 @@ class HypothesisTester:
             if self._learner.slips(clause, guard):
                 found.append(Hypothesis(clause, frozenset(), True))
                 continue
-            found.append(Hypothesis(clause, self.refusing(clause, pool), False))
+            refusing = self.refusing(clause, pool, deadline)
+            if refusing is None:
+                break
+            found.append(Hypothesis(clause, refusing, False))
         return tuple(found)
 
-    def refusing(self, clause: Clause, pool: Sequence[Example]) -> frozenset[int]:
-        """Where in the pool the cases it refuses sit."""
-        return frozenset(number for number, one in enumerate(pool) if self._learner.covers(clause, one))
+    def refusing(
+        self, clause: Clause, pool: Sequence[Example], deadline: float | None = None
+    ) -> frozenset[int] | None:
+        """Where in the pool the cases it refuses sit, or None where the deadline passed before that was known.
+
+        **The budget was checked between bodies and not inside one, which is not a budget.** A condition may be
+        cheap to ask or ruinous: whether a thing could be taken after this move is answered by drawing what
+        every candidate of the resulting position would do, so one body over fourteen thousand cases is
+        fourteen thousand times fourteen thousand drawings. Measured: a run given five seconds a position sat
+        at a hundred per cent of a core for twenty-five minutes on one body, and from outside was
+        indistinguishable from a run that was working.
+
+        **None rather than what was found so far, because a partial answer is worse than a slow one.** Cut
+        short, a body looks as though it refuses fewer cases than it does — and what a body refuses is what it
+        is priced on and what the selector compares. It would be judged against a number that is not about it,
+        and the cheaper the body was to abandon the better it would look.
+
+        The clock is read every so many cases rather than every case: reading it is cheap and `covers` is not,
+        but on a pool where `covers` *is* cheap the reading would be most of the cost."""
+        found: set[int] = set()
+        for number, one in enumerate(pool):
+            if deadline is not None and not number % CLOCK_EVERY and self._learner.clock() >= deadline:
+                return None
+            if self._learner.covers(clause, one):
+                found.add(number)
+        return frozenset(found)
 
     def how_many(self, offered: Sequence[Literal], size: int) -> int:
         """How many bodies of that size there are to try, so a caller can cut them into ranges.
