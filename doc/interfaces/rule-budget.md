@@ -100,7 +100,20 @@ class RuleTenure:
     speed included."""
 
     def spared(self, ruleset, decisions, rater) -> tuple[str, ...]: ...
-    def contributed(self, ruleset, decisions, rater) -> Mapping[str, float]: ...
+    def standing(self, ruleset, decisions, rater) -> Mapping[str, Standing]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class Standing:
+    """What a rule is worth as a member of a ruleset, and how much is known about it.
+
+    `went_with_winning` and `moved_the_decision` are what it is worth; `fired` is how much is known, and is
+    never folded into either. A rule that fires three times and one that fires three hundred can be worth the
+    same, and only the second is known to be."""
+
+    went_with_winning: float
+    moved_the_decision: float
+    fired: int
 ```
 
 ## What this replaces
@@ -123,35 +136,35 @@ leave-one-out scores are arithmetic over those numbers.
 The cost is therefore about one full judging, not one per rule — and the thing that dominates it, drawing the
 position each move leads to, is paid once whatever is being measured.
 
-## Where a rule's weight comes from, which is now two answers
+## Two numbers, and they are not rivals
 
-**This is the one thing the decisions above leave in conflict, and it is not mine to settle.**
+An earlier draft of this treated the fitted weight and a rule's contribution as two answers to one question.
+They are not, and the distinction is the whole of how a mate detector works.
 
-Today a term's weight is its fitted coefficient: `HeuristicFinder` sweeps an L1 price over position rows and
-keeps the fit that predicts held-out *positions* best. The weight is whatever minimises that loss.
+**What a rule weighs in a ruleset** is `RulesetLink.weight`, the multiplier in the value sum — how loudly the
+rule speaks when it speaks. A checkmate finder needs an enormous one, so that on the rare position where it
+fires it swamps every other term and the move is taken. It is a fact about the ruleset's arithmetic.
 
-"A rule with a better contribution weighs more" is a different quantity, measured on different evidence — how
-much the ruleset's score over *decisions* falls when the rule is left out. A term can be excellent at
-predicting what a position was worth and contribute little to choosing a move, and the reverse.
+**What a rule is worth as a member** is what decides whether it stays and what its vouching signal earns. It
+is read from two things:
 
-**The mate example is exactly where they part.** A term reading "mate is available" is nearly constant across
-positions, so a fit over position values has almost no variance to pay it for and shrinks it. Its
-contribution when it fires is the whole game. Fitted weight says small; contribution says decisive.
+- **how strongly it went with winning** — the probability it put on the move that was played, weighted by what
+  the game paid whoever played it;
+- **how much it moved the decision** — how much worse the set does with it left out.
 
-This project has met the same shape before and measured it. `PonderSettings.walks` is off by default, and the
-note says why: ordering terms by how steadily they read made held-out loss *worse* every seed — 0.0105
-measuring nothing, 0.0357 ordering by steadiness, 0.1252 keeping only the steadiest — because "a term that
-never varies along a walk can vary plenty over the positions being fitted". Reading a term's worth off the
-wrong sample is a mistake this codebase has already made once.
+**How often it fires is neither.** It is how much is known about the rule, not how good it is. Three firings
+and three hundred can show the same worth, and the second is held far more confidently — so the count governs
+how fast a rule's standing moves and how long before it may be dropped, and never its standing itself. That
+is the settled rule kept rather than bent: *"coverage is reported beside the score and never folded into it. A
+rule that fires in three per cent of positions and is right is a rule worth keeping; folding coverage into the
+score destroys exactly those."* A mate detector fires in well under one position in a hundred, and marking it
+down for that is precisely the error.
 
-- **Options, none chosen:**
-  - **Contribution replaces the fitted weight.** The fit proposes terms, the decisions weigh them. Truest to
-    "rules that have a better contribution weight more", and it throws away a number chosen on held-out rows.
-  - **Contribution scales the fitted weight.** The fit sets the shape and the decisions correct it. Keeps
-    both measurements and needs a rule for how they combine, which is a formula nobody has evidence for.
-  - **Two heuristics, and the games decide.** The same terms weighted each way are two models of one task,
-    and the registry already ranks models by what they did. No formula, one more candidate per ponder.
-- **Undecided.**
+**What is still open is the multiplier, not the standing.** The fit sets the multiplier by minimising squared
+error over position rows with an L1 price on the weights — and an L1 price shrinks large coefficients hardest.
+A term that fires rarely and must speak loudly when it does needs exactly the large coefficient that price
+penalises most, so the fit may shrink it toward nothing or drop it outright. Whether a fit of that shape can
+give a mate detector the multiplier it needs is not something anyone here has measured. **Open.**
 
 ## The tuning knob
 
