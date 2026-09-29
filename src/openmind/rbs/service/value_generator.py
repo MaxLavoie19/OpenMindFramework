@@ -300,6 +300,26 @@ class ValueGenerator:
             )
         return chosen
 
+    def adopt(
+        self, target: HeuristicTarget, rules: Sequence[tuple[RuleRecord, float]]
+    ) -> tuple[RuleRecord, ...]:
+        """Rules fitted in some other store, taken into this one as a ruleset of the target's task.
+
+        **A fit made in a worker is nothing until it is written where models are chosen from.** A worker that
+        ponders the game it has just played has to ponder in a store of its own, because a second writer to
+        the run's store is a corrupted store — so what it settles crosses back as rules and weights, and this
+        is where it is taken in. What arrives is exactly what `ruleset_rules` gives, which is what already
+        crosses the other way when a heuristic is sent out to play with.
+
+        The rules are declared here afresh rather than kept with the ids they had: an id is a fact about the
+        store that issued it, and the store that issued these is a temporary directory that no longer exists.
+        Named the same, so a worker fitting the same term twice revises it rather than growing a second copy
+        of it."""
+        return tuple(
+            self._link(target, target.ruleset, record.name, record.rule, weight)  # type: ignore[arg-type]
+            for record, weight in rules
+        )
+
     def _link(
         self, target: HeuristicTarget, ruleset_name: str, name: str, rule: PythonRule, weight: float
     ) -> RuleRecord:

@@ -1,7 +1,10 @@
 from collections.abc import Callable
+from pathlib import Path
+from tempfile import mkdtemp
 
 from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.knowledge.constant.task_constant import POSITION_VALUE
+from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.model.service.model_registry import ModelRegistry
 from openmind.rbs.factory.rbs_factory import create_value_generator
@@ -74,3 +77,47 @@ def test_every_price_kept_is_a_model_of_its_own_to_be_played(game: Game, knowled
         named == PRICED_RULESET.format(task=POSITION_VALUE, price=f"{fit.price:g}")
         for (named, _), fit in zip(generated.others, [one for one in generated.fits if one is not generated.chosen], strict=True)
     )
+
+
+def test_rules_fitted_in_another_store_can_be_taken_into_this_one(game: Game, knowledge: KnowledgeBase) -> None:
+    """A worker that ponders the game it has just played ponders in a store of its own, because a second
+    writer to the run's store is a corrupted store. What it settles crosses back as rules and weights, and
+    arrives here as a ruleset of the task, registered as a model so it can be drawn to play."""
+    played = game("tictactoe")
+    training, held_out = rows(played)
+    elsewhere = create_knowledge_base("elsewhere", Path(mkdtemp()))
+    create_value_generator().generate(
+        played, training, held_out, settings(), HeuristicTarget(elsewhere, "tictactoe")
+    )
+    fitted = elsewhere.ruleset_rules(elsewhere.ruleset_named(elsewhere.context_named("tictactoe").id, POSITION_VALUE).id)
+
+    taken = create_value_generator().adopt(HeuristicTarget(knowledge, "tictactoe", name="what a worker settled"), fitted)
+
+    context = knowledge.context_named("tictactoe")
+    assert [one.name for one in taken] == [record.name for record, _ in fitted]
+    assert "what a worker settled" in {
+        model.name for model in ModelRegistry(AccuracyScorer()).of_task(knowledge, context.id, POSITION_VALUE)
+    }
+    landed = knowledge.ruleset_rules(knowledge.ruleset_named(context.id, "what a worker settled").id)
+    assert [weight for _, weight in landed] == [weight for _, weight in fitted]
+
+
+def test_taking_the_same_rules_in_twice_revises_them_rather_than_doubling_them(
+    game: Game, knowledge: KnowledgeBase
+) -> None:
+    """A worker fitting the same term every game it plays would otherwise grow a copy of it every game."""
+    played = game("tictactoe")
+    training, held_out = rows(played)
+    elsewhere = create_knowledge_base("elsewhere", Path(mkdtemp()))
+    create_value_generator().generate(
+        played, training, held_out, settings(), HeuristicTarget(elsewhere, "tictactoe")
+    )
+    fitted = elsewhere.ruleset_rules(elsewhere.ruleset_named(elsewhere.context_named("tictactoe").id, POSITION_VALUE).id)
+    target = HeuristicTarget(knowledge, "tictactoe", name="what a worker settled")
+
+    create_value_generator().adopt(target, fitted)
+    create_value_generator().adopt(target, fitted)
+
+    context = knowledge.context_named("tictactoe")
+    landed = knowledge.ruleset_rules(knowledge.ruleset_named(context.id, "what a worker settled").id)
+    assert len(landed) == len(fitted)
