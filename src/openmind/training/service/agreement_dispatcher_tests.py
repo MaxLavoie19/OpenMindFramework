@@ -49,7 +49,7 @@ def test_one_worker_runs_here_and_answers_the_same(monkeypatch) -> None:
     to write but what `TaskRunner` already does."""
     calls = []
 
-    def rating(name, model, decisions, among=0, reading=1.0):
+    def rating(name, model, decisions, among=0, reading=1.0, seconds=0.0):
         calls.append(name)
         return _agreement(name)
 
@@ -90,3 +90,43 @@ def _agreement(holder: str):
     from openmind.training.model.agreement import Agreement
 
     return Agreement(holder, mass=0.5, decided=1, declined=0, undecided=0, offered=0.5)
+
+
+def test_a_whole_round_s_budget_divides_down_to_one_valuing(monkeypatch) -> None:
+    """**One heuristic in a pool can hold a round on its own.** Measured on a run's own store: of ten
+    heuristics, nine valued a position in 0.2 to 0.6 ms and one took 277 ms — fourteen hundred times the
+    others — and that one was essentially the whole of a 195-second round. Handed the same share as everybody
+    else, it reads what it can afford in that and the round is the round.
+
+    **The allowance is per valuing and is the same for every heuristic, not a slice of the round divided among
+    them.** They are judged in parallel, one to a worker, so a round takes what the slowest takes rather than
+    the sum — and divided by the pool it would be a quota that shrank as the pool grew, starving a ruleset
+    that holds one slow rule even where its other rules left room for it. Within the allowance a ruleset takes
+    what is worth the most for its cost while the total fits, so a long rule is balanced out by short ones."""
+    given = []
+
+    def rating(name, model, decisions, among=0, reading=1.0, seconds=0.0):
+        given.append(seconds)
+        return _agreement(name)
+
+    monkeypatch.setattr("openmind.training.service.agreement_dispatcher.scored_alone", rating)
+    dispatcher = AgreementDispatcher(TaskRunner(1), among=2, seconds=12.0)
+
+    dispatcher.scored([decision(), decision(), decision()], [("one", object()), ("two", object())])
+
+    assert given == [pytest.approx(2.0), pytest.approx(2.0)], "twelve seconds over three decisions of two moves"
+
+
+def test_a_judging_given_no_budget_is_not_bounded(monkeypatch) -> None:
+    """Nought leaves the judging as it was, which is what a caller that asks for nothing gets."""
+    given = []
+
+    def rating(name, model, decisions, among=0, reading=1.0, seconds=0.0):
+        given.append(seconds)
+        return _agreement(name)
+
+    monkeypatch.setattr("openmind.training.service.agreement_dispatcher.scored_alone", rating)
+
+    AgreementDispatcher(TaskRunner(1)).scored([decision()], [("one", object())])
+
+    assert given == [0.0]

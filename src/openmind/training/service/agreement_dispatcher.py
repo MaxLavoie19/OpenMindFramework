@@ -12,7 +12,14 @@ from openmind.training.service.agreement_scorer import AgreementScorer
 logger = logging.getLogger(__name__)
 
 
-def scored_alone(name: str, model: object, decisions: Sequence[Decided], among: int = 0, reading: float = 1.0) -> Agreement:
+def scored_alone(
+    name: str,
+    model: object,
+    decisions: Sequence[Decided],
+    among: int = 0,
+    reading: float = 1.0,
+    seconds: float = 0.0,
+) -> Agreement:
     """One heuristic put to those decisions, in whatever process is running this.
 
     **At module level because pickle stores a function by name.** A worker starts as a fresh interpreter and
@@ -25,7 +32,10 @@ def scored_alone(name: str, model: object, decisions: Sequence[Decided], among: 
     valuer in 993, the rater in 1083, and the lambda's captured defaults pickle on their own. They are rebuilt
     here rather than sent because it costs the same either way and leaves each worker's reading caches its
     own instead of copying a parent's."""
-    valuer = RulePositionValuer(create_rule_heuristic(reading))
+    # A cost record of its own, starting empty: the first valuing reads everything and times it, and
+    # every one after that is chosen by what those timings said. A worker judges one heuristic, so the
+    # record is exactly that heuristic's and nothing is shared across processes.
+    valuer = RulePositionValuer(create_rule_heuristic(reading, seconds, {}))
     rater = SuccessorMoveRater(valuer)
     return AgreementScorer(among).scored(
         decisions, {name: lambda node, actions, player: rater.rate(model, node, actions, player)}
@@ -53,8 +63,26 @@ class AgreementDispatcher:
     A heuristic that ends its worker is not fatal to the round: the call runs again in a fresh one, and a call
     that fails twice leaves that heuristic unjudged this round rather than stopping the judging."""
 
-    def __init__(self, task_runner: TaskRunner, among: int = 0, reading: float = 1.0) -> None:
+    def __init__(
+        self, task_runner: TaskRunner, among: int = 0, reading: float = 1.0, seconds: float = 0.0
+    ) -> None:
         self._task_runner = task_runner
+        #: How long a whole judging may take, which divides down to what one valuing may spend.
+        #:
+        #: **One heuristic in a pool can hold a round on its own.** Measured on a run's own store: of ten
+        #: heuristics, nine valued a position in 0.2 to 0.6 ms and one took 277 ms — fourteen hundred times
+        #: the others — and that one accounted for essentially the whole of a 195-second round. It was not
+        #: the biggest ruleset; a sibling of 412 rules cost 0.6 ms. What let it through was ordering by
+        #: weight, which keeps an expensive rule whenever its weight is high enough, where ordering by value
+        #: per unit of cost would not.
+        #:
+        #: Given seconds, every heuristic is held to the same allowance per valuing — not to a slice of the
+        #: round divided among them. Within that allowance a ruleset takes the rules worth the most for their
+        #: cost while the running total fits, so **a long-running rule is balanced out by short ones** and
+        #: gets in wherever they leave room. What it cannot do is take the round on its own.
+        #:
+        #: Nought leaves the judging unbounded, which is what it was.
+        self._seconds = seconds
         #: How many actions a decision is put with, and what share of a ruleset's weight is read. Both are the
         #: caller's, both cut the same multiplication, and both trade exactness for time: the first drops the
         #: alternatives nobody played, the second the rules too quiet to reorder anything.
@@ -72,6 +100,13 @@ class AgreementDispatcher:
         if not models or not decisions:
             return ()
         names = [name for name, _ in models]
+        # What one valuing may spend, from what the whole round may. Divided by the valuings **one** heuristic
+        # does and not by the pool: the heuristics are judged in parallel, one to a worker, so what a round
+        # takes is what the slowest of them takes rather than the sum. Divided by the pool it would be a quota
+        # — each ruleset handed a shrinking slice as the pool grew — and a ruleset holding one slow rule would
+        # be starved even where its other rules left room for it.
+        asked = sum(min(self._among, len(one.offered)) if self._among else len(one.offered) for one in decisions)
+        each = self._seconds / max(1, asked) if self._seconds else 0.0
         found = self._task_runner.map(
             scored_alone,
             names,
@@ -79,6 +114,7 @@ class AgreementDispatcher:
             [decisions] * len(models),
             [self._among] * len(models),
             [self._reading] * len(models),
+            [each] * len(models),
             droppable=True,
         )
         kept = tuple(one for one in found if isinstance(one, Agreement))

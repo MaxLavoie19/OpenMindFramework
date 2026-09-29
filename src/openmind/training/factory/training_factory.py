@@ -47,12 +47,16 @@ def create_model_match(agent: Agent | None = None) -> ModelMatch:
     return ModelMatch(create_self_play(agent), Outfitter(create_rule_heuristic(), ModelTimer()), AccuracyScorer())
 
 
-def create_agreement_dispatcher(workers: int = 1, among: int = 0, reading: float = 1.0) -> AgreementDispatcher:
+def create_agreement_dispatcher(
+    workers: int = 1, among: int = 0, reading: float = 1.0, seconds: float = 0.0
+) -> AgreementDispatcher:
     """Every heuristic put to the same decisions, over that many worker processes.
 
     One worker runs everything here, which is what a run that asked for no dispatch did before. How many is
     the caller's: the machine's cores are shared with whatever is playing games at the same time.
 
-    `among` is how many actions a decision is put with, the played one always among them, and `reading` what
-    share of a ruleset's weight is read. Nought and one ask everything, which is what this did before."""
-    return AgreementDispatcher(TaskRunner(workers), among, reading)
+    `among` is how many actions a decision is put with, the played one always among them, `reading` what
+    share of a ruleset's weight is read, and `seconds` how long the whole judging may take — which divides
+    down to what one valuing may spend, so no single heuristic can hold the round. Nought and one ask
+    everything, which is what this did before."""
+    return AgreementDispatcher(TaskRunner(workers), among, reading, seconds)

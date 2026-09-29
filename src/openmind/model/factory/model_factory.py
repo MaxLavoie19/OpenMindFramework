@@ -3,6 +3,7 @@ from openmind.model.service.model_drawer import ModelDrawer
 from openmind.model.service.rule_budget import ALLOWANCE, RuleBudget
 from openmind.model.model.rule_signal import RuleSignal
 from openmind.model.service.rule_admission import RuleAdmission
+from openmind.model.service.ruleset_builder import RulesetBuilder
 from openmind.model.service.model_retirement import ModelRetirement
 from openmind.model.service.rule_price import RulePrice
 from openmind.model.service.rule_signals import FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning
@@ -64,3 +65,11 @@ def create_model_retirement() -> ModelRetirement:
     retiring is believing it is not worth asking. What was learned about it survives, and later evidence can
     un-retire it."""
     return ModelRetirement()
+
+
+def create_ruleset_builder() -> RulesetBuilder:
+    """What builds candidate rulesets out of what the signals make of the rules.
+
+    Signals are aspects rather than authors: a set is a mix of them, several mixes are built, and which mix
+    synergises is settled by playing them against one another rather than decided here."""
+    return RulesetBuilder()
