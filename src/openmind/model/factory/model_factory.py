@@ -1,6 +1,6 @@
 from openmind.inference.service.accuracy_scorer import AccuracyScorer
-from openmind.model.service.factor_weights import FactorWeights
 from openmind.model.service.model_drawer import ModelDrawer
+from openmind.model.service.rule_budget import RuleBudget
 from openmind.model.service.model_registry import ModelRegistry
 from openmind.model.service.model_timer import ModelTimer
 
@@ -23,6 +23,7 @@ def create_model_timer() -> ModelTimer:
     return ModelTimer()
 
 
-def create_factor_weights() -> FactorWeights:
-    """What each way of making a heuristic has been worth, so the next is made the way that has paid."""
-    return FactorWeights()
+
+def create_rule_budget() -> RuleBudget:
+    """What each signal has earned and spent vouching for rules."""
+    return RuleBudget()

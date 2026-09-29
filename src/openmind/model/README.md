@@ -19,11 +19,11 @@ about it: the epistemology weighs them like anything else the agent believes.
 |---|---|
 | `service/model_registry.py` | `ModelRegistry(accuracy_scorer)`: `register(knowledge_base, record)`, `register_ruleset(knowledge_base, ruleset, name=None)`, `of_task(knowledge_base, context_id, task)`, `best(knowledge_base, context_id, task)`, `measured(knowledge_base, model)` |
 | `service/model_drawer.py` | `ModelDrawer(registry=None)`: `drawn(knowledge_base, context_id, task, rng, how_many=1)` draws that many models of the task by their bound, without drawing one twice; `bound(...)` is what one is worth trying, infinite where it has never been scored; `among(bounds, rng, how_many=1)` is the draw over bounds alone, for a caller that cannot read the store where it draws |
-| `service/factor_weights.py` | `FactorWeights()`: `drawn(knowledge_base, context_id, factor, values, rng)` picks how to make the next heuristic, by what each way has been worth; `paid(knowledge_base, context_id, made_by, worth)` credits every way that made one; `bound(...)` is what a way is worth trying |
+| `service/rule_budget.py` | `RuleBudget(allowance=1.0)`: `allowed(knowledge_base, context_id, signals)` pays every signal its income for the round; `vouched(knowledge_base, context_id, signal, price)` stakes that much on a rule, or refuses where it cannot be afforded; `earned(knowledge_base, context_id, signals, worth)` pays or decays by what the ruleset they backed turned out to be worth; `held(...)` and `afford(...)` read the purse |
 | `service/model_timer.py` | `ModelTimer(time_source=None)`: `timed(knowledge_base, model, read)` times a reading and keeps the seconds; `spent(...)` keeps a reading's seconds on their own |
 | `model/model_measure.py` | `ModelMeasure(accuracy, spread, processing_seconds, readings)`: what a model has been measured at; None for what isn't measured yet |
 | `constant/model_constant.py` | The families OMF knows (`rules`, `lookup table`, `decision tree`, `ensemble`, `network`), and what the timing belief is called |
-| `factory/model_factory.py` | `create_model_registry()`, `create_model_drawer()`, `create_factor_weights()`, `create_model_timer()` |
+| `factory/model_factory.py` | `create_model_registry()`, `create_model_drawer()`, `create_rule_budget()`, `create_model_timer()` |
 
 The tasks themselves are named in `knowledge/constant/task_constant.py`, and a model record lives in
 `knowledge/model/model_record.py` (see `knowledge/README.md`).
