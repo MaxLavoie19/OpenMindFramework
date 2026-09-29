@@ -14,7 +14,7 @@ def create_term_evaluator(workers: int = 1, memory_cap: MemoryCap | None = None)
     needs.
 
     A module of its own because two things want one and one of them builds the other: the search that fits
-    terms is built by `ValueGeneratorBuilder`, which `rbs_factory` imports, so a function the builder calls
+    terms is built by `HeuristicFinderBuilder`, which `rbs_factory` imports, so a function the builder calls
     cannot live in that factory. Five constructor arguments are not a thing to write out twice either, which
     is how the two would otherwise drift apart."""
     compiler, runner, library = RuleCompiler(), RuleRunner(StateNamespaceMapper()), ConsequenceLibraryBuilder().build()

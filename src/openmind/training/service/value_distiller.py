@@ -6,7 +6,7 @@ from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.model.heuristic_target import HeuristicTarget
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.rule_based_game import RuleBasedGame
-from openmind.rbs.service.value_generator import ValueGenerator
+from openmind.rbs.service.heuristic_finder import HeuristicFinder
 from openmind.search.model.guidance import Guidance
 from openmind.timing.mapper.duration_text_mapper import DurationTextMapper
 from openmind.training.mapper.position_row_mapper import PositionRowMapper
@@ -29,11 +29,11 @@ class ValueDistiller:
     how many of them anyone won, and what the fit was off by on games it never saw."""
 
     def __init__(
-        self, self_play: SelfPlay, position_row_mapper: PositionRowMapper, value_generator: ValueGenerator
+        self, self_play: SelfPlay, position_row_mapper: PositionRowMapper, heuristic_finder: HeuristicFinder
     ) -> None:
         self._self_play = self_play
         self._rows = position_row_mapper
-        self._generator = value_generator
+        self._generator = heuristic_finder
 
     def distill(
         self,

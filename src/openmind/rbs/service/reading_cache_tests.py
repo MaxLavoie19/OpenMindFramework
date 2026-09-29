@@ -14,7 +14,7 @@ type Game = Callable[[str], RuleBasedGame]
 
 
 def caching() -> ReadingCache:
-    """Wired as the value generator's builder wires one, in this process."""
+    """Wired as the heuristic finder's builder wires one, in this process."""
     compiler, runner = RuleCompiler(), RuleRunner(StateNamespaceMapper())
     return ReadingCache(compiler, runner, ConsequenceLibraryBuilder().build(), MemoryMeter())
 

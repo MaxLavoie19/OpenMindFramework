@@ -13,7 +13,7 @@ NOTABLE_LOGGERS = (
     "openmind.training.service.value_distiller",
     "openmind.training.service.ending_walker",
     "openmind.inference.service.expression_search",
-    "openmind.rbs.service.value_generator",
+    "openmind.rbs.service.heuristic_finder",
     "openmind.parallel.service.task_runner",
     "openmind.parallel.service.memory_guard",
 )

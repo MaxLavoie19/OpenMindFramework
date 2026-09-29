@@ -41,8 +41,8 @@ PRICED_RULESET = "{task} at price {price}"
 type TargetValues = tuple[np.ndarray, np.ndarray]
 
 
-class ValueGenerator:
-    """Generates value rules for any domain from positions and the payoffs they led to: searches expressions of the
+class HeuristicFinder:
+    """Finds the heuristics a domain's own games bear out, from positions and the payoffs they led to: searches expressions of the
     positions and of what the domain's own actions make of them, within the settings' time and memory budget, then fits
     the expressions' weights, each priced per clause and per share of rows where it isn't blank, at each price of a sweep,
     keeping the fit whose rules predict the held-out positions best. A blank reads as 0, and a term with blanks isn't

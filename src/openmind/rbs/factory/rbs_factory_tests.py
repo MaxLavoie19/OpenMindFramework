@@ -1,10 +1,10 @@
 from collections.abc import Callable
 
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
-from openmind.rbs.factory.rbs_factory import create_rule_based_game, create_value_generator
+from openmind.rbs.factory.rbs_factory import create_rule_based_game, create_heuristic_finder
 from openmind.rule.model.python_rule import PythonRule
 from openmind.rbs.service.rule_based_game import RuleBasedGame
-from openmind.rbs.service.value_generator import ValueGenerator
+from openmind.rbs.service.heuristic_finder import HeuristicFinder
 
 type Game = Callable[[str], RuleBasedGame]
 
@@ -30,8 +30,8 @@ def test_a_context_with_position_rules_values_a_position_with_them(
     assert valued.value(middle, "X") == 1.0
 
 
-def test_create_value_generator_gives_a_value_generator() -> None:
-    assert isinstance(create_value_generator(), ValueGenerator)
+def test_create_heuristic_finder_gives_a_heuristic_finder() -> None:
+    assert isinstance(create_heuristic_finder(), HeuristicFinder)
 
 
 def test_a_context_without_a_ruleset_of_its_own_for_a_task_takes_the_one_it_inherits(

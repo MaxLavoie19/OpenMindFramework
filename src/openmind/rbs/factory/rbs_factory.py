@@ -6,18 +6,18 @@ from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.predictor.factory.predictor_factory import create_rule_predictor
 from openmind.rbs.builder.consequence_library_builder import ConsequenceLibraryBuilder
 from openmind.heuristic.service.rule_heuristic import RuleHeuristic
-from openmind.rbs.builder.value_generator_builder import ValueGeneratorBuilder
+from openmind.rbs.builder.heuristic_finder_builder import HeuristicFinderBuilder
 from openmind.rbs.model.rule_based_system import RuleBasedSystem
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.service.simulation import Simulation
-from openmind.rbs.service.value_generator import ValueGenerator
+from openmind.rbs.service.heuristic_finder import HeuristicFinder
 from openmind.rule.factory.rule_factory import create_rule_caller
 
 
-def create_value_generator(workers: int = 1) -> ValueGenerator:
-    """A value generator with its term generator, term evaluator and sparse fitter, evaluating terms in that many worker
+def create_heuristic_finder(workers: int = 1) -> HeuristicFinder:
+    """A heuristic finder with its term generator, term evaluator and sparse fitter, evaluating terms in that many worker
     processes."""
-    return ValueGeneratorBuilder().with_workers(workers).build()
+    return HeuristicFinderBuilder().with_workers(workers).build()
 
 
 def create_rule_heuristic() -> RuleHeuristic:

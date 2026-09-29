@@ -56,7 +56,7 @@ source file.
 | `service/simulation.py` | `Simulation(solver, predictor, rule_caller)`: stateless, built once, runs a simulation ruleset's RBS given with every call: `start`, `players`, `actions` (without a player, the one player acting's), `actions_with_statistics`, `acting`, `acting_player`, `joint_actions`, `outcomes`, `joint_outcomes`, `ended`, `call` |
 | `service/rule_based_game.py` | `RuleBasedGame(context, simulation_rbs, heuristics, simulation, heuristic, context_id=None)`, with `node(state)` for what a heuristic reads: a temporary facade over a game's RBSs for the packages not yet reworked, each dropping it at its own step: the simulation's methods without the RBS argument, `start()` and `players()` read once, and the heuristics' `value(state, player)`, `values(state)`, `rate(state, actions, player=None)`, `explain(state, player)`, `weight(rule)`, `describe()`, each rule weighed in its own ruleset |
 | `service/game_relaxer.py` | `GameRelaxer(knowledge_base)`: `relaxations(context)`, each constraint dropped; `relax(context, name)` makes that relaxation a context of its own, its simulation ruleset an open copy of the game's |
-| `factory/rbs_factory.py` | `create_simulation()` and `create_rule_heuristic()`, built once; `create_rule_based_system(knowledge_base, context, task="simulation")` and `find_rule_based_system(...)`, the RBS of the context's ruleset for the task, or of a context it inherits from; `create_rule_based_game(knowledge_base, context, simulation=None)` and `create_game(name, knowledge_base, registry=None)`, the facades; `context_ruleset(knowledge_base, context_id, task)`; `create_value_generator(workers=1)` |
+| `factory/rbs_factory.py` | `create_simulation()` and `create_rule_heuristic()`, built once; `create_rule_based_system(knowledge_base, context, task="simulation")` and `find_rule_based_system(...)`, the RBS of the context's ruleset for the task, or of a context it inherits from; `create_rule_based_game(knowledge_base, context, simulation=None)` and `create_game(name, knowledge_base, registry=None)`, the facades; `context_ruleset(knowledge_base, context_id, task)`; `create_heuristic_finder(workers=1)` |
 | `constant/game_record_constant.py` | What a record rule reads: `actions`, `payoffs` |
 | `model/heuristic_target.py` | `HeuristicTarget(knowledge_base, context)`: where a producer of heuristic rules links what it fits |
 | `constant/consequence_constant.py` | The names heuristics read (`me`, `other`, `action`, `win_chance`, `wins`, `near`, `OUTSIDE`) |
@@ -71,8 +71,8 @@ source file.
 | `service/term_evaluator.py` | `TermEvaluator`: a term's values on position rows as numbers; several terms at once in the task runner's workers, the rows split in slices; `aggregate_columns(rbs, rows, parts)` folds an aggregate from its readings instead of running its source |
 | `service/reading_cache.py` | `ReadingCache`: what a reading gives at every index of a base, kept per position, player and reading, so every candidate sharing a reading reads it once |
 | `service/sparse_fitter.py` | `SparseFitter`: a linear fit of the payoffs themselves, with an L1 price on its weights, optionally multiplied per weight by a cost, by accelerated proximal gradient |
-| `service/value_generator.py` | `ValueGenerator`: searches expressions with the inference engine, fits them at every price, and declares the fit best on held-out rows as `position` rules; `generate_for_targets(...)` does it for several targets at once |
-| `builder/value_generator_builder.py` | `ValueGeneratorBuilder`: sets how many worker processes terms are evaluated in and the memory each holds at most, and wires the generator |
+| `service/heuristic_finder.py` | `HeuristicFinder`: searches expressions with the inference engine, fits them at every price, and declares the fit best on held-out rows as `position` rules; `generate_for_targets(...)` does it for several targets at once |
+| `builder/heuristic_finder_builder.py` | `HeuristicFinderBuilder`: sets how many worker processes terms are evaluated in and the memory each holds at most, and wires the generator |
 
 ## The kinds of rules
 
@@ -159,7 +159,7 @@ The value is in the game's own payoff units, so a finished game's payoffs and a 
 
 ## How position rules are fitted
 
-`ValueGenerator.generate(rbs, training, held_out, settings, target, seeds=())` takes position rows, each a position,
+`HeuristicFinder.generate(rbs, training, held_out, settings, target, seeds=())` takes position rows, each a position,
 the player it is valued for and the payoff to fit; `training/README.md` says where rows come from. Seeds, expressions
 given to start from, are tried before the leaves. The fitted rules are declared open and linked, at their weights, into
 the position value ruleset of the target's context, which usually inherits the game, so the result is a game that can
@@ -230,7 +230,7 @@ runner.value(empty, state, {"row": 1, "col": 2})   # True
 - `openmind.rbs.service.game_relaxer`: `INFO Relaxed <context> into <relaxation>: <n> rules`.
 - `openmind.rbs.service.simulation`: `WARNING The <context> <kind> rule raised`, when a game's ending, record or
   picture rule raises; the logs survive it.
-- `openmind.rbs.service.value_generator`:
+- `openmind.rbs.service.heuristic_finder`:
   - `INFO Every training payoff is <payoff>: nothing to fit`
   - `INFO <c> candidate terms after <g> generations of search (<why it stopped>), looking up to <plies> actions ahead`
   - `INFO Price <price>: <k> of <c> terms kept in <steps> steps, settled|not settled; training loss <loss>, held-out loss <loss>`
@@ -247,4 +247,4 @@ The RBS's roles don't log: they run inside searches.
   `parallel/README.md`). An RBS travels whole, its rules with it.
 - Tests: `service/rule_based_game_tests.py`, `service/simulation_tests.py`, `service/game_relaxer_tests.py`, `factory/rbs_factory_tests.py`,
   `service/consequence_library_tests.py`, `service/sparse_fitter_tests.py`, `service/term_evaluator_tests.py`,
-  `service/value_generator_tests.py`, `service/reading_cache_tests.py`, `builder/value_generator_builder_tests.py`.
+  `service/heuristic_finder_tests.py`, `service/reading_cache_tests.py`, `builder/heuristic_finder_builder_tests.py`.

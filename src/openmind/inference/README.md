@@ -31,7 +31,7 @@ reading `here`.
 | `service/expression_generator.py` | `ExpressionGenerator`: the vocabulary, leaves, pattern children, thresholds, combinations and look-aheads; `pattern_expression(pattern, vocabulary)`, the expression counting a pattern |
 | `service/expression_search.py` | `ExpressionSearch`: grows expressions generation by generation within a budget, trying given seeds before the leaves |
 
-`rbs` wires these in: `ConsequenceLibrary.names` gives rules `here`, and `ValueGenerator` fits the expressions the
+`rbs` wires these in: `ConsequenceLibrary.names` gives rules `here`, and `HeuristicFinder` fits the expressions the
 search keeps (see `rbs/README.md`).
 
 ## What a view reads
@@ -192,7 +192,7 @@ games back from their ends with it (see `training/README.md`).
 
 ```python
 from openmind.inference.model.search_budget import SearchBudget
-from openmind.rbs.factory.rbs_factory import create_rule_based_game, create_value_generator
+from openmind.rbs.factory.rbs_factory import create_rule_based_game, create_heuristic_finder
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.model.heuristic_target import HeuristicTarget
 
@@ -200,7 +200,7 @@ settings = ValueSettings(
     prices=(0.1, 0.01, 0.001), max_steps=1000, tolerance=1e-6, seconds=600.0, memory_bytes=8 * 1024**3, candidates=None
 )
 target = HeuristicTarget(knowledge_base, "tictactoe")
-result = create_value_generator(workers=8).generate(rbs, training_rows, held_out_rows, settings, target)
+result = create_heuristic_finder(workers=8).generate(rbs, training_rows, held_out_rows, settings, target)
 fitted = create_rule_based_game(knowledge_base, "tictactoe")
 for rule in result.rules:
     print(fitted.weight(rule), rule.name)   # e.g. here.worst(other, lambda v2: v2.best(me, lambda v1: v1.payoff[me] == 1.0))

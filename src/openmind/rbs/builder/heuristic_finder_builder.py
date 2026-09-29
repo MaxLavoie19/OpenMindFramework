@@ -12,11 +12,11 @@ from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner
 from openmind.rbs.service.sparse_fitter import SparseFitter
 from openmind.rbs.service.term_evaluator import TermEvaluator
-from openmind.rbs.service.value_generator import ValueGenerator
+from openmind.rbs.service.heuristic_finder import HeuristicFinder
 
 
-class ValueGeneratorBuilder:
-    """Sets how many worker processes a value generator evaluates expressions in, 1 by default, and the memory each of
+class HeuristicFinderBuilder:
+    """Sets how many worker processes a heuristic finder evaluates expressions in, 1 by default, and the memory each of
     them holds at most, no cap by default, and wires it: one expression generator and one sparse fitter shared by its
     expression search and itself."""
 
@@ -32,8 +32,8 @@ class ValueGeneratorBuilder:
         self._memory_cap = memory_cap
         return self
 
-    def build(self) -> ValueGenerator:
+    def build(self) -> HeuristicFinder:
         evaluator = create_term_evaluator(self._workers, self._memory_cap)
         generator, fitter = ExpressionGenerator(), SparseFitter()
         search = ExpressionSearch(generator, evaluator, fitter, MemoryMeter())
-        return ValueGenerator(search, generator, fitter)
+        return HeuristicFinder(search, generator, fitter)

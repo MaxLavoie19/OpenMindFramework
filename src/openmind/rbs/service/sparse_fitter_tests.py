@@ -48,7 +48,7 @@ def test_the_bias_is_never_priced():
 
 
 def test_a_dearer_price_keeps_fewer_terms():
-    """The sweep the value generator runs rests on this being monotone: raise the price and terms drop out."""
+    """The sweep the heuristic finder runs rests on this being monotone: raise the price and terms drop out."""
     rows = 60
     generator = np.random.default_rng(7)
     columns = generator.normal(size=(rows, 6))

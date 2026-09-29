@@ -40,7 +40,7 @@ run about 150 Elo above the same algorithm self-played. It is the thing to watch
 2. `PositionRowMapper` turns the games into rows: every position, once per player, valued at what that game paid
    that player. One game's result is a noisy value for its early positions, and it is what the position led to in
    the agent's own play.
-3. `ValueGenerator` fits terms over the training rows and chooses a price on the held-out ones (see `rbs/README.md`).
+3. `HeuristicFinder` fits terms over the training rows and chooses a price on the held-out ones (see `rbs/README.md`).
 4. `error` is the chosen rules' loss on the held-out rows. **Those rows also chose the price**, so it is not
    independent of that choice.
 

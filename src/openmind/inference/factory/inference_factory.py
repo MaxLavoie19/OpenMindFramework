@@ -5,7 +5,7 @@ from openmind.inference.service.position_gatherer import PositionGatherer
 from openmind.inference.service.stability import Stability
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.inference.service.expression_generator import ExpressionGenerator
-from openmind.rbs.factory.rbs_factory import create_value_generator
+from openmind.rbs.factory.rbs_factory import create_heuristic_finder
 from openmind.rbs.factory.term_evaluator_factory import create_term_evaluator
 from openmind.rbs.service.game_relaxer import GameRelaxer
 from openmind.world.mapper.action_text_mapper import ActionTextMapper
@@ -32,7 +32,7 @@ def create_heuristic_ponderer(knowledge_base: KnowledgeBase, workers: int = 1) -
     return HeuristicPonderer(
         PositionGatherer(),
         create_position_deducer(),
-        create_value_generator(workers),
+        create_heuristic_finder(workers),
         GameRelaxer(knowledge_base),
         expression_generator,
         create_term_evaluator(workers),

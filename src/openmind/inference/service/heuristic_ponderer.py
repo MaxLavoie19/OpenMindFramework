@@ -19,7 +19,7 @@ from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.game_relaxer import GameRelaxer
 from openmind.rbs.service.term_evaluator import TermEvaluator
 from openmind.rbs.service.rule_based_game import RuleBasedGame
-from openmind.rbs.service.value_generator import ValueGenerator
+from openmind.rbs.service.heuristic_finder import HeuristicFinder
 from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ class HeuristicPonderer:
         self,
         position_gatherer: PositionGatherer,
         position_deducer: PositionDeducer,
-        value_generator: ValueGenerator,
+        heuristic_finder: HeuristicFinder,
         game_relaxer: GameRelaxer,
         expression_generator: ExpressionGenerator,
         term_evaluator: TermEvaluator | None = None,
@@ -78,7 +78,7 @@ class HeuristicPonderer:
     ) -> None:
         self._gatherer = position_gatherer
         self._deducer = position_deducer
-        self._generator = value_generator
+        self._finder = heuristic_finder
         self._relaxer = game_relaxer
         self._expressions = expression_generator
         # What reads a term at a position, and what turns a walk of those readings into how steady each
@@ -129,7 +129,7 @@ class HeuristicPonderer:
         training, held_out = self._split(rows, settings.held_out)
         valued_by = tried[-1].source
         seeds, dropped = self._starting(game, training, settings, tried)
-        generated = self._generator.generate(
+        generated = self._finder.generate(
             game,
             training,
             held_out,

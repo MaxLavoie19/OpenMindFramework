@@ -39,7 +39,7 @@ kills. It only reads what trainings already write: their logs, the process file 
   seeds ... finished ...`), searched moves (`Searching ...`) and deduced moves (`Deduced ...`) are counted from there. Workers log each game as soon as it
   ends, so the counts grow during a round; searches grow even while every game is still being played. The latest
   15 INFO and WARNING lines of the training's main loggers (training loop, distiller, ending walker, expression search,
-  value generator, entrypoint, task runner) are kept. A newer log starts over.
+  heuristic finder, entrypoint, task runner) are kept. A newer log starts over.
 - **Plots.** The same streamed log gives each round its own tally — games, decisive, drawn, the plies they took with the
   shortest and the longest, and how each ended where the domain says — kept per round rather than only for the round in
   progress, so the page draws them round by round and the current round grows as its games finish. A log line is read

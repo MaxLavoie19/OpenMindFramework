@@ -7,12 +7,12 @@ from openmind.knowledge.constant.task_constant import POSITION_VALUE
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.model.service.model_registry import ModelRegistry
-from openmind.rbs.factory.rbs_factory import create_value_generator
+from openmind.rbs.factory.rbs_factory import create_heuristic_finder
 from openmind.rbs.model.heuristic_target import HeuristicTarget
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.rule_based_game import RuleBasedGame
-from openmind.rbs.service.value_generator import PRICED_RULESET
+from openmind.rbs.service.heuristic_finder import PRICED_RULESET
 
 type Game = Callable[[str], RuleBasedGame]
 
@@ -43,7 +43,7 @@ def test_only_the_chosen_price_is_declared_unless_every_price_is_asked_for(
     played = game("tictactoe")
     training, held_out = rows(played)
 
-    generated = create_value_generator().generate(
+    generated = create_heuristic_finder().generate(
         played, training, held_out, settings(), HeuristicTarget(knowledge, "tictactoe")
     )
 
@@ -63,7 +63,7 @@ def test_every_price_kept_is_a_model_of_its_own_to_be_played(game: Game, knowled
     played = game("tictactoe")
     training, held_out = rows(played)
 
-    generated = create_value_generator().generate(
+    generated = create_heuristic_finder().generate(
         played, training, held_out, settings(keep_every_price=True), HeuristicTarget(knowledge, "tictactoe")
     )
 
@@ -86,12 +86,12 @@ def test_rules_fitted_in_another_store_can_be_taken_into_this_one(game: Game, kn
     played = game("tictactoe")
     training, held_out = rows(played)
     elsewhere = create_knowledge_base("elsewhere", Path(mkdtemp()))
-    create_value_generator().generate(
+    create_heuristic_finder().generate(
         played, training, held_out, settings(), HeuristicTarget(elsewhere, "tictactoe")
     )
     fitted = elsewhere.ruleset_rules(elsewhere.ruleset_named(elsewhere.context_named("tictactoe").id, POSITION_VALUE).id)
 
-    taken = create_value_generator().adopt(HeuristicTarget(knowledge, "tictactoe", name="what a worker settled"), fitted)
+    taken = create_heuristic_finder().adopt(HeuristicTarget(knowledge, "tictactoe", name="what a worker settled"), fitted)
 
     context = knowledge.context_named("tictactoe")
     assert [one.name for one in taken] == [record.name for record, _ in fitted]
@@ -109,14 +109,14 @@ def test_taking_the_same_rules_in_twice_revises_them_rather_than_doubling_them(
     played = game("tictactoe")
     training, held_out = rows(played)
     elsewhere = create_knowledge_base("elsewhere", Path(mkdtemp()))
-    create_value_generator().generate(
+    create_heuristic_finder().generate(
         played, training, held_out, settings(), HeuristicTarget(elsewhere, "tictactoe")
     )
     fitted = elsewhere.ruleset_rules(elsewhere.ruleset_named(elsewhere.context_named("tictactoe").id, POSITION_VALUE).id)
     target = HeuristicTarget(knowledge, "tictactoe", name="what a worker settled")
 
-    create_value_generator().adopt(target, fitted)
-    create_value_generator().adopt(target, fitted)
+    create_heuristic_finder().adopt(target, fitted)
+    create_heuristic_finder().adopt(target, fitted)
 
     context = knowledge.context_named("tictactoe")
     landed = knowledge.ruleset_rules(knowledge.ruleset_named(context.id, "what a worker settled").id)

@@ -20,7 +20,7 @@ type Game = Callable[[str], RuleBasedGame]
 
 
 def evaluating(workers: int = 1) -> TermEvaluator:
-    """A term evaluator wired as the value generator's builder wires one, in this process."""
+    """A term evaluator wired as the heuristic finder's builder wires one, in this process."""
     compiler, runner = RuleCompiler(), RuleRunner(StateNamespaceMapper())
     library = ConsequenceLibraryBuilder().build()
     return TermEvaluator(compiler, runner, library, TaskRunner(workers), ReadingCache(compiler, runner, library, MemoryMeter()))

@@ -11,7 +11,7 @@ from openmind.search.factory.search_factory import create_monte_carlo_tree_searc
 from openmind.training.mapper.position_row_mapper import PositionRowMapper
 from openmind.training.service.self_play import SelfPlay
 from openmind.training.service.value_distiller import ValueDistiller
-from openmind.rbs.factory.rbs_factory import create_value_generator
+from openmind.rbs.factory.rbs_factory import create_heuristic_finder
 
 
 def create_self_play(agent: Agent | None = None) -> SelfPlay:
@@ -27,7 +27,7 @@ def create_position_row_mapper() -> PositionRowMapper:
 def create_value_distiller(agent: Agent | None = None, workers: int = 1) -> ValueDistiller:
     """Learning a position heuristic from games the agent played against itself, fitting terms in that many worker
     processes."""
-    return ValueDistiller(create_self_play(agent), create_position_row_mapper(), create_value_generator(workers))
+    return ValueDistiller(create_self_play(agent), create_position_row_mapper(), create_heuristic_finder(workers))
 
 
 def create_game_study() -> GameStudy:
