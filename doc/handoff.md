@@ -133,11 +133,13 @@ These cost real time to establish. Do not re-derive them.
   29.8 seconds; two endings settle six value rules in 32.6. With relaxations on, a single game runs for
   minutes, because the relaxation search is what pondering falls back on when the payoff route pays nothing.
   Several endings is what made pondering cheap when the learner did it over everybody's games at once.
-- **The heuristics learned are per-square, not material.** Sample: `+0.501 here.color[4, 2] == me`. The term
-  meaning "what a knight is worth" is the two-condition pattern `piece[i]=='knight' and color[i]==me`, which
-  `ExpressionGenerator` reaches only as a later generation. `HeuristicDeriver.seeds` exists to shortcut it and
-  still seeds from `WorthReasoner.holdings` rather than from `allowed()`. **`allowed()` is written and tested
-  and is not wired into seeding** — a live item, deliberately not taken on yet.
+- **A thing is never valued by what its rules admit.** The heuristics learned are per-square rather than
+  material, and the fix that suggests itself — ask the rules how much each thing can do and seed the search
+  with that — is the one move this project must not make. Three services had made it, and all three are gone;
+  see the ruling at the head of `doc/open-questions.md`. The term meaning "what a knight is worth" is the
+  two-condition pattern `piece[i]=='knight' and color[i]==me`, which `ExpressionGenerator` reaches only as a
+  later generation, so reaching it is a search-cost problem to be solved by search, not by supplying the
+  answer. If the games do not bear a piece value out, OMF does not have one.
 - **A chess position has two representations.** `ChessPositions.state` (learning) and the declared game's
   state (`piece`, `color`). They are not interchangeable; `create_chess_state(fen)` is the crossing. This
   blocked pondering, then the dashboard board, then killed a run. Assume any new code crossing between the

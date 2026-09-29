@@ -10,12 +10,7 @@ class PonderSettings:
     `positions` is how many positions it gathers by playing the game; `held_out` how many of them it keeps back, so
     the rules it settles on are chosen on positions they were not fitted on. `plies` and `deduction_seconds` are what
     one position may be reasoned about, and `relaxations` whether a game's relaxations are tried where the game
-    itself taught nothing. `values` is how the rules are generated and fitted.
-
-    `worth_positions` is how many of the fitted-on positions the rules are asked what things are worth over, None
-    for all of them. Asking costs a legal-move generation per thing per position, so it is the one part of
-    pondering that grows with the board — and it is a budget rather than a cap chosen here, because how much of
-    it is worth paying for depends on the game."""
+    itself taught nothing. `values` is how the rules are generated and fitted."""
 
     values: ValueSettings
     positions: int = 200
@@ -44,4 +39,3 @@ class PonderSettings:
     deduction_seconds: float = 1.0
     relaxations: bool = True
     seed: int = 0
-    worth_positions: int | None = None

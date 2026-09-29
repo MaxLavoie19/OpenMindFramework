@@ -7,11 +7,9 @@ from openmind.inference.model.expression import Expression
 from openmind.inference.model.ponder_settings import PonderSettings
 from openmind.inference.model.pondering import Labelling, Pondering
 from openmind.inference.service.expression_generator import ExpressionGenerator
-from openmind.inference.service.heuristic_deriver import HeuristicDeriver
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.inference.service.position_gatherer import PositionGatherer
 from openmind.inference.service.stability import Stability
-from openmind.inference.service.worth_reasoner import WorthReasoner
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_game
 from openmind.rbs.factory.term_evaluator_factory import create_term_evaluator
@@ -38,7 +36,6 @@ MOVES_SETTLED = "what the rules of {context} settle a move pays"
 #: What reasoning out the worth of things is called. It is not a way of valuing a position — it never looks at a
 #: payoff — but it is a way of paying for a search, and a way of paying reports itself beside the others or it is
 #: judged on nothing.
-REASONED = "what the rules of {context} imply things are worth"
 
 #: What measuring how steady each term is is called. Like the reasoned worths it values no position and pays for
 #: a search all the same, so it reports itself beside them or it is judged on nothing.
@@ -62,12 +59,12 @@ class HeuristicPonderer:
     What each source was worth is kept, paid or not: a way of bootstrapping that taught nothing here is a finding of
     its own.
 
-    **And the rules say one thing more, which is not a value at all.** Asked what each thing on the board is
-    worth — by taking it off and seeing how much of what its owner could do goes away — they answer without any
-    position having been valued. That is not a target to fit against; it is a set of terms worth trying first,
-    with the weight each ought to start at. It goes to the search as seeds. What it buys is expansion order: the
-    term whose weight is what a knight is worth gets reached in the generation that would otherwise be spent
-    rediscovering it, and a seed whose gradient does not pay is shrunk to nothing exactly like anything else."""
+    **Nothing here is seeded with what a thing is worth, and nothing may be.** Asking the rules how much a thing
+    can do and starting the search from that number is valuing a thing by what its rules admit and calling the
+    answer a discovery. It read plausibly and it was measured resting on nothing — no position bore out that
+    doing less is worse — so the ordering it produced was a theory wearing the clothes of a measurement. OMF is
+    told to look for heuristics. That a piece has a value is a heuristic it finds in what games paid, or does not
+    have."""
 
     def __init__(
         self,
@@ -75,8 +72,6 @@ class HeuristicPonderer:
         position_deducer: PositionDeducer,
         value_generator: ValueGenerator,
         game_relaxer: GameRelaxer,
-        heuristic_deriver: HeuristicDeriver,
-        worth_reasoner: WorthReasoner,
         expression_generator: ExpressionGenerator,
         term_evaluator: TermEvaluator | None = None,
         stability: Stability | None = None,
@@ -85,8 +80,6 @@ class HeuristicPonderer:
         self._deducer = position_deducer
         self._generator = value_generator
         self._relaxer = game_relaxer
-        self._deriver = heuristic_deriver
-        self._worth = worth_reasoner
         self._expressions = expression_generator
         # What reads a term at a position, and what turns a walk of those readings into how steady each
         # term is. Both stateless, and given here so a caller may hand over its own.
@@ -135,7 +128,7 @@ class HeuristicPonderer:
             return Pondering(game.context, (), len(positions), tuple(tried), time.monotonic() - started)
         training, held_out = self._split(rows, settings.held_out)
         valued_by = tried[-1].source
-        seeds, dropped = self._seeded(game, training, settings, tried)
+        seeds, dropped = self._starting(game, training, settings, tried)
         generated = self._generator.generate(
             game,
             training,
@@ -243,7 +236,7 @@ class HeuristicPonderer:
         )
         return tuple(rows) if labelling.paid else ()
 
-    def _seeded(
+    def _starting(
         self,
         game: RuleBasedGame,
         training: Sequence[PositionRow],
@@ -252,46 +245,18 @@ class HeuristicPonderer:
     ) -> tuple[tuple[tuple[Expression, float] | Expression, ...], tuple[str, ...]]:
         """The terms worth trying first, and the templates of the terms not worth trying at all.
 
-        **Only the positions that will be fitted on.** The held-out rows decide which price is kept, so a seed
-        reasoned partly out of them would make that choice partly a choice about rows it had already seen. It
-        costs nothing to avoid: what a thing is worth is a fact about the rules, and the fitted-on positions ask
-        the rules just as well.
+        **Only the positions that will be fitted on.** The held-out rows decide which price is kept, so a
+        judgement reasoned partly out of them would make that choice partly a choice about rows it had already
+        seen.
 
-        **Nothing here is told whose anything is.** `HeuristicDeriver.seeds` takes deduced sides where there are
-        any and this passes none, so the owning structure is found from the vocabulary instead — another base
-        over the same places whose values are the players' names. That is `ExpressionGenerator.owning`, and for
-        chess it finds the colour grid beside the piece grid without anything having deduced anything.
-        `SideDeducer` is deliberately not wired in here: open question 33 has it concluding that one player owns
-        both light and dark squares, and that white owns black's queen, and a deduction in that state would put
-        wrong owners into the very condition the seed exists to carry. The seam is `seeds(..., sides=...)` for
-        when the question is settled.
-
-        **It reports itself whether or not it found anything.** A way of paying for a search that seeded nothing
-        is a finding, exactly as a way of valuing that valued nothing is."""
-        started = time.monotonic()
+        **Nothing here proposes a term because of what the rules let a thing do.** What used to sit here asked
+        the rules how much each thing could do and handed the search those terms already weighted, which is the
+        one move OMF must not make: it is the answer being supplied and then found. What is left orders terms by
+        how steadily each reads, which is a fact about the terms over the positions in hand and says nothing
+        about what anything is worth."""
         positions = list({id(row.state): row.state for row in training}.values())
         vocabulary = self._expressions.vocabulary(game, positions)
-        worth = self._worth.reason(game, positions, most=settings.worth_positions)
-        seeds = self._deriver.seeds(self._deriver.holdings(worth), vocabulary)
-        tried.append(
-            Labelling(
-                REASONED.format(context=game.context),
-                len(positions) if settings.worth_positions is None else min(len(positions), settings.worth_positions),
-                len({held for _, _, held in worth.holdings}),
-                time.monotonic() - started,
-            )
-        )
-        logger.info(
-            "%s: %d things worth something over %d kinds, seeding %d terms, in %.1f seconds%s",
-            REASONED.format(context=game.context),
-            len(worth.holdings),
-            len({value for _, value, _ in worth.holdings}),
-            len(seeds),
-            tried[-1].seconds,
-            "" if worth.settled else " — resting on nothing, since no position bore out that doing less is worse",
-        )
-        steady, dropped = self._steady(game, vocabulary, positions, settings, tried)
-        return (*seeds, *steady), dropped
+        return self._steady(game, vocabulary, positions, settings, tried)
 
     def _steady(
         self,

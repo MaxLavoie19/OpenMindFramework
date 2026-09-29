@@ -1,10 +1,8 @@
 from openmind.inference.service.choice_fitter import ChoiceFitter
-from openmind.inference.service.heuristic_deriver import HeuristicDeriver
 from openmind.inference.service.heuristic_ponderer import HeuristicPonderer
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.inference.service.position_gatherer import PositionGatherer
 from openmind.inference.service.stability import Stability
-from openmind.inference.service.worth_reasoner import WorthReasoner
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.rbs.factory.rbs_factory import create_value_generator
@@ -36,14 +34,8 @@ def create_heuristic_ponderer(knowledge_base: KnowledgeBase, workers: int = 1) -
         create_position_deducer(),
         create_value_generator(workers),
         GameRelaxer(knowledge_base),
-        HeuristicDeriver(expression_generator=expression_generator),
-        WorthReasoner(),
         expression_generator,
         create_term_evaluator(workers),
         Stability(),
     )
 
-
-def create_heuristic_deriver() -> HeuristicDeriver:
-    """Reasoning a game's first heuristics out of its own rules, with the generator it writes them as terms with."""
-    return HeuristicDeriver(expression_generator=ExpressionGenerator())

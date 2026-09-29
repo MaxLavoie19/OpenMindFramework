@@ -1,23 +1,10 @@
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 from openmind.inference.service.covering_learner import Covering
 from openmind.inference.service.rule_deducer import Condition
 
 logger = logging.getLogger(__name__)
-
-#: How the readings that speak of the step between two squares are named, as `ActionReadings` names them for an
-#: action whose two parameters are called source and target. A game naming them otherwise says so.
-ABOUT = {
-    "rows": "rows from source to target",
-    "columns": "columns from source to target",
-    "rows_apart": "rows apart, source and target",
-    "columns_apart": "columns apart, source and target",
-    "steps": "steps from source to target",
-    "straight": "source and target share a row or a column",
-    "diagonal": "source and target are on a diagonal",
-}
-
 
 class RuleReasoner:
     """Concludes things about a game from its rules, without looking at a position.
@@ -28,8 +15,12 @@ class RuleReasoner:
 
     The one drawn here is entailment: whether everything one rule allows, another allows too. It is decided by the
     conditions alone — a rule asking less of an action than another, and nothing the other does not ask, allows
-    everything the other allows and more. From it follow orderings nothing needs a board to know: that what a queen
-    may do includes what a rook may do, so a queen is worth at least a rook, in any position, always."""
+    everything the other allows and more. From it follows an ordering nothing needs a board to know: that what one
+    rule allows takes in what another allows, in any position, always.
+
+    **What that ordering is not is a worth.** Allowing more is not being worth more — that step is a theory about
+    what wins, and taking it here would be valuing a thing by what its rules admit and calling the answer a
+    discovery, which is the one thing OMF must not do. What a thing is worth is what the games say it is worth."""
 
     def entails(self, one: Covering, other: Covering) -> bool:
         """Whether everything `other` allows, `one` allows too: `one` asks no more than `other` asks.
@@ -117,72 +108,6 @@ class RuleReasoner:
         if relation == ">=" and wanted_relation == "<=":
             return value > wanted_value  # type: ignore[operator]
         return False
-
-    def reaching(self, rules: Sequence[Covering], shape: tuple[int, ...], about: Mapping[str, str] | None = None) -> float:
-        """How far those rules reach: how many steps from a square to another they admit, over a board of that shape.
-
-        A movement rule is conditions on how one square stands to another — so many rows apart, on a diagonal, one
-        step — and what they admit can be counted by reading them, without a board and without playing. What the
-        rules also ask about what stands where is no part of it: that says when a move is available, not how far the
-        thing can go.
-
-        What comes back is how many squares it reaches from a square, averaged over the squares there are. Counting
-        the steps themselves counts both ways along a line, and from any one square only one of those is on the
-        board — so a rook would come out twice what it reaches.
-
-        This is what a piece is worth to whoever holds it, before anything else is known. It cannot be had by
-        watching positions, because a rook hemmed in behind its own pieces reaches nothing this move while its rule
-        reaches the whole file — and it is the rule that says what the piece is for."""
-        named = dict(about or ABOUT)
-        admitted = {
-            (rows, columns)
-            for rows in range(-(shape[0] - 1), shape[0])
-            for columns in range(-(shape[1] - 1), shape[1])
-            if (rows or columns) and any(self._admits(rule, rows, columns, named) for rule in rules)
-        }
-        squares = [(row, column) for row in range(shape[0]) for column in range(shape[1])]
-        reached = sum(
-            sum(
-                1
-                for rows, columns in admitted
-                if 0 <= row + rows < shape[0] and 0 <= column + columns < shape[1]
-            )
-            for row, column in squares
-        )
-        return reached / len(squares) if squares else 0.0
-
-    def _admits(self, rule: Covering, rows: int, columns: int, named: Mapping[str, str]) -> bool:
-        """Whether that rule admits a step of so many rows and columns, by the conditions that speak of the step."""
-        offered = self._offsets(rows, columns, named)
-        for reading, relation, value in rule.conditions:
-            if reading not in offered:
-                continue
-            held = offered[reading]
-            if relation == "==" and held != value:
-                return False
-            if relation == "<=" and not (self._number(held) and self._number(value) and held <= value):  # type: ignore[operator]
-                return False
-            if relation == ">=" and not (self._number(held) and self._number(value) and held >= value):  # type: ignore[operator]
-                return False
-            if relation in ("== reading", "!= reading"):
-                other = offered.get(str(value))
-                if other is None:
-                    continue
-                if (held == other) != (relation == "== reading"):
-                    return False
-        return True
-
-    def _offsets(self, rows: int, columns: int, named: Mapping[str, str]) -> dict[str, object]:
-        """What a step of so many rows and columns reads as."""
-        return {
-            named["rows"]: rows,
-            named["columns"]: columns,
-            named["rows_apart"]: abs(rows),
-            named["columns_apart"]: abs(columns),
-            named["steps"]: max(abs(rows), abs(columns)),
-            named["straight"]: (rows == 0) != (columns == 0),
-            named["diagonal"]: rows != 0 and abs(rows) == abs(columns),
-        }
 
     def _number(self, value: object) -> bool:
         return isinstance(value, int | float) and not isinstance(value, bool)

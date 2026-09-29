@@ -10,6 +10,25 @@ questions by number.
 
 ## Still open
 
+**A standing ruling, because three separate services broke it and each read as reasonable while doing so.**
+*A thing is never valued by what its rules admit.* Counting how much a piece can do and calling the number its
+worth is the answer being supplied and then found. OMF is told to look for heuristics; that a piece has a value
+is a heuristic it finds in what games paid, or does not have. What was removed under this ruling, and what each
+said of itself:
+
+- `WorthReasoner` — mobility as worth, wired into pondering and seeding the search with weighted terms. Its own
+  premise check printed *"resting on nothing, since no position bore out that doing less is worse"* while it
+  produced `rook at 4.29412`.
+- `HeuristicDeriver` — every public method of it: `derive` gave each thing *"the value its own rules admit"*,
+  `afforded` and `allowed()` counted mobility against the constraints and against the game, `holdings` and
+  `seeds` carried the result into the search as starting weights.
+- `Inferrer` and `RuleReasoner.reaching` — *"a rook's rules reach fourteen squares, so a rook is worth at least
+  fourteen"*, said outright and emitted as a fact's value. Never wired to anything, which is why it survived.
+
+`RuleReasoner.entails` stays: whether one rule allows everything another allows is logic, and true. What does
+not follow is that allowing more is being worth more, and that step is where each of these went wrong.
+
+
 26. **How a rule comes to see through what is in the way.** (found while splitting legality into generators and
     constraints)
     What a generator proposes and a constraint then refuses *because something stands in the way* is worth keeping:
@@ -69,7 +88,7 @@ questions by number.
     and nothing offered. That is question 24 answered, and answered the way Maxime would answer it.
     **But two vocabularies grew apart and only one of them got it.** `ActionReadings` takes `sides` and reads how
     far a move goes forward and which rank a square stands on counted from the player's own end; it feeds
-    `RuleDeducer`, `WorthReasoner` and the extraction scripts. `CandidateReadings` takes no `sides` at all — the
+    `RuleDeducer` and the extraction scripts (`WorthReasoner` is gone, under the ruling above). `CandidateReadings` takes no `sides` at all — the
     word does not appear in the file — and it is what `RefusalLearner` and `learn_constraints.py` use. So the
     constraint learner, which is the live loop and the thing whose pawn rules are split by colour, is the one
     learner that cannot say "forward". The deduction is available to deductions and not to constraints, which is
