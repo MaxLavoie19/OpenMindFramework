@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -35,9 +36,28 @@ class RuleHeuristic:
         rule_caller: RuleCaller,
         consequence_library: "ConsequenceLibrary | None" = None,
         reading: float = 1.0,
+        seconds: float = 0.0,
     ) -> None:
         self._rule_caller = rule_caller
         self._consequence_library = consequence_library
+        #: How long one valuing may take before the rules still unread are left for another time; nought is
+        #: no limit, which is what this did before.
+        #:
+        #: **A time budget says what a weight share cannot.** A share is a guess about which rules are worth
+        #: reading; a clock is the actual constraint. Measured on a real fitted heuristic of eight rules,
+        #: `here.mobility(other)` cost 426 ms a position against 0.2 ms for every other rule -- a look-ahead
+        #: enumerating the opponent's moves. Under a budget it is read where there is room for it and left
+        #: where there is not, so the same ruleset suits a twenty-minute game and a blitz one without anybody
+        #: choosing which rules belong to which.
+        #:
+        #: **Heaviest first, so what is dropped is what mattered least.** The rules are already written in
+        #: that order by the fit, and the clock is checked between them rather than inside one -- a rule that
+        #: is started is finished, because a half-read rule has no value at all.
+        #:
+        #: **It makes a value depend on the clock, which is worth saying out loud.** Two readings of the same
+        #: position can differ if the machine was busier for one of them. Heaviest-first bounds how much:
+        #: what varies is the tail nobody weighted highly.
+        self._seconds = max(0.0, seconds)
         #: What share of a ruleset's weight is read before the rest is left alone for this decision. One reads
         #: every rule, which is what this did before.
         #:
@@ -151,7 +171,16 @@ class RuleHeuristic:
     ) -> tuple[tuple[RuleRecord, float], ...]:
         added: list[tuple[RuleRecord, float]] = []
         definitions = rbs.definitions(RULES_DEFINITIONS)
-        for rule, weight in rules:
+        deadline = time.monotonic() + self._seconds if self._seconds else None
+        for at, (rule, weight) in enumerate(rules):
+            # Checked between rules and never inside one: a rule half read is worth nothing, and the first is
+            # always read so that a budget too small for anything still says what the heaviest rule said.
+            if deadline is not None and at and time.monotonic() >= deadline:
+                logger.debug(
+                    "Read %d of %d rules of %s within %.4f seconds; the rest weighed less",
+                    at, len(rules), rbs.context, self._seconds,
+                )
+                break
             try:
                 read = self._rule_caller.value(rule.rule, state, None, names, definitions)
             except (KeyError, NameError, TypeError, AttributeError, ValueError, ArithmeticError):

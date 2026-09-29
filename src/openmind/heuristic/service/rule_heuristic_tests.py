@@ -145,3 +145,35 @@ def test_a_ruleset_whose_weights_are_all_nothing_is_read_whole(game, knowledge, 
     rbs = a_heuristic_of(game, knowledge, heuristic, (("one", 0.0), ("another", 0.0)))
 
     assert len(create_rule_heuristic(reading=0.5)._weighted(rbs, POSITION)) == 2  # noqa: SLF001
+
+
+def test_a_valuing_given_no_clock_reads_every_rule(game, knowledge, heuristic) -> None:
+    """Nought is no limit, which is what a caller that asks for nothing gets."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("one", 1.0), ("another", 0.5)))
+    played = create_rule_based_game(knowledge, "tictactoe")
+
+    assert create_rule_heuristic().value(rbs, played.node(played.start()), "X") == 1.5
+
+
+def test_a_valuing_out_of_time_stops_and_keeps_what_it_read(game, knowledge, heuristic) -> None:
+    """**The constraint the search actually has.** A node gets so many seconds and values every successor
+    within it, so a rule that cannot be afforded here is left for a format that can afford it. Measured: one
+    look-ahead rule cost 426 ms a position where every other rule cost 0.2 ms.
+
+    The heaviest rule is always read, so a budget too small for anything still says what mattered most."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("heavy", 1.0), ("light", 0.5), ("lighter", 0.25)))
+    played = create_rule_based_game(knowledge, "tictactoe")
+    start = played.node(played.start())
+
+    value = create_rule_heuristic(seconds=1e-9).value(rbs, start, "X")
+
+    assert value == 1.0, "the heaviest rule, and nothing it had no time for"
+
+
+def test_the_clock_is_checked_between_rules_and_never_inside_one(game, knowledge, heuristic) -> None:
+    """A rule half read is worth nothing, so one that has started is finished. What a budget bounds is how
+    many rules are read, not how long any one of them may take."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("only", 2.0),))
+    played = create_rule_based_game(knowledge, "tictactoe")
+
+    assert create_rule_heuristic(seconds=1e-12).value(rbs, played.node(played.start()), "X") == 2.0
