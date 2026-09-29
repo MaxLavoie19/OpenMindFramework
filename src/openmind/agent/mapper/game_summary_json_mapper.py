@@ -2,6 +2,7 @@ import json
 
 from openmind.agent.model.game_summary import GameSummary
 from openmind.agent.model.model_description import ModelDescription
+from openmind.structure.mapper.value_json_mapper import ValueJsonMapper
 from openmind.timing.mapper.time_control_text_mapper import TimeControlTextMapper
 from openmind.timing.model.clock import Clock
 from openmind.world.model.action import Action
@@ -12,8 +13,17 @@ class GameSummaryJsonMapper:
     own; reading a summary back takes the models from the given descriptions, by id, and a model not among them raises
     ValueError. A time control is written as chess writes one."""
 
-    def __init__(self, time_control_text_mapper: TimeControlTextMapper | None = None) -> None:
+    def __init__(
+        self,
+        time_control_text_mapper: TimeControlTextMapper | None = None,
+        value_json_mapper: ValueJsonMapper | None = None,
+    ) -> None:
         self._time_controls = TimeControlTextMapper() if time_control_text_mapper is None else time_control_text_mapper
+        # An action's parameters are values a game chose, and a game is free to use a record for one — chess
+        # points a move at a square and says a square as a row and a column. Written straight into JSON, such a
+        # parameter raises at the moment of writing, where what went wrong is a line of text and no longer a
+        # value anybody can name. `ValueJsonMapper` is what already knows how to say one and read it back.
+        self._values = ValueJsonMapper() if value_json_mapper is None else value_json_mapper
 
     def to_json(self, summary: GameSummary) -> str:
         return json.dumps(
@@ -38,7 +48,13 @@ class GameSummaryJsonMapper:
                     for clock in summary.clocks
                 ],
                 "flagged": summary.flagged,
-                "actions": [{"name": action.name, "parameters": [list(pair) for pair in action.parameters]} for action in summary.actions],
+                "actions": [
+                    {
+                        "name": action.name,
+                        "parameters": [[name, self._values.to_data(value)] for name, value in action.parameters],
+                    }
+                    for action in summary.actions
+                ],
             }
         )
 
@@ -77,7 +93,10 @@ class GameSummaryJsonMapper:
             tuple(Clock(item["remaining"], item["increment"], item["flagged"]) for item in data["clocks"]),
             data["flagged"],
             tuple(
-                Action(item["name"], tuple((name, value) for name, value in item["parameters"]))
+                Action(
+                    item["name"],
+                    tuple((name, self._values.from_data(value)) for name, value in item["parameters"]),
+                )
                 for item in data.get("actions", ())
             ),
         )

@@ -62,6 +62,9 @@ GAME_SCRIPT = """
   const game = JSON.parse(document.getElementById('game-data').textContent);
   const position = document.getElementById('position'), caption = document.getElementById('caption');
   const last = game.pictures.length - 1, stored = 'openmind-game';
+  // A game with no positions keeps what the page already says — that it cannot be replayed — rather than
+  // being handed index zero of nothing, which reads as the word "undefined" where the board should be.
+  if (last < 0) { caption.textContent = `${game.moves.length} moves, no positions`; return; }
   let at = 0;
   try { const kept = JSON.parse(sessionStorage.getItem(stored) || 'null'); if (kept && kept.key === game.key) at = Math.min(kept.at, last); } catch (e) {}
   const show = (next) => {
@@ -464,7 +467,16 @@ class DashboardHtmlMapper:
     def _game_section(self, game: GameView, heading: str, links: str) -> str:
         players = ", ".join(f"{html.escape(model)} ({html.escape(player)}) {payoff:g}" for (player, model), payoff in zip(game.players, game.payoffs, strict=True))
         ending = "" if game.ending is None else f" by {html.escape(game.ending)}"
-        first = game.pictures[0] if game.pictured else f"<pre>{html.escape(game.pictures[0])}</pre>"
+        # A game with no positions is a game that was played and cannot be replayed — its moves were written
+        # in a shape the declared rules do not take, or several players acted at once and the summary does not
+        # say who did what. What it paid and what was played are still known, and saying so is better than a
+        # page that fails: the reader learns which games the rules can be put to and which they cannot.
+        if not game.pictures:
+            first = "<pre>This game cannot be replayed from the declared rules, so its positions are not shown.</pre>"
+        elif game.pictured:
+            first = game.pictures[0]
+        else:
+            first = f"<pre>{html.escape(game.pictures[0])}</pre>"
         data = json.dumps({"key": f"{game.label} {game.ended}", "moves": list(game.moves), "pictures": list(game.pictures), "pictured": game.pictured})
         record = "" if game.record is None else f"<pre class='record'>{html.escape(game.record)}</pre>"
         return (

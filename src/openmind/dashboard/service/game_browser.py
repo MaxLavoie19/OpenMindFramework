@@ -43,9 +43,25 @@ class GameBrowser:
         return () if knowledge_base is None else tuple(reversed([self._listing(record) for record in self._records(knowledge_base)]))
 
     def latest(self, directory: Path, domain_name: str) -> GameView | None:
-        """The newest game, drawn; None without one."""
-        listings = self.decisive(directory, domain_name)
-        return None if not listings else self.game(directory, domain_name, listings[0].id)
+        """The newest game that can be drawn, None where none can.
+
+        **The front page must not die because one game cannot be replayed.** A game is remembered by whatever
+        played it, and a player that leaves out what replaying needs — an outcome seed, a model that is no
+        longer described — makes one game undrawable, not the whole training unwatchable. Met the first time a
+        run wrote games itself: every page of the dashboard returned an error, and what was wrong was one
+        missing field in the newest of two hundred and forty games.
+
+        Older games are tried in turn rather than giving up on the first, because the newest is exactly the one
+        most likely to have been written by whatever has just changed."""
+        for listing in self.decisive(directory, domain_name):
+            try:
+                drawn = self.game(directory, domain_name, listing.id)
+            except Exception:
+                logger.warning("Game %s cannot be drawn, so the one before it is shown", listing.id, exc_info=True)
+                continue
+            if drawn is not None:
+                return drawn
+        return None
 
     def game(self, directory: Path, domain_name: str, record_id: str) -> GameView | None:
         """The game remembered under that record id, drawn; None when there's no such game."""
@@ -66,8 +82,21 @@ class GameBrowser:
         record = records[at]
         summary = GameSummaryJsonMapper().from_json(str(record.value), GameMemory(knowledge_base).models())
         rbs = self._game(domain_name, knowledge_base)
-        positions = GameReplayer().positions(rbs, summary)
-        actions = (None, *summary.actions)
+        try:
+            positions = GameReplayer().positions(rbs, summary)
+        except Exception:
+            # **A game whose actions the declared game cannot take is still a game that was played.** What was
+            # played and what it paid are the summary's own; the positions are worked out again by putting the
+            # actions back to the rules, and that only works where whoever remembered the game wrote its
+            # actions in the shape those rules take. A run learning a game's rules for itself names its actions
+            # its own way, so its games replay through nothing — and a page that raises there shows nothing
+            # about a game it knows the moves and the payoffs of.
+            #
+            # The same shape as a game where several acted at once, which this class already shows without its
+            # positions for a different reason: the summary says what was played and not who played it.
+            logger.warning("Game %s cannot be replayed, so it is shown without its positions", record_id, exc_info=True)
+            positions = ()
+        actions = (None, *summary.actions) if positions else ()
         drawn = tuple(rbs.picture(state, **{LAST_ACTION: action}) for state, action in zip(positions, actions, strict=True))
         if all(picture is not None for picture in drawn):
             pictures = tuple(str(picture) for picture in drawn)
