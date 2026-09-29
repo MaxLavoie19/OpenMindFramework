@@ -3,6 +3,7 @@ from openmind.model.service.model_drawer import ModelDrawer
 from openmind.model.service.rule_budget import ALLOWANCE, RuleBudget
 from openmind.model.model.rule_signal import RuleSignal
 from openmind.model.service.rule_admission import RuleAdmission
+from openmind.model.service.model_retirement import ModelRetirement
 from openmind.model.service.rule_price import RulePrice
 from openmind.model.service.rule_signals import FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning
 from openmind.model.service.model_registry import ModelRegistry
@@ -54,3 +55,12 @@ def create_rule_signals() -> tuple[RuleSignal, ...]:
     these reward a term for being sharp where it fired, which is what a specific rule is good at; the fourth
     asks for coverage, which is what nothing else in the economy would ask for."""
     return (WentWithWinning(), MovedTheFit(), SaysSomethingNew(), FiresOften())
+
+
+def create_model_retirement() -> ModelRetirement:
+    """What decides that a heuristic is no longer worth asking.
+
+    Retired and not deleted: the store is append-only and a model is a record with beliefs about it, so
+    retiring is believing it is not worth asking. What was learned about it survives, and later evidence can
+    un-retire it."""
+    return ModelRetirement()

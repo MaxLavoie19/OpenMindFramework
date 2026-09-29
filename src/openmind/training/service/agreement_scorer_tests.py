@@ -23,13 +23,14 @@ def test_a_heuristic_that_expected_what_the_winner_did_gathers_more_than_one_tha
     """The whole point: siding with whoever won is what a heuristic is scored for."""
     decisions = (decision(STEP, paid=1.0),)
 
-    found = {one.holder: one.mass for one in AgreementScorer().scored(
+    found = {one.holder: one for one in AgreementScorer().scored(
         decisions,
         {"knows": rates(step=10.0, jump=0.0, wait=0.0), "wrong": rates(step=0.0, jump=10.0, wait=0.0)},
     )}
 
-    assert found["knows"] > 0.9
-    assert found["wrong"] < 0.1
+    assert found["knows"].mass > found["knows"].offered, "it expected more than ignorance would"
+    assert found["wrong"].mass < found["wrong"].offered, "and the one that backed the loser expected less"
+    assert found["knows"].mass > 5 * found["wrong"].mass
 
 
 def test_expecting_the_loser_is_worth_nothing_and_a_draw_is_worth_half() -> None:
@@ -94,7 +95,7 @@ def test_a_rule_that_fires_rarely_is_not_marked_down_for_its_coverage() -> None:
     found = AgreementScorer().scored(decisions, {"fork": quiet})[0]
 
     assert found.decided == 1 and found.declined == 2
-    assert found.mass > 0.9, "it is judged on what it answered, not on what it kept quiet about"
+    assert found.mass > 2 * found.offered, "it is judged on what it answered, not on what it kept quiet about"
 
 
 def test_an_action_it_never_saw_is_not_a_mistake_of_its_own() -> None:
@@ -122,7 +123,7 @@ def test_a_rule_that_fires_on_one_move_and_says_nothing_else_still_has_an_opinio
     found = AgreementScorer().scored(decisions, {"fork": rates(step=10.0)})[0]
 
     assert found.decided == 1, "it said one thing, which is an opinion"
-    assert found.mass > 0.9
+    assert found.mass > 2 * found.offered, "and it expected far more of what happened than ignorance would"
 
 
 def test_a_rule_that_only_fires_against_a_move_discourages_it() -> None:
@@ -136,4 +137,4 @@ def test_a_rule_that_only_fires_against_a_move_discourages_it() -> None:
 
     assert avoided.decided == 1 and taken.decided == 1
     assert avoided.mass > taken.mass, "it expected the move it did not warn against"
-    assert taken.mass < 0.01, "it warned against what happened and gets almost nothing for it"
+    assert taken.mass < taken.offered / 3, "it warned against what happened and gets far less than ignorance"

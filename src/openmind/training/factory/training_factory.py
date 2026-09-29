@@ -1,3 +1,5 @@
+from openmind.parallel.service.task_runner import TaskRunner
+from openmind.training.service.agreement_dispatcher import AgreementDispatcher
 from openmind.agent.factory.agent_factory import create_agent
 from openmind.agent.service.outfitter import Outfitter
 from openmind.inference.service.accuracy_scorer import AccuracyScorer
@@ -43,3 +45,11 @@ def create_model_match(agent: Agent | None = None) -> ModelMatch:
     Built with what plays the games, what loads a model into the port it fills, and what scores a mechanism.
     No arm, no pairing rule: which two to play is the caller's question, and what came of it is a fact."""
     return ModelMatch(create_self_play(agent), Outfitter(create_rule_heuristic(), ModelTimer()), AccuracyScorer())
+
+
+def create_agreement_dispatcher(workers: int = 1) -> AgreementDispatcher:
+    """Every heuristic put to the same decisions, over that many worker processes.
+
+    One worker runs everything here, which is what a run that asked for no dispatch did before. How many is
+    the caller's: the machine's cores are shared with whatever is playing games at the same time."""
+    return AgreementDispatcher(TaskRunner(workers))
