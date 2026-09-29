@@ -53,20 +53,36 @@ class ModelDrawer:
         held = registry or self._registry
         if held is None:
             raise ValueError("A drawer needs a registry, given here or when it was built")
-        found = list(held.of_task(knowledge_base, context_id, task))
+        found = held.of_task(knowledge_base, context_id, task)
         if not found:
             return ()
         bounds = [self.bound(knowledge_base, one, len(found), held) for one in found]
-        drawn: list[ModelRecord] = []
-        for _ in range(min(how_many, len(found))):
-            at = self._roulette(bounds, rng)
-            drawn.append(found.pop(at))
-            bounds.pop(at)
+        drawn = tuple(found[at] for at in self.among(bounds, rng, how_many))
         logger.debug(
             "Drew %s to play %s",
             ", ".join(knowledge_base.readable_model(one.id) for one in drawn),
             task,
         )
+        return drawn
+
+    def among(self, bounds: Sequence[float], rng: random.Random, how_many: int = 1) -> tuple[int, ...]:
+        """Which of those to try, drawn by their bounds, without drawing one twice.
+
+        **The draw said over bounds alone, because the bounds are not always to hand where the draw is.** A
+        caller playing games in other processes cannot ask the knowledge base as each game starts — the store
+        is being written to meanwhile, and a reader racing a writer is a bug waiting for a busy night. It
+        reads what each candidate is worth trying when it is safe to, and draws from that reading as often as
+        it likes. `drawn` is this over bounds it works out itself.
+
+        Fewer come back than were asked for where there are fewer to draw from, which is something true about
+        the pool rather than an error to raise about."""
+        held = list(bounds)
+        places = list(range(len(held)))
+        drawn: list[int] = []
+        for _ in range(min(how_many, len(held))):
+            at = self._roulette(held, rng)
+            drawn.append(places.pop(at))
+            held.pop(at)
         return tuple(drawn)
 
     def bound(

@@ -125,6 +125,46 @@ def test_what_is_not_yet_known_about_a_model_is_what_the_bound_adds(tmp_path: Pa
     assert drawer.bound(knowledge, lots, among=3) > 0.5, "what it has done, plus something"
 
 
+def test_what_is_worth_trying_can_be_read_once_and_drawn_from_many_times() -> None:
+    """A caller playing games in other processes cannot ask the store as each game starts, so it reads what
+    each candidate is worth trying when it is safe to and draws from that reading per game. No knowledge base
+    is touched here at all, which is the whole point."""
+    drawer = create_model_drawer()
+
+    counted = [0, 0, 0]
+    for seed in range(300):
+        (at,) = drawer.among([0.1, 0.9, 0.1], random.Random(seed))
+        counted[at] += 1
+
+    assert counted[1] > counted[0] and counted[1] > counted[2]
+    assert counted[0] > 0 and counted[2] > 0, "the rest are still tried"
+
+
+def test_drawing_two_among_bounds_never_gives_the_same_one_twice() -> None:
+    drawer = create_model_drawer()
+
+    for seed in range(50):
+        drawn = drawer.among([0.2, 0.5, 0.3], random.Random(seed), how_many=2)
+
+        assert len(set(drawn)) == 2
+
+
+def test_drawing_among_nothing_or_among_too_few_gives_what_there_is() -> None:
+    drawer = create_model_drawer()
+
+    assert drawer.among([], random.Random(1)) == ()
+    assert len(drawer.among([0.5], random.Random(1), how_many=3)) == 1
+
+
+def test_anything_unproven_among_the_bounds_is_taken_first() -> None:
+    """A share of infinity is not a number, and a candidate with everything to prove should not have to win a
+    lottery to be tried once."""
+    drawer = create_model_drawer()
+
+    for seed in range(20):
+        assert drawer.among([0.9, math.inf, 0.9], random.Random(seed))[0] == 1
+
+
 def test_a_drawer_without_a_registry_says_so(tmp_path: Path) -> None:
     """Rather than quietly drawing nothing, which would look like a task nothing fills."""
     knowledge = base(tmp_path)
