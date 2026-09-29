@@ -464,6 +464,47 @@ not follow is that allowing more is being worth more, and that step is where eac
       this question is waiting for is a measurement from a night's run — how many candidates there are by
       morning, and what judging and offering cost by then — not a cap chosen in advance.
 
+
+42. **Listing a rule in a ruleset costs the whole ruleset, so a ruleset costs the square of what it lists.**
+    (found when an overnight run filled a filesystem)
+    `KnowledgeBase.link` sets the links and calls `ruleset`, which appends the record to the store. So linking
+    the *k*th rule appends a record carrying *k* links, and listing *N* rules writes *N(N+1)/2* of them.
+    Measured, one ruleset in an empty store:
+
+    ```
+    links   rulesets.jsonl
+       50           79,816 bytes
+      100          284,316
+      200        1,068,316
+      400        4,136,316
+    ```
+
+    Doubling the links quadruples the file, which is the square plainly.
+    **It is not only a worker's problem.** A night's run left a worker's `rulesets.jsonl` at 63 GB against 43
+    MB of rules, six of them filled a 457 GB filesystem to nothing, and the run spun for hours failing to
+    write. But the run's own store shows the same shape at the same moment — 12.5 MB of rulesets against 558
+    KB of rules, after three positions — so this is about how a ruleset is kept, not about who keeps one.
+    Everything that lists many rules over time meets it: the induced ruleset gains a constraint a position,
+    and a fit lists every term it kept.
+    **The store is append-only on purpose**, and that is worth keeping: it is a record of what was believed
+    and when, read back with the last write winning. What is quadratic is not the appending but appending a
+    *whole* record to say one small thing about it.
+    - **Options, none chosen:**
+      - **A link is its own record.** Links become their own append-only stream, so listing a rule costs one
+        small append and *N* links cost *N*. The honest fix, and it changes the store's shape and everything
+        that reads a ruleset back.
+      - **Link in one go.** `link_all(ruleset, pairs)` appends once for a whole fit, turning a hundred and
+        fifteen growing records into one. Small, compatible, and still quadratic across fits — it buys a
+        constant, not the exponent.
+      - **Compact the store.** Rewrite it when it is loaded or when it passes a size, keeping the last record
+        per id. Keeps the format and the reading, and gives up the order of belief that the append-only shape
+        exists to carry.
+      - **Bound what writes.** A short-lived store is thrown away before it grows, which is what a player's
+        own store now does. It does nothing for a store meant to outlive the run, which is the one that
+        matters.
+    - **Undecided.** The player's store is bounded meanwhile, so nothing is filling a disk today; the run's
+      own store still grows this way and nothing has measured how fast over a full night.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
