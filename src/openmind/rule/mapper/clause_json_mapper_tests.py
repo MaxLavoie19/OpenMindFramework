@@ -9,11 +9,11 @@ import pytest
 def a_clause() -> Clause:
     return Clause(
         (
-            Literal("worth at least", (Variable("Thing", "thing"), Number(14))),
+            Literal("at least", (Variable("Thing", "thing"), Number(14))),
             Literal("reaches", (Variable("Thing", "thing"), Number(14)), True),
         ),
         0.8,
-        "what a thing affords is what it is worth",
+        "what a thing reaches is at least what was counted",
     )
 
 

@@ -122,7 +122,7 @@ class EvaluablePredicates:
     def dominates(self, one: Literal, other: Literal) -> bool:
         """Whether holding the first makes the second add nothing.
 
-        This is what plain subsumption cannot see. Saying a thing is worth at least eight and saying it is worth at
+        This is what plain subsumption cannot see. Saying a number is at least eight and saying it is at
         least five are neither of them an instance of the other, so nothing about their shape says the second is
         pointless once the first is had — and yet it is. What decides it is the ordering the comparison belongs to
         and which bound is tighter, so a conclusion already reached in a stronger form is not reached again in a

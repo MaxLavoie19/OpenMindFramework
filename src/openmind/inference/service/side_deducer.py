@@ -131,7 +131,7 @@ class SideDeducer:
     def sides(self, said: Sequence[Literal]) -> Sides:
         """Those facts as the record the stand-in engine takes.
 
-        One presentation of what `deduce` found, for `ActionReadings` and `WorthReasoner`, which ask a record a
+        One presentation of what `deduce` found, for `ActionReadings`, which asks a record a
         question rather than reading a fact. It goes when they go.
 
         **It serves one vocabulary and says so.** A fact names the reading a thing was seen in — `at color

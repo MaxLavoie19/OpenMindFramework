@@ -25,8 +25,11 @@ class FactRecorder:
 
     A fact becomes a belief in the game's context, holding the number it concluded, with a source naming inference
     as the mechanism and listing the beliefs and rules it was drawn from. A chain therefore survives as a chain:
-    a queen is worth at least fourteen because a queen takes in a rook and a rook reaches fourteen, and each of
-    those is a belief of its own that this one points at.
+    a conclusion drawn from two others keeps both, and each of those is a belief of its own that this one
+    points at.
+
+    Nothing here draws a fact; it writes down what it is handed. What may not be handed to it is a thing's
+    worth read off its own rules — see the ruling at the head of `doc/open-questions.md`.
 
     Nothing here decides how sure to be. A conclusion drawn from rules the game declared is as good as the rules; one
     drawn from rules OMF induced is as good as those, which is a question about the induction and not about the

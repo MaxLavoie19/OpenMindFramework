@@ -76,13 +76,13 @@ def test_a_rule_the_engine_reasoned_out_comes_back_as_the_clause_it_was() -> Non
     mapper = RuleRecordJsonMapper()
     clause = Clause(
         (
-            Literal("worth at least", (Variable("Thing"), Number(14))),
+            Literal("at least", (Variable("Thing"), Number(14))),
             Literal("reaches", (Variable("Thing"), Number(14)), True),
         ),
         0.8,
-        "what a thing affords is what it is worth",
+        "what a thing reaches is at least what was counted",
     )
-    rule = RuleRecord("what a thing affords", POSITION, ClauseRule(clause), Source(INFERENCE), probability=0.8)
+    rule = RuleRecord("what a thing reaches", POSITION, ClauseRule(clause), Source(INFERENCE), probability=0.8)
 
     back = mapper.from_line(mapper.to_line(rule))
 

@@ -30,7 +30,10 @@ def test_conditions_about_different_readings_say_nothing_about_one_another():
 
 
 def test_what_a_queen_may_do_takes_in_what_a_rook_and_a_bishop_may_do():
-    """Concluded from the rules, with no position looked at: a queen is worth at least a rook, always."""
+    """Concluded from the rules, with no position looked at: what one allows takes in what the other allows.
+
+    An ordering over what rules permit, and not over what things are worth — allowing more is not being worth
+    more, and that step is the one this project does not take."""
     clear = ("things between source and target", "==", 0)
     rook = [a_rule(clear, ("source and target share a row or a column", "==", True))]
     bishop = [a_rule(clear, ("source and target are on a diagonal", "==", True))]

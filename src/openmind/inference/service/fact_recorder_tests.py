@@ -11,11 +11,13 @@ def a_knowledge_base(directory):
 
 
 def a_chain():
-    """A rook reaches fourteen, a queen takes in a rook, so a queen is worth at least fourteen."""
-    reaches = Fact("reaches", ("rook",), 14.0, ("source and target share a row or a column == True",))
-    worth = Fact("is worth at least", ("rook",), 14.0, (), (reaches,))
-    takes = Fact("takes in", ("queen", "rook"), None, ("anything a rook may do",))
-    return (Fact("is worth at least", ("queen",), 14.0, (), (takes, worth)), reaches, worth, takes)
+    """A fact drawn from two others, kept with what it rests on, so the chain survives the run.
+
+    The numbers here are a fixture and not a claim: what a thing is worth is never read off its rules."""
+    reaches = Fact("reaches", ("narrow",), 14.0, ("source and target share a row or a column == True",))
+    worth = Fact("at least", ("narrow",), 14.0, (), (reaches,))
+    takes = Fact("takes in", ("wide", "narrow"), None, ("anything a rook may do",))
+    return (Fact("at least", ("wide",), 14.0, (), (takes, worth)), reaches, worth, takes)
 
 
 def test_what_was_concluded_is_written_down_as_beliefs():
@@ -25,8 +27,8 @@ def test_what_was_concluded_is_written_down_as_beliefs():
         kept = FactRecorder().record(knowledge, "chess", a_chain())
 
         named = {one.variable: one.value for one in kept}
-        assert named["reaches rook"] == 14.0
-        assert named["is worth at least queen"] == 14.0
+        assert named["reaches narrow"] == 14.0
+        assert named["at least wide"] == 14.0
 
 
 def test_a_conclusion_points_at_the_conclusions_it_was_drawn_from():
@@ -35,10 +37,10 @@ def test_a_conclusion_points_at_the_conclusions_it_was_drawn_from():
 
         kept = FactRecorder().record(knowledge, "chess", a_chain())
         by_name = {one.variable: one for one in kept}
-        queen = by_name["is worth at least queen"]
+        queen = by_name["at least wide"]
         rests_on = queen.evidence[0].source.rests_on
 
-        assert set(rests_on) == {by_name["takes in queen rook"].id, by_name["is worth at least rook"].id}
+        assert set(rests_on) == {by_name["takes in wide narrow"].id, by_name["at least narrow"].id}
 
 
 def test_a_chain_is_written_down_premises_first():
@@ -49,8 +51,8 @@ def test_a_chain_is_written_down_premises_first():
         kept = FactRecorder().record(knowledge, "chess", a_chain()[:1])
         by_name = {one.variable: one for one in kept}
 
-        assert "reaches rook" in by_name
-        assert by_name["is worth at least rook"].evidence[0].source.rests_on == (by_name["reaches rook"].id,)
+        assert "reaches narrow" in by_name
+        assert by_name["at least narrow"].evidence[0].source.rests_on == (by_name["reaches narrow"].id,)
 
 
 def test_what_was_written_down_can_be_read_back():
@@ -59,7 +61,7 @@ def test_what_was_written_down_can_be_read_back():
         context = knowledge.ensure_context("chess")
 
         FactRecorder().record(knowledge, "chess", a_chain())
-        held = knowledge.belief("reaches rook", context.id)
+        held = knowledge.belief("reaches narrow", context.id)
 
         assert held is not None
         assert held.value == 14.0

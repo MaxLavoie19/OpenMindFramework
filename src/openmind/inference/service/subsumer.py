@@ -23,7 +23,7 @@ class Subsumer:
     its literals into a literal the other has. Reading the variables only one way is what makes it an ordering
     rather than a guess: a clause does not get to mean different things in different parts of itself.
 
-    **And one thing more.** Saying a thing is worth at least eight and saying it is worth at least five are neither
+    **And one thing more.** Saying a number is at least eight and saying it is at least five are neither
     of them an instance of the other, so nothing about their shape says the second adds nothing once the first is
     had — and yet it adds nothing. So the orderings are consulted, and a conclusion already reached in a stronger
     form is not reached again in a weaker one for ever. The stand-in did this by hand for the one case it knew

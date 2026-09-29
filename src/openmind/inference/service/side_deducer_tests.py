@@ -147,7 +147,7 @@ def test_a_thing_that_is_a_record_can_be_owned_like_any_other():
 
 
 def test_what_was_deduced_is_still_the_record_the_stand_in_asks_for():
-    """Until `ActionReadings` and `WorthReasoner` go, they ask a record a question. That is one presentation of
+    """Until `ActionReadings` goes, it asks a record a question. That is one presentation of
     the facts and not where they live."""
     examples, positions = in_two_positions(a_game())
     deducer = SideDeducer()

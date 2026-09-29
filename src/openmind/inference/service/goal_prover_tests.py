@@ -70,17 +70,17 @@ def test_a_proof_says_which_clauses_it_rests_on() -> None:
 
 def test_a_question_answered_through_a_chain_of_rules_is_still_proved() -> None:
     clauses = (
-        rule(Literal("worth at least", (Variable("T"), Variable("N"))), Literal("affords", (Variable("T"), Variable("N")))),
+        rule(Literal("at least", (Variable("T"), Variable("N"))), Literal("measured", (Variable("T"), Variable("N")))),
         rule(
-            Literal("worth at least", (Variable("T"), Variable("N"))),
+            Literal("at least", (Variable("T"), Variable("N"))),
             Literal("takes in", (Variable("T"), Variable("O"))),
-            Literal("worth at least", (Variable("O"), Variable("N"))),
+            Literal("at least", (Variable("O"), Variable("N"))),
         ),
-        fact("affords", NARROW, Number(14)),
+        fact("measured", NARROW, Number(14)),
         fact("takes in", WIDE, NARROW),
     )
 
-    answer = GoalProver().ask(clauses, fact("worth at least", WIDE, Number(14)), InferenceBudget(5.0))
+    answer = GoalProver().ask(clauses, fact("at least", WIDE, Number(14)), InferenceBudget(5.0))
 
     assert answer.status == PROVED
 
