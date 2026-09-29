@@ -87,12 +87,16 @@ class RuleTenure:
     coverage — never against how often it fired, because a rule that fires rarely and is right is the kind
     this exists to keep.
 
-    **Superseded is a different question from poor**, and cheaper to ask: a rule whose content another rule
-    already takes in adds nothing whatever its record. `Subsumer` and `RuleReasoner.entails` answer it
-    exactly, without a single game being played."""
+    **Superseded means the ruleset does better without the rule than with it.** Not that another rule takes
+    its content in, which is a fact about the rules rather than about the playing — a rule can be logically
+    redundant and still carry its weight, and a rule nothing subsumes can still be dead weight. So it is
+    measured by leaving it out, on the decisions the whole set was judged over, in the same currency.
 
+    A rule that changes nothing when removed is kept. Redundant is not superseded: it was vouched for, it
+    costs its owner nothing further, and the evidence says only that it is not doing harm."""
+
+    def spared(self, ruleset, decisions, rater) -> tuple[str, ...]: ...
     def poor(self, knowledge_base, rule, least: int) -> bool: ...
-    def superseded(self, rule, among) -> bool: ...
 ```
 
 ## What this replaces
@@ -101,6 +105,19 @@ class RuleTenure:
 there is no drawing when every signal bids. What carries over is the part worth keeping: credit flowing from a
 measured heuristic back to what produced it, and the ledger living in the knowledge base so a restart resumes
 what the last run learned.
+
+## Leaving one out is nearly free, which is what makes this affordable
+
+Measuring "better without it" reads as one pass per rule — a hundred and sixteen passes for a set of a
+hundred and fifteen, at the thirty-three seconds one judging took, which would be an hour. It is not.
+
+**A heuristic's value is the sum of its rules' weighted readings.** So a ruleset's value without one rule is
+its value *minus that rule's weighted reading*, and every leave-one-out score falls out of the same readings
+the whole set already needed. Read each term once per position, and the set's score and all of its
+leave-one-out scores are arithmetic over those numbers.
+
+The cost is therefore about one full judging, not one per rule — and the thing that dominates it, drawing the
+position each move leads to, is paid once whatever is being measured.
 
 ## The tuning knob
 
@@ -114,11 +131,11 @@ set, not a constant buried in a service.
 1. **What a bad vouch costs.** A rule dropped for performing poorly was vouched for by a signal that was
    wrong. Does that signal simply not earn from it, or does it pay a penalty? Charging makes a signal careful;
    not charging keeps the accounting to one direction. **Undecided.**
-2. **What "superseded" means.** Subsumption is exact and free — one rule's conditions take in another's — but
-   it only catches rules that are logically redundant. SIRUS's version is statistical: drop a rule that is a
-   linear combination of more frequent rules, which caught near-duplicates that subsumption misses and bought
-   3–6× fewer rules at 2–4× the stability. They are not the same test. **Undecided** whether to start with
-   the exact one, the statistical one, or both.
+2. ~~What "superseded" means.~~ **Decided (Maxime): the ruleset without the rule performs better than the
+   ruleset with it.** Measured by play, not by logic — so `Subsumer` and `RuleReasoner.entails` are the wrong
+   instruments, and so is SIRUS's linear-combination test. Both answer whether a rule is *redundant*, which
+   is a different claim: a redundant rule is kept here, because the evidence about it says only that it does
+   no harm.
 3. **How a rule's own record is read when it fires rarely.** The m-estimate is the family — `m = 0` is
    precision, `m → ∞` is weighted relative accuracy, and for a rule with ten firings the verdict flips at
    `m ≈ 2N`. So `m` is the one knob spanning the whole coverage-against-precision trade, and it should be a
