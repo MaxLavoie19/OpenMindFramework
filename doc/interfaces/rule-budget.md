@@ -160,11 +160,43 @@ rule that fires in three per cent of positions and is right is a rule worth keep
 score destroys exactly those."* A mate detector fires in well under one position in a hundred, and marking it
 down for that is precisely the error.
 
-**What is still open is the multiplier, not the standing.** The fit sets the multiplier by minimising squared
-error over position rows with an L1 price on the weights — and an L1 price shrinks large coefficients hardest.
-A term that fires rarely and must speak loudly when it does needs exactly the large coefficient that price
-penalises most, so the fit may shrink it toward nothing or drop it outright. Whether a fit of that shape can
-give a mate detector the multiplier it needs is not something anyone here has measured. **Open.**
+**The multiplier was the open question, and it is now measured.** An L1 price shrinks large coefficients
+hardest, and a term that fires rarely must speak loudly when it does — so it needs exactly the coefficient the
+price penalises most, while paying off on the fewest rows. Measured, holding the decisive strength at 0.5 and
+varying only how often the term fires:
+
+```
+fires in    price 0   price 0.001   price 0.01
+      1%      0.501         0.382        0.000     <- dropped
+      5%      0.503         0.481        0.278
+     20%      0.499         0.493        0.436
+     50%      0.499         0.495        0.459
+```
+
+**At a mate detector's rate the term is dropped outright at 0.01, which is in the run's own default sweep** —
+while weaker but commoner terms survive. Rarity alone decides it. This is "a detector marked down for being a
+detector" happening in the fitting, where the settled rule only protects it in the scoring.
+
+**The cause is what the price is charged on.** `ExpressionSearch.share` is *"the share of rows where the
+column isn't blank"* — blank meaning nothing was read, not nothing was found. A mate detector reads **0** on
+almost every position, which counts as speaking, so it is charged as though it spoke everywhere.
+
+**Charging it on how often it fires fixes it, with the `costs` the fitter already takes:**
+
+```
+price   priced as now   priced on firing
+0.001           0.382              0.500
+0.01            0.000              0.489
+0.05            0.000              0.442
+```
+
+This is the adaptive lasso — Zou, JASA 101:1418, whose answer to the lasso's selection inconsistency is to
+weight each coefficient's penalty rather than charge them all alike. It is not an invention here.
+
+- **Open, and smaller than it was:** the present cost is `clauses × share × what it takes to read`, and the
+  read cost is a real and separate thing — a look-ahead term reads the position after every legal action and
+  genuinely costs that on every position, fired or not. Replacing `share` with the firing rate must not
+  quietly forgive the reading. **Undecided** whether the firing rate replaces `share` or multiplies beside it.
 
 ## The tuning knob
 
