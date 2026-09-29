@@ -505,21 +505,20 @@ not follow is that allowing more is being worth more, and that step is where eac
     - **Undecided.** The player's store is bounded meanwhile, so nothing is filling a disk today; the run's
       own store still grows this way and nothing has measured how fast over a full night.
 
-43. **A signal earns nothing, because the store it earned it in is thrown away.**
-    - **What is true.** `RuleAdmission` writes each signal's budget as a belief, so it outlives the run that
-      learned it — that is tested. But the admission runs inside the ponder, and a player worker ponders in a
-      temporary store of its own, which `_forget_game` deletes the moment it has read its fit back out. A
-      second writer to the run's store is a corrupted store, so the temporary store is not a mistake to undo.
-    - **What follows.** Every signal starts every game on one round's income and nothing ever differentiates
-      them. The allowance still decides how many rules come through and the four signals still decide which,
-      so the gate works; what does not work is the part where being right about rules earns a signal more of
-      a say. The economy is a gate and not yet an economy.
-    - **The shape of the answer, unchosen.** The ledger crosses back the way the rules already do: a worker
-      hands back who vouched for what alongside what it fitted, and the parent pays the signals when it
-      judges, where the worth is measured. That is a change to what a worker returns and to `_judged`, both in
-      the chess repo, and nobody has agreed to it.
-    - **Why it is not filled here.** What a signal is paid on is the thing the whole economy turns on, and
-      guessing it would be choosing the answer rather than measuring it.
+43. **The budget thins the rules in a heuristic and does nothing about how many heuristics there are.**
+    - **Measured.** On a real chess ponder the gate took a fit of five terms down to three at ten bits a
+      round; on tictactoe against a fit keeping thirty-nine, thirty bits wrote seven and a hundred wrote
+      sixteen. So each candidate is proportionally cheaper to judge and to link, which is real relief for
+      question 42, whose cost scales with how many rules a ruleset lists.
+    - **What it does not touch.** Three prices are swept with `keep_every_price`, so every ponder mints three
+      rulesets, `_adopted` names each one afresh so that nothing overwrites anything, and nothing ever
+      removes one. Judging costs candidates × decisions × moves, and the candidate count is untouched. At six
+      workers on a five-minute cycle that is on the order of two hundred heuristics an hour.
+    - **The three things that would bite**, in the order they look worth trying: retiring whole heuristics
+      on the `mass - offered` the judging already computes every round and throws away (question 41, and the
+      smallest change); `RuleTenure`, which thins rules further but no rulesets; and not keeping every price,
+      which is three times fewer rulesets at the cost of the candidate pool the sweep exists to create.
+    - **Undecided**, and waiting on the same night's measurement question 41 is waiting on.
 
 ## Struck, by number
 

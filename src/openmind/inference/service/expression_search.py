@@ -608,9 +608,24 @@ class ExpressionSearch:
         """The share of rows where the column isn't blank: where what it reads is there."""
         return float(np.mean(~np.isnan(column))) if len(column) else 0.0
 
+    def firing(self, column: np.ndarray) -> float:
+        """The share of rows where the column says something: present, and not nought.
+
+        **Nought is not blank, and charging a term as though it were was dropping detectors.** `share` counts
+        the rows where a term isn't blank — where it was read at all — and a mate detector reads **0** on
+        almost every position, which counts as speaking. Charged on that, it pays as though it spoke
+        everywhere while paying off on the few rows it actually fired.
+
+        Measured, holding the decisive strength at 0.5 and varying only how often the term fires: at price
+        0.01 a term firing on 1% of rows came out at **0.000** — dropped outright — while a term firing on 20%
+        kept 0.436. Rarity alone decided it. Priced on firing instead, the same term kept 0.489."""
+        if not len(column):
+            return 0.0
+        return float(np.mean(~np.isnan(column) & (column != 0.0)))
+
     def cost(self, expression: Expression, column: np.ndarray) -> float:
-        """What a weight on that term costs: per clause, per share of rows where it isn't blank, per what it
-        takes to read against what the cheapest term here takes.
+        """What a weight on that term costs: per clause, per share of rows where it isn't blank, per share of
+        rows where it fires, per what it takes to read against what the cheapest term here takes.
 
         **A term is not only worth what it explains, it costs what it takes to read.** A look-ahead reads the
         position after every legal action, so in chess it costs upwards of thirty-five ordinary readings while
@@ -620,9 +635,17 @@ class ExpressionSearch:
 
         **Measured and not assumed.** Nothing here knows what a look-ahead is or that chess has thirty-five
         moves; it knows that this term took a hundred times longer than that one on the same rows, which is
-        true of whatever made it slow. A term nobody timed costs what its clauses say, as before."""
+        true of whatever made it slow. A term nobody timed costs what its clauses say, as before.
+
+        **Firing multiplies the share rather than replacing it, which is the whole care taken here.** This is
+        the adaptive lasso — Zou, JASA 101:1418, whose answer to the lasso's selection inconsistency is to
+        weight each coefficient's penalty rather than charge them all alike — and the plain form would charge
+        a rare term on its firing alone. That would quietly forgive the reading: a look-ahead that fires once
+        in a hundred positions still reads the position after every legal action on all hundred, and the cost
+        of reading is real whether the term found anything or not. So both are charged: what it costs to read,
+        and how much of what it read it had anything to say about."""
         dearness = self._term_evaluator.dearness(self._expression_generator.source(expression))
-        return expression.clauses * self.share(column) * dearness
+        return expression.clauses * self.share(column) * self.firing(column) * dearness
 
     def _price(self, price: float, expression: Expression, column: np.ndarray) -> float:
         """What a weight on the column costs at that price."""

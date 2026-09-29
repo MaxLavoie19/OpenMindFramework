@@ -278,24 +278,29 @@ It is not coverage folded into a score. The standing rule is that a rule is neve
 rarely, and nothing here marks anything down: this signal declines to spend, and the other three are free to
 buy the rare term with their own budget. **A rule needs one voucher, not four.**
 
-### The loop is not closed, and this is where it breaks
+### The loop, and how it closes across a process boundary
 
-After a heuristic has played and been judged, `earned` should be called once with each signal's share of that
-ruleset — `RuleAdmission.shares` gives exactly that — and the ruleset's worth, which `_judged` in the chess
-repo already computes as `mass` against `offered`. Nothing new would need measuring.
+**A signal spends on a guess and learns whether it was right much later, somewhere else.** It vouches during a
+ponder; what the ruleset it bought is worth is only known once that ruleset has played and been judged. So the
+debt is written against the heuristic's name — `RuleBudget.vouching` — and settled when the number arrives.
 
-**It cannot be called from where it would have to be.** The admission runs inside the ponder, and a player
-worker ponders in a temporary store of its own that `_forget_game` deletes the moment it has read its fit back
-out — because a second writer to the run's store is a corrupted store. So a budget earned during a ponder dies
-with the ponder, every signal starts every game on one round's income, and nothing ever differentiates them.
+The worth is `mass - offered`: what the heuristic expected of what was actually played, less what a heuristic
+with no opinion would have expected. Above the line the signals that backed it are paid; below it they decay.
+That is what the judging already measures, so nothing new is counted.
 
-The ledger has to cross back the way the rules already do, which means the worker hands back who vouched for
-what alongside what it fitted, and the parent pays the signals when it judges. That is a change to what a
-worker returns and to `_judged`, in the chess repo, and it is the next stop rather than something to assume.
+**The awkward part is that a worker ponders in a store it throws away.** A second writer to the run's store is
+a corrupted store, so the temporary store is not a mistake to undo — which means a budget spent in a ponder is
+spent nowhere. What crosses is therefore split in two:
 
-**Until it is made, the economy is a gate and not yet an economy.** The allowance still decides how many rules
-come through and the four signals still decide which, which is most of what was asked for; what is missing is
-the part where being right about rules earns a signal more of a say.
+- **Out to the worker:** the allowance, and what each signal *holds*. The worker seeds them into its own store
+  and spends a copy. A ponder's spending rations that ponder and dies with it.
+- **Back from the worker:** who vouched for how much of each ruleset, beside the rules themselves, the way
+  rules already cross. The parent records it under the name it adopts the heuristic as.
+
+**Spending is per-ponder rationing; earning is the lasting ledger.** Deltas from workers pondering at once
+would have to be merged in an order nobody controls, and the alternative — holdings restored each ponder,
+income granted on the copy — needs no merge at all. What a signal can afford still tracks what it has earned,
+which is the whole point; what it does not do is carry a half-spent purse from one ponder into the next.
 
 ## The tuning knob
 

@@ -13,6 +13,11 @@ BUDGET = "budget of {signal}"
 VOUCHED = "vouched"
 EARNED = "earned"
 
+#: How much of a heuristic one signal backed, and the tag every such belief carries so that all of a
+#: heuristic's backers can be found again when its worth is finally known.
+VOUCHING = "{signal} vouched for {heuristic}"
+VOUCHED_FOR = "vouched for"
+
 #: What every signal is given each round, and the floor decay may not take a budget below.
 #:
 #: **An income rather than a balance, which is the difference between never shut out and never spent.** A
@@ -105,6 +110,38 @@ class RuleBudget:
             abs(worth),
             ", ".join(f"{one} for {two:.2f} of it" for one, two in signals.items()),
         )
+
+    def vouching(
+        self, knowledge_base: KnowledgeBase, context_id: str, heuristic: str, shares: Mapping[str, float]
+    ) -> None:
+        """Who backed how much of that heuristic, written down where its worth will later be measured.
+
+        **A heuristic is vouched for long before anybody knows what it is worth.** The signals spend during a
+        ponder; what the ruleset they bought turns out to be worth is only known once it has played and been
+        judged, which is somewhere else and much later. So the debt is recorded against the heuristic's name
+        and settled when the number arrives — without this, a signal could never be paid for being right."""
+        for signal, share in shares.items():
+            knowledge_base.believe(
+                Belief(
+                    VOUCHING.format(signal=signal, heuristic=heuristic),
+                    context_id,
+                    float(share),
+                    tags=((VOUCHED_FOR, heuristic),),
+                )
+            )
+
+    def vouchers(self, knowledge_base: KnowledgeBase, context_id: str, heuristic: str) -> Mapping[str, float]:
+        """Who backed how much of it, or nothing at all where nobody did.
+
+        Nothing is not the same as everybody equally: a heuristic nobody vouched for was written by a finder
+        with no economy, and paying its signals out of a share nobody claimed would invent a creditor."""
+        found: dict[str, float] = {}
+        for belief in knowledge_base.beliefs(context_id, tags=((VOUCHED_FOR, heuristic),)):
+            if not isinstance(belief.value, int | float):
+                continue
+            signal = belief.variable.removesuffix(f" vouched for {heuristic}")
+            found[signal] = float(belief.value)  # type: ignore[arg-type]
+        return found
 
     def _keep(self, knowledge_base: KnowledgeBase, context_id: str, signal: str, budget: float, why: str) -> None:
         """The budget as it now stands, with how many times it has moved each way."""

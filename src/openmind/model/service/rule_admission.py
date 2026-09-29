@@ -30,6 +30,12 @@ class RuleAdmission:
         self._budget = budget
         self._price = price
 
+    @property
+    def budget(self) -> RuleBudget:
+        """The ledger it spends from, which is also where a heuristic's backers are recorded for paying
+        later. One ledger and not two: a caller settling a debt has to settle it in the same purse."""
+        return self._budget
+
     def admitted(
         self,
         knowledge_base: KnowledgeBase,

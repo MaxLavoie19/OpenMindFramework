@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from openmind.inference.constant.inference_constant import SEEDED_WEIGHT
 from openmind.inference.model.expression import Expression
@@ -11,6 +12,20 @@ from openmind.rbs.service.sparse_fitter import SparseFitter
 
 def a_search():
     return ExpressionSearch(ExpressionGenerator(), None, SparseFitter(), MemoryMeter())  # type: ignore[arg-type]
+
+
+def _timed(search, dearness: float):
+    """A search whose terms all take that long to read, since `cost` asks what a term was timed at."""
+    search._term_evaluator = _Timing(dearness)  # noqa: SLF001
+    return search
+
+
+class _Timing:
+    def __init__(self, dearness: float) -> None:
+        self._dearness = dearness
+
+    def dearness(self, source: str) -> float:
+        return self._dearness
 
 
 def a_term(template):
@@ -87,3 +102,43 @@ def test_a_seeded_weight_does_not_buy_a_term_past_the_price():
     fitted = SparseFitter().fit(standard, targets, 0.1, 200, 1e-4, started, np.array([1.0]))
 
     assert fitted.weights[0] == 0.0
+
+
+def test_a_term_that_reads_nought_has_spoken_but_has_not_fired() -> None:
+    """The distinction the whole detector problem turns on. A blank is a term that was not read; a nought is a
+    term that looked and found nothing. A mate detector reads nought on nearly every position, so counted by
+    `share` it spoke everywhere and counted by `firing` it spoke twice."""
+    search = a_search()
+    column = np.array([0.0, 0.0, 1.0, 0.0, np.nan, 1.0, 0.0, 0.0, 0.0, 0.0])
+
+    assert search.share(column) == pytest.approx(0.9), "nine of ten rows were read"
+    assert search.firing(column) == pytest.approx(0.2), "and on two of them it had something to say"
+
+
+def test_a_rare_decisive_term_is_not_priced_as_though_it_spoke_everywhere() -> None:
+    """Charged on `share` alone, a term that fires on a fiftieth of rows pays as much per unit of weight as
+    one that fires on half of them, while paying off on a fiftieth as many rows — so the price takes it out
+    first. Measured at price 0.05 with the decisive strength held at 0.5, a term firing on 1% of rows came out
+    at 0.011 charged on share and 0.493 charged on both.
+
+    This is the adaptive lasso, and the point of multiplying rather than replacing is below."""
+    search = _timed(a_search(), 1.0)
+    rare = np.where(np.arange(100) < 2, 1.0, 0.0)
+    common = np.where(np.arange(100) < 50, 1.0, 0.0)
+    term = Expression(template="VIEW", clauses=2, plies=0)
+
+    assert search.cost(term, rare) < search.cost(term, common)
+
+
+def test_what_a_term_costs_to_read_is_still_charged_when_it_fires_rarely() -> None:
+    """Why firing multiplies `share` instead of replacing it. A look-ahead reads the position after every
+    legal action on every position, whether or not it finds anything there, and the plain adaptive lasso would
+    charge it only for the rows it fired on — forgiving a cost that is really paid. Two terms that fire
+    equally rarely and differ only in what they cost to read must not price alike."""
+    rare = np.where(np.arange(100) < 2, 1.0, 0.0)
+    term = Expression(template="VIEW", clauses=2, plies=0)
+
+    cheap = _timed(a_search(), 1.0).cost(term, rare)
+    dear = _timed(a_search(), 35.0).cost(term, rare)
+
+    assert dear > cheap, "a look-ahead reads every position whether it finds anything there or not"

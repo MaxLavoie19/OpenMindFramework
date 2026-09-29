@@ -271,7 +271,7 @@ class HeuristicFinder:
         """One fit written into a ruleset of its own: the terms that were vouched for, at their weights on the
         values as read, and the constant left when every term reads nothing."""
         kept = sorted((at for at, weight in enumerate(fit.weights) if weight != 0.0), key=lambda at: -abs(fit.weights[at]))
-        kept = self._vouched(target, kept, fit, terms, expressions, columns, targets, label)
+        kept = self._vouched(target, ruleset_name, kept, fit, terms, expressions, columns, targets, label)
         # After the vouching and not before: the constant is what is left once the terms that are staying have
         # been taken out, so a term nobody bought has to leave its share of the value behind.
         bias = fit.bias - math.fsum(fit.weights[at] * float(means[at]) / float(scales[at]) for at in kept)
@@ -293,6 +293,7 @@ class HeuristicFinder:
     def _vouched(
         self,
         target: HeuristicTarget,
+        ruleset_name: str,
         kept: Sequence[int],
         fit: SparseFit,
         terms: Sequence[PythonRule],
@@ -325,6 +326,11 @@ class HeuristicFinder:
         if not admitted:
             logger.info("%sNo signal could afford any of the %d terms the fit kept", label, len(kept))
             return []
+        # Written against the ruleset's name and settled much later: what the signals bought is only worth
+        # something once it has played and been judged, which is somewhere else entirely.
+        self._rule_admission.budget.vouching(
+            knowledge_base, context_id, ruleset_name, self._rule_admission.shares(admitted)
+        )
         logger.info(
             "%s%d of the fit's %d terms were vouched for: %s",
             label,
