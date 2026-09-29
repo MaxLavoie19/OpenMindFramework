@@ -422,6 +422,29 @@ questions by number.
       each rests on, for a person to judge.
     - **Undecided.** Nothing is built on either comparison meanwhile.
 
+
+41. **Every game leaves a candidate behind, and nothing takes one away.** (found wiring the drawer, working out
+    what bounds the pool once each worker ponders after each game)
+    The specification ponders at the end of every game and accumulates what it settles. A game takes a
+    fraction of a second and a ponder takes half a minute, so each worker leaves behind roughly one new
+    candidate heuristic a minute, and every one of them is registered as a model of what a position is worth.
+    **Everything downstream is priced per candidate.** Judging rates all of them against every game that
+    ended; the players are offered all of them, and each one crosses to a worker as its rules and weights.
+    Neither is expensive at three candidates and both are linear in a pool that grows all night.
+    **The drawer does not settle it.** It prefers what is unproven, so a growing pool is explored rather than
+    ignored — but exploring more things is the cost, not the cure.
+    - **What is visible:** retiring a candidate that has answered enough decisions and did no better than
+      knowing nothing, which is the score against its own ignorance baseline and needs no new measurement;
+      retiring the weaker of two that agree with each other, which is the other half of specification step 6
+      — *"which correlate with each other"* — and needs the per-decision chances that `AgreementScorer`
+      currently aggregates away; keeping one registered heuristic per worker, re-fitted each game, which
+      bounds the pool at the cost of throwing away a good one for being old; and pondering less often than
+      every game, which is the departure already refused.
+    - **Decided (Maxime): not yet, and not on this argument.** Nothing is retired until candidates have been
+      properly tested, shown not to work, and shown to actually clutter. Disk and memory are not short. What
+      this question is waiting for is a measurement from a night's run — how many candidates there are by
+      morning, and what judging and offering cost by then — not a cap chosen in advance.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
