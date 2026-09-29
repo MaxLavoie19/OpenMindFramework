@@ -28,10 +28,13 @@ def create_heuristic_finder(workers: int = 1, allowance: float = 0.0) -> Heurist
     return builder.build()
 
 
-def create_rule_heuristic() -> RuleHeuristic:
+def create_rule_heuristic(reading: float = 1.0) -> RuleHeuristic:
     """The service running a heuristic ruleset's RBS, with its rule caller and consequence library. Build it once and
-    give it to whatever reads a heuristic."""
-    return RuleHeuristic(create_rule_caller(), ConsequenceLibraryBuilder().build())
+    give it to whatever reads a heuristic.
+
+    `reading` is what share of a ruleset's weight it reads before leaving the rest alone for that decision,
+    heaviest first. One reads every rule, which is what a caller that asks for nothing gets."""
+    return RuleHeuristic(create_rule_caller(), ConsequenceLibraryBuilder().build(), reading)
 
 
 def create_simulation() -> Simulation:

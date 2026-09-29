@@ -7,6 +7,12 @@ from openmind.model.model.rule_candidate import RuleCandidate
 
 logger = logging.getLogger(__name__)
 
+#: **Every signal scales what it wants by how loudly the term may speak.** Three of these read only what a
+#: term says — how it went with winning, whether it says something new, how often it fires — and none of those
+#: knows whether the fit gave it a weight that could change anything. Measured, they bought terms weighted
+#: 14,000 times too small to reorder a single move. Scaling by `influence` is not a threshold: a term that
+#: cannot be heard is simply wanted proportionally less, and a signal spends on what it wants most first.
+#:
 #: What each of the four is called, which is what its budget is kept under. Named rather than numbered, so a
 #: budget read back out of the knowledge base says what earned it.
 WENT_WITH_WINNING = "went with winning"
@@ -32,7 +38,7 @@ class WentWithWinning:
         return WENT_WITH_WINNING
 
     def rates(self, candidates: Sequence[RuleCandidate]) -> Sequence[float]:
-        return [self._lined_up(one) for one in candidates]
+        return [one.influence() * self._lined_up(one) for one in candidates]
 
     def _lined_up(self, candidate: RuleCandidate) -> float:
         fired = candidate.fires()
@@ -92,7 +98,8 @@ class SaysSomethingNew:
         order = sorted(range(len(candidates)), key=lambda at: -abs(candidates[at].weight))
         found = [0.0] * len(candidates)
         for place, at in enumerate(order):
-            found[at] = self._unlike(candidates[at], [candidates[before] for before in order[:place]])
+            unlike = self._unlike(candidates[at], [candidates[before] for before in order[:place]])
+            found[at] = candidates[at].influence() * unlike
         return found
 
     def _unlike(self, candidate: RuleCandidate, stronger: Sequence[RuleCandidate]) -> float:
@@ -132,7 +139,7 @@ class FiresOften:
         return FIRES_OFTEN
 
     def rates(self, candidates: Sequence[RuleCandidate]) -> Sequence[float]:
-        return [self._fired(one) for one in candidates]
+        return [one.influence() * self._fired(one) for one in candidates]
 
     def _fired(self, candidate: RuleCandidate) -> float:
         if not len(candidate.readings):

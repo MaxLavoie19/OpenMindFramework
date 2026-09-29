@@ -1,3 +1,5 @@
+import pytest
+
 from openmind.heuristic.model.node import Node
 from openmind.training.model.decided import Decided
 from openmind.training.service.agreement_scorer import AgreementScorer
@@ -138,3 +140,47 @@ def test_a_rule_that_only_fires_against_a_move_discourages_it() -> None:
     assert avoided.decided == 1 and taken.decided == 1
     assert avoided.mass > taken.mass, "it expected the move it did not warn against"
     assert taken.mass < taken.offered / 3, "it warned against what happened and gets far less than ignorance"
+
+
+def test_asking_about_every_action_is_what_a_caller_that_asks_for_nothing_gets() -> None:
+    """A run that never asked for a sample must score exactly as it scored."""
+    found = AgreementScorer().scored((decision(STEP, paid=1.0),), {"sure": rates(step=10.0, jump=0.0, wait=0.0)})[0]
+
+    assert found.offered == pytest.approx(1 / 3), "ignorance over all three"
+
+
+def test_a_sample_always_holds_the_move_that_was_played() -> None:
+    """The whole question is what the heuristic made of what happened. A sample that could leave the played
+    move out would be asking a different question and calling the answer a score."""
+    scorer = AgreementScorer(among=2)
+
+    for taken in (STEP, JUMP, WAIT):
+        asked = scorer._asked(decision(taken, paid=1.0))  # noqa: SLF001
+
+        assert taken in asked.offered
+        assert len(asked.offered) == 2
+
+
+def test_the_baseline_moves_with_the_sample() -> None:
+    """What keeps a sample honest. Ignorance expects one in however many were asked about, so a sample of two
+    is read against a half and not against a third — otherwise every heuristic would look better simply for
+    having been asked less."""
+    sampled = AgreementScorer(among=2).scored((decision(STEP, paid=1.0),), {"sure": rates(step=10.0, jump=0.0, wait=0.0)})[0]
+
+    assert sampled.offered == pytest.approx(0.5)
+
+
+def test_every_heuristic_is_asked_about_the_same_alternatives() -> None:
+    """Drawn afresh per heuristic, two candidates would be scored on different questions and the difference
+    would be recorded as skill."""
+    scorer = AgreementScorer(among=2)
+    one = decision(STEP, paid=1.0)
+
+    assert scorer._asked(one).offered == scorer._asked(one).offered  # noqa: SLF001
+
+
+def test_a_decision_with_fewer_actions_than_the_sample_is_asked_whole() -> None:
+    """Nothing to sample, and taking a sample of five from three would either repeat an action or raise."""
+    asked = AgreementScorer(among=9)._asked(decision(STEP, paid=1.0))  # noqa: SLF001
+
+    assert asked.offered == OFFERED

@@ -1,6 +1,8 @@
 import logging
 import math
+import random
 import statistics
+from dataclasses import replace
 from collections.abc import Callable, Mapping, Sequence
 
 from openmind.heuristic.model.node import Node
@@ -37,6 +39,27 @@ class AgreementScorer:
     evidence of nothing. That is a fact about the game and the caller's to notice rather than a case to
     handle quietly — counted as a draw it would make every abandoned game look like a fought one."""
 
+    def __init__(self, among: int = 0, seed: int = 0) -> None:
+        #: How many of the actions on offer to ask about, the one played always among them; nought asks about
+        #: all of them, which is what this did before.
+        #:
+        #: **This is where nearly all the judging's time goes.** Every decision values the position each legal
+        #: move leads to so that the one played can be placed among them — measured, 79,434 valuations over
+        #: twelve games, about 96% of them on moves nobody played. The played move is the only one anybody
+        #: wants to know about; the rest are a denominator.
+        #:
+        #: **A sample keeps the comparison and drops the price.** What a heuristic is scored on is where the
+        #: played move ranks among the alternatives, and a rank among five is on the same scale as a rank
+        #: among twenty-five — which raw value would not be, and which is why the alternatives cannot be
+        #: dropped altogether.
+        #:
+        #: **The baseline moves with it, which is what keeps it honest.** Ignorance expects one in however
+        #: many were asked about, so a sample of five is read against a fifth and not against a
+        #: twenty-fifth. Sampled and whole scores are not comparable with each other, and a run that changes
+        #: this mid-flight is comparing two things.
+        self._among = max(0, among)
+        self._seed = seed
+
     def scored(self, decisions: Sequence[Decided], raters: Mapping[str, Rating]) -> tuple[Agreement, ...]:
         """Each named heuristic measured over those decisions, in the order they were given.
 
@@ -44,9 +67,10 @@ class AgreementScorer:
         against it. What it expected of the rest is gathered as the chance it gave what was taken, weighted by
         what the game paid whoever took it."""
         found = []
+        asked = [self._asked(one) for one in decisions]
         for holder, rating in raters.items():
             mass, decided, declined, undecided, offered = 0.0, 0, 0, 0, 0.0
-            for one in decisions:
+            for one in asked:
                 chances = self._chances(rating, one)
                 if chances is None:
                     declined += 1
@@ -72,6 +96,23 @@ class AgreementScorer:
                 len(decisions), one.declined, one.undecided,
             )
         return tuple(found)
+
+    def _asked(self, decision: Decided) -> Decided:
+        """The decision as it is put to a heuristic: every action on offer, or a sample of them with the one
+        played always among them.
+
+        **The played move is always in the sample**, because the whole question is what the heuristic made of
+        what happened; a sample that could leave it out would be asking a different question. The rest are
+        drawn from a generator seeded by the decision itself, so every heuristic is asked about the *same*
+        alternatives — drawing afresh per heuristic would score them on different questions and call the
+        difference skill."""
+        if self._among < 1 or len(decision.offered) <= self._among:
+            return decision
+        others = [one for one in decision.offered if one != decision.taken]
+        drawing = random.Random((self._seed, decision.node.state, decision.taken, len(decision.offered)).__str__())
+        drawn = drawing.sample(others, min(self._among - 1, len(others)))
+        kept = tuple(one for one in decision.offered if one == decision.taken or one in drawn)
+        return replace(decision, offered=kept)
 
     def _chances(self, rating: Rating, decision: Decided) -> tuple[float, ...] | None:
         """What it gives each action on offer, as chances summing to one; None where it rated none of them.

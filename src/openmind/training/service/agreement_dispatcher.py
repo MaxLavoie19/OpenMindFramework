@@ -12,7 +12,7 @@ from openmind.training.service.agreement_scorer import AgreementScorer
 logger = logging.getLogger(__name__)
 
 
-def scored_alone(name: str, model: object, decisions: Sequence[Decided]) -> Agreement:
+def scored_alone(name: str, model: object, decisions: Sequence[Decided], among: int = 0, reading: float = 1.0) -> Agreement:
     """One heuristic put to those decisions, in whatever process is running this.
 
     **At module level because pickle stores a function by name.** A worker starts as a fresh interpreter and
@@ -25,9 +25,9 @@ def scored_alone(name: str, model: object, decisions: Sequence[Decided]) -> Agre
     valuer in 993, the rater in 1083, and the lambda's captured defaults pickle on their own. They are rebuilt
     here rather than sent because it costs the same either way and leaves each worker's reading caches its
     own instead of copying a parent's."""
-    valuer = RulePositionValuer(create_rule_heuristic())
+    valuer = RulePositionValuer(create_rule_heuristic(reading))
     rater = SuccessorMoveRater(valuer)
-    return AgreementScorer().scored(
+    return AgreementScorer(among).scored(
         decisions, {name: lambda node, actions, player: rater.rate(model, node, actions, player)}
     )[0]
 
@@ -53,8 +53,13 @@ class AgreementDispatcher:
     A heuristic that ends its worker is not fatal to the round: the call runs again in a fresh one, and a call
     that fails twice leaves that heuristic unjudged this round rather than stopping the judging."""
 
-    def __init__(self, task_runner: TaskRunner) -> None:
+    def __init__(self, task_runner: TaskRunner, among: int = 0, reading: float = 1.0) -> None:
         self._task_runner = task_runner
+        #: How many actions a decision is put with, and what share of a ruleset's weight is read. Both are the
+        #: caller's, both cut the same multiplication, and both trade exactness for time: the first drops the
+        #: alternatives nobody played, the second the rules too quiet to reorder anything.
+        self._among = among
+        self._reading = reading
 
     def scored(
         self, decisions: Sequence[Decided], models: Sequence[tuple[str, object]]
@@ -68,7 +73,13 @@ class AgreementDispatcher:
             return ()
         names = [name for name, _ in models]
         found = self._task_runner.map(
-            scored_alone, names, [model for _, model in models], [decisions] * len(models), droppable=True
+            scored_alone,
+            names,
+            [model for _, model in models],
+            [decisions] * len(models),
+            [self._among] * len(models),
+            [self._reading] * len(models),
+            droppable=True,
         )
         kept = tuple(one for one in found if isinstance(one, Agreement))
         if len(kept) != len(found):

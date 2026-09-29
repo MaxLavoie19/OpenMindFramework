@@ -95,3 +95,53 @@ def test_a_feature_is_extracted_once_and_shared_by_every_model_reading_the_node(
     reader.value(rbs, node, "X")
 
     assert list(node.features) == ["consequences of X"]
+
+
+def a_heuristic_of(game, knowledge, heuristic, weights) -> object:
+    """A position value ruleset of rules that each read a constant, at the weights given."""
+    game("tictactoe")
+    for name, weight in weights:
+        heuristic("tictactoe", name, PythonRule("1.0"), weight)
+    return create_rule_based_system(knowledge, "tictactoe", POSITION_VALUE)
+
+
+def test_every_rule_is_read_unless_a_caller_asks_for_less(game, knowledge, heuristic) -> None:
+    """One is what this did before, and a run that never asked for a share must value exactly as it valued."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("heavy", 1.0), ("light", 0.001)))
+
+    assert len(create_rule_heuristic()._weighted(rbs, POSITION)) == 2  # noqa: SLF001
+
+
+def test_a_tail_too_light_to_matter_is_not_read_for_this_decision(game, knowledge, heuristic) -> None:
+    """**Measured on a real fitted heuristic**: three rules of eight carried the whole weight, the other five
+    between 0.00072 and 0.000036 against 0.494. Reading to 99.9% of the weight reads three instead of six here
+    and cannot shift a value by more than a thousandth of what the ruleset can say.
+
+    The rules are read heaviest first, which is the order a fit already writes them in."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (
+        ("first", 0.494), ("second", -0.494), ("third", 0.501),
+        ("a whisper", 0.00072), ("quieter", 0.00066), ("quietest", 0.000036),
+    ))
+
+    read = create_rule_heuristic(reading=0.999)._weighted(rbs, POSITION)  # noqa: SLF001
+
+    assert [rule.name for rule, _ in read] == ["third", "first", "second"], "heaviest first, and only those"
+
+
+def test_what_is_left_unread_stays_in_the_ruleset(game, knowledge, heuristic) -> None:
+    """The rules are not dropped. A rule too quiet to matter in this position may be the rule that decides
+    another one, and taking it out for being quiet here is a rule dropped for being specific — which is the
+    error this project has a standing rule against."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("heavy", 1.0), ("light", 0.0001)))
+
+    read = create_rule_heuristic(reading=0.9)._weighted(rbs, POSITION)  # noqa: SLF001
+
+    assert len(read) == 1, "only the heavy one was read here"
+    assert len(rbs.rules) == 2, "and the ruleset is untouched, so the next position asks the whole set again"
+
+
+def test_a_ruleset_whose_weights_are_all_nothing_is_read_whole(game, knowledge, heuristic) -> None:
+    """There is no heaviest, so there is nothing to leave out."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("one", 0.0), ("another", 0.0)))
+
+    assert len(create_rule_heuristic(reading=0.5)._weighted(rbs, POSITION)) == 2  # noqa: SLF001

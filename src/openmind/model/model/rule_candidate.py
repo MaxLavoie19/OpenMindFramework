@@ -31,3 +31,18 @@ class RuleCandidate:
     def fires(self) -> np.ndarray:
         """Where the term had something to say: present, and not nought."""
         return ~np.isnan(self.readings) & (self.readings != 0.0)
+
+    def influence(self) -> float:
+        """How loudly this term can speak at all, which is what the fit gave it.
+
+        **A rule that cannot change a decision is not a rule worth buying.** Measured in a real fitted
+        heuristic: two terms at 0.494 and five more between 0.00072 and 0.000036 — fourteen thousand times
+        too small to reorder anything the first two had separated. They were bought all the same, because
+        three of the four signals read only what a term says and never how loudly it is allowed to say it.
+
+        **A fact rather than a threshold.** The weights are fitted on standardised columns, so they are
+        already on one scale and comparable across terms; nothing here picks a cut-off. A signal that scales
+        what it wants by this simply wants a term it cannot hear proportionally less, and spends on what it
+        wanted most first — so a term fourteen thousand times quieter is bought fourteen thousand places
+        later, which in practice is never."""
+        return abs(float(self.weight))

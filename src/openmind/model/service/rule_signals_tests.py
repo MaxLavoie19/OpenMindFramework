@@ -75,7 +75,7 @@ def test_a_term_that_says_what_a_stronger_one_already_said_is_not_new() -> None:
     unlike = candidate([float(at % 3) for at in range(20)], weight=1.0)
     rated = SaysSomethingNew().rates([leading, echo, unlike])
 
-    assert rated[0] == pytest.approx(1.0), "nothing stronger said it yet"
+    assert rated[0] > 0.0, "nothing stronger said it yet"
     assert rated[1] == pytest.approx(0.0, abs=1e-9), "the same term twice says nothing new"
     assert rated[2] > rated[1]
 
@@ -118,3 +118,20 @@ def test_no_rows_rates_at_nothing_rather_than_raising() -> None:
     )
 
     assert all(signal.rates([empty])[0] == 0.0 for signal in create_rule_signals())
+
+
+def test_a_term_too_quiet_to_change_anything_is_wanted_by_nobody() -> None:
+    """**The defect this fixes, measured in a real fitted heuristic.** Two terms came out at 0.494 and five
+    more between 0.00072 and 0.000036 — fourteen thousand times too small to reorder anything the first two
+    had separated — and three of the four signals bought them anyway, because they read only what a term says
+    and never how loudly the fit lets it say so.
+
+    Not a threshold: the quiet term is still wanted, just wanted so much less that a signal spending on what
+    it wants most never reaches it."""
+    loud = candidate([3.0, 1.0] * 5 + [-3.0, -1.0] * 5, weight=0.494)
+    quiet = candidate([3.0, 1.0] * 5 + [-3.0, -1.0] * 5, weight=0.000036)
+
+    for signal in create_rule_signals():
+        rated = signal.rates([loud, quiet])
+        assert rated[0] > rated[1], f"{signal.name} cannot hear how loudly a term may speak"
+        assert rated[1] < rated[0] / 1000, f"{signal.name} wants the quiet one barely at all"

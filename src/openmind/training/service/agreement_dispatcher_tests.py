@@ -49,7 +49,7 @@ def test_one_worker_runs_here_and_answers_the_same(monkeypatch) -> None:
     to write but what `TaskRunner` already does."""
     calls = []
 
-    def rating(name, model, decisions):
+    def rating(name, model, decisions, among=0, reading=1.0):
         calls.append(name)
         return _agreement(name)
 
