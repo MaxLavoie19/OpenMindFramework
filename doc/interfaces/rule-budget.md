@@ -82,21 +82,25 @@ class RulePrice:
 class RuleTenure:
     """Whether a rule that was bought still earns its place, once it has been making decisions.
 
-    **Vouching gets a rule in; its own record keeps it there.** A rule fires where it fires, so what it is
-    worth is read over the decisions it actually had an opinion about, against the base rate at its own
-    coverage — never against how often it fired, because a rule that fires rarely and is right is the kind
-    this exists to keep.
+    **Vouching gets a rule in; its contribution keeps it there and sets what it weighs.** A rule fires where
+    it fires, and it is read over the decisions it actually had an opinion about — never against how often it
+    fired. A rule with a better contribution weighs more, and that holds however rarely it fires: when mate is
+    on the board it is worth taking, and mate being rare is no argument for taking it less seriously.
 
     **Superseded means the ruleset does better without the rule than with it.** Not that another rule takes
     its content in, which is a fact about the rules rather than about the playing — a rule can be logically
     redundant and still carry its weight, and a rule nothing subsumes can still be dead weight. So it is
     measured by leaving it out, on the decisions the whole set was judged over, in the same currency.
 
-    A rule that changes nothing when removed is kept. Redundant is not superseded: it was vouched for, it
-    costs its owner nothing further, and the evidence says only that it is not doing harm."""
+    **A rule that changes nothing when removed goes, because it is not free to keep.** Reading it costs
+    processing on every position of every decision, so a set without it is as accurate and faster — which is
+    better on the ordering this project already uses, where `ModelRegistry.best` takes the highest accuracy
+    and gives ties to the fastest. Redundancy is sometimes robustness and sometimes nothing, and which it is
+    on any particular rule is not foreseeable; what settles it is whether the set as a whole is better off,
+    speed included."""
 
     def spared(self, ruleset, decisions, rater) -> tuple[str, ...]: ...
-    def poor(self, knowledge_base, rule, least: int) -> bool: ...
+    def contributed(self, ruleset, decisions, rater) -> Mapping[str, float]: ...
 ```
 
 ## What this replaces
@@ -119,6 +123,36 @@ leave-one-out scores are arithmetic over those numbers.
 The cost is therefore about one full judging, not one per rule — and the thing that dominates it, drawing the
 position each move leads to, is paid once whatever is being measured.
 
+## Where a rule's weight comes from, which is now two answers
+
+**This is the one thing the decisions above leave in conflict, and it is not mine to settle.**
+
+Today a term's weight is its fitted coefficient: `HeuristicFinder` sweeps an L1 price over position rows and
+keeps the fit that predicts held-out *positions* best. The weight is whatever minimises that loss.
+
+"A rule with a better contribution weighs more" is a different quantity, measured on different evidence — how
+much the ruleset's score over *decisions* falls when the rule is left out. A term can be excellent at
+predicting what a position was worth and contribute little to choosing a move, and the reverse.
+
+**The mate example is exactly where they part.** A term reading "mate is available" is nearly constant across
+positions, so a fit over position values has almost no variance to pay it for and shrinks it. Its
+contribution when it fires is the whole game. Fitted weight says small; contribution says decisive.
+
+This project has met the same shape before and measured it. `PonderSettings.walks` is off by default, and the
+note says why: ordering terms by how steadily they read made held-out loss *worse* every seed — 0.0105
+measuring nothing, 0.0357 ordering by steadiness, 0.1252 keeping only the steadiest — because "a term that
+never varies along a walk can vary plenty over the positions being fitted". Reading a term's worth off the
+wrong sample is a mistake this codebase has already made once.
+
+- **Options, none chosen:**
+  - **Contribution replaces the fitted weight.** The fit proposes terms, the decisions weigh them. Truest to
+    "rules that have a better contribution weight more", and it throws away a number chosen on held-out rows.
+  - **Contribution scales the fitted weight.** The fit sets the shape and the decisions correct it. Keeps
+    both measurements and needs a rule for how they combine, which is a formula nobody has evidence for.
+  - **Two heuristics, and the games decide.** The same terms weighted each way are two models of one task,
+    and the registry already ranks models by what they did. No formula, one more candidate per ponder.
+- **Undecided.**
+
 ## The tuning knob
 
 **One budget on the command line sets how much comes through.** Income is scaled by an allowance, so a larger
@@ -128,22 +162,23 @@ set, not a constant buried in a service.
 
 ## Open
 
-1. **What a bad vouch costs.** A rule dropped for performing poorly was vouched for by a signal that was
-   wrong. Does that signal simply not earn from it, or does it pay a penalty? Charging makes a signal careful;
-   not charging keeps the accounting to one direction. **Undecided.**
+1. ~~What a bad vouch costs.~~ **Decided (Maxime): a bad vouch decays the budget, and it never reaches
+   nought.** Decay rather than a charge, so a signal that has been wrong buys less often without being
+   bankrupted by a run of bad luck — and a floor above nought, so no signal is ever permanently shut out.
+   That is the same reason the weights were rejected: a signal must always be able to come back.
 2. ~~What "superseded" means.~~ **Decided (Maxime): the ruleset without the rule performs better than the
    ruleset with it.** Measured by play, not by logic — so `Subsumer` and `RuleReasoner.entails` are the wrong
    instruments, and so is SIRUS's linear-combination test. Both answer whether a rule is *redundant*, which
    is a different claim: a redundant rule is kept here, because the evidence about it says only that it does
    no harm.
-3. **How a rule's own record is read when it fires rarely.** The m-estimate is the family — `m = 0` is
-   precision, `m → ∞` is weighted relative accuracy, and for a rule with ten firings the verdict flips at
-   `m ≈ 2N`. So `m` is the one knob spanning the whole coverage-against-precision trade, and it should be a
-   stated budget rather than a constant. **Undecided** what it is set from.
-4. **Whether the record needs adjusting for how many rules were looked at.** Webb's measured attrition —
-   9,984 candidate rules, 124 passing an unadjusted test, **30** surviving adjustment over a space of
-   7.66×10²⁰ — says an unadjusted gate over an induced pool admits mostly noise. **Undecided**, and it matters
-   more the larger the pool gets.
+3. ~~How a rule's own record is read when it fires rarely.~~ **Decided (Maxime): on the times it fired.**
+   No estimate correction and no coverage term. A rule so rare that sets without it outperform sets with it
+   vanishes by the same leave-one-out that judges every other rule, and nothing else is needed.
+4. ~~Whether the record needs adjusting for how many rules were looked at.~~ **Decided (Maxime): the
+   adjustment is where the search is, not where the record is.** The factors assess every rule that has not
+   been vouched for, and a vouch is paid for — so what bounds the search is the budget rather than a
+   significance level. Once a rule is in a ruleset it is judged by its contribution to that set, which is not
+   a test over a candidate space and needs no correction for one.
 5. **None of the evidence behind any of this comes from self-play.** Every number above is from i.i.d.
    benchmarks. Positions within a game are correlated and share one terminal payoff, so the effective sample
    size behind "this rule fired five times" is unknown here. That is exactly the independence Minsky made his
