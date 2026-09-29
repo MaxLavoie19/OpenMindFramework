@@ -28,7 +28,9 @@ def create_heuristic_finder(workers: int = 1, allowance: float = 0.0) -> Heurist
     return builder.build()
 
 
-def create_rule_heuristic(reading: float = 1.0, seconds: float = 0.0) -> RuleHeuristic:
+def create_rule_heuristic(
+    reading: float = 1.0, seconds: float = 0.0, costs: dict | None = None, caution: float = 1.0
+) -> RuleHeuristic:
     """The service running a heuristic ruleset's RBS, with its rule caller and consequence library. Build it once and
     give it to whatever reads a heuristic.
 
@@ -39,7 +41,7 @@ def create_rule_heuristic(reading: float = 1.0, seconds: float = 0.0) -> RuleHeu
     **A clock suits this better than a share.** A share guesses which rules are worth reading; a budget is the
     constraint itself, so the same ruleset can hold a look-ahead that is read in a long game and skipped in a
     short one without anybody deciding in advance which rules belong to which format."""
-    return RuleHeuristic(create_rule_caller(), ConsequenceLibraryBuilder().build(), reading, seconds)
+    return RuleHeuristic(create_rule_caller(), ConsequenceLibraryBuilder().build(), reading, seconds, costs, caution)
 
 
 def create_simulation() -> Simulation:

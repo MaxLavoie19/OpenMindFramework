@@ -1,5 +1,6 @@
 from collections.abc import Callable
 
+from openmind.heuristic.model.rule_cost import RuleCost
 from openmind.knowledge.constant.knowledge_constant import INFERENCE
 from openmind.knowledge.constant.rule_kind_constant import MOVE, POSITION
 from openmind.knowledge.constant.task_constant import MOVE_VALUE, POSITION_VALUE
@@ -177,3 +178,70 @@ def test_the_clock_is_checked_between_rules_and_never_inside_one(game, knowledge
     played = create_rule_based_game(knowledge, "tictactoe")
 
     assert create_rule_heuristic(seconds=1e-12).value(rbs, played.node(played.start()), "X") == 2.0
+
+
+def costing(**named: tuple[float, int]) -> dict:
+    """Rules that have been timed: a mean and how many readings it rests on."""
+    return {name.replace("_", " "): RuleCost(seconds, 0.0, read) for name, (seconds, read) in named.items()}
+
+
+def test_what_is_read_is_the_most_value_for_the_cost_and_not_the_most_value(game, knowledge, heuristic) -> None:
+    """**The whole difference between a knapsack and a cut-off.** Measured on a real fitted heuristic,
+    `here.color[1, 5] == me` weighs 0.494 and costs 0.2 ms, and `here.mobility(other)` weighs 0.000036 and
+    costs 426 ms — ratios of 2470 against 0.00008, thirty million to one. Ordered by weight the second is
+    merely last and still read when the budget allows; ordered by ratio it is not worth taking at all until a
+    format can genuinely afford it."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("dear", 1.0), ("cheap", 0.1)))
+    costs = costing(dear=(0.100, 20), cheap=(0.001, 20))
+
+    read = create_rule_heuristic(seconds=0.05, costs=costs)._weighted(rbs, POSITION)  # noqa: SLF001
+
+    assert [rule.name for rule, _ in read] == ["cheap"], "ten times less value for a hundredth of the cost"
+
+
+def test_a_rule_too_dear_to_fit_does_not_cost_the_cheap_ones_behind_it(game, knowledge, heuristic) -> None:
+    """The same reason a signal that cannot afford a long rule goes on to buy the short ones it wanted next:
+    a dear rule early in the order should not end the taking."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("enormous", 100.0), ("small", 1.0), ("tiny", 0.5)))
+    costs = costing(enormous=(10.0, 20), small=(0.001, 20), tiny=(0.001, 20))
+
+    read = create_rule_heuristic(seconds=0.05, costs=costs)._weighted(rbs, POSITION)  # noqa: SLF001
+
+    assert "small" in [rule.name for rule, _ in read]
+    assert "tiny" in [rule.name for rule, _ in read]
+
+
+def test_a_rule_nobody_has_timed_is_read_so_that_it_gets_measured(game, knowledge, heuristic) -> None:
+    """Priced at nothing until it has been read once. Otherwise a rule could be passed over for ever on the
+    strength of never having been read, and its cost would never be learned."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("known", 1.0), ("never_timed", 0.001)))
+    costs = costing(known=(0.001, 20))
+
+    read = create_rule_heuristic(seconds=0.002, costs=costs)._weighted(rbs, POSITION)  # noqa: SLF001
+
+    assert "never_timed" in [rule.name for rule, _ in read]
+
+
+def test_reading_a_rule_records_what_it_cost(game, knowledge, heuristic) -> None:
+    """**The only place a cost comes from.** Nothing declares what a rule costs and nothing estimates it from
+    its shape: it is timed where it is read, which is the one place the answer is true of this machine, this
+    position and this ruleset."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("one", 1.0), ("another", 0.5)))
+    played = create_rule_based_game(knowledge, "tictactoe")
+    costs: dict = {}
+
+    create_rule_heuristic(seconds=10.0, costs=costs).value(rbs, played.node(played.start()), "X")
+
+    assert set(costs) == {"one", "another"}
+    assert all(one.read == 1 for one in costs.values())
+    assert all(one.seconds >= 0.0 for one in costs.values())
+
+
+def test_the_heaviest_rule_is_read_however_small_the_budget(game, knowledge, heuristic) -> None:
+    """A budget too small for anything still says what mattered most, rather than saying nothing."""
+    rbs = a_heuristic_of(game, knowledge, heuristic, (("heavy", 1.0), ("light", 0.5)))
+    costs = costing(heavy=(9.0, 20), light=(9.0, 20))
+
+    read = create_rule_heuristic(seconds=1e-9, costs=costs)._weighted(rbs, POSITION)  # noqa: SLF001
+
+    assert len(read) == 1
