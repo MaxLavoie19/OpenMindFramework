@@ -30,7 +30,6 @@ run about 150 Elo above the same algorithm self-played. It is the thing to watch
 | `model/self_play_settings.py` | `SelfPlaySettings(games=1, seconds=1.0, steps=None, seed=0)`: what self-play may spend |
 | `model/distillation.py` | `Distillation(context, rules, games, decisive, training_rows, held_out_rows, seconds, error=None)`: what distilling came to |
 | `model/match.py` | `Match(context, task, one, other, games, points, sides)`: what a match came to, with `decisive` and `winner`. A win is one point, a draw a half, a loss none |
-| `constant/training_constant.py` | `DEFAULT_ITERATIONS`, `SEED_RANGE`, and the value targets `OUTCOME_TARGET` and `SEARCH_TARGET` |
 | `factory/training_factory.py` | `create_self_play`, `create_value_distiller`, `create_position_row_mapper`, `create_model_match` |
 
 ## How distilling works
