@@ -93,10 +93,31 @@ class HeuristicPonderer:
         self._evaluator = create_term_evaluator() if term_evaluator is None else term_evaluator
         self._stability = Stability() if stability is None else stability
 
-    def ponder(self, knowledge_base: KnowledgeBase, game: RuleBasedGame, settings: PonderSettings) -> Pondering:
-        """What it deduced, and what every way of deducing was worth."""
+    def ponder(
+        self,
+        knowledge_base: KnowledgeBase,
+        game: RuleBasedGame,
+        settings: PonderSettings,
+        positions: Sequence[State] = (),
+    ) -> Pondering:
+        """What it deduced, and what every way of deducing was worth.
+
+        **Positions may be given, and where a game has been played they should be.** Gathered by walking, they
+        are positions nothing ever settled: measured on chess, twenty gathered positions valued nought — none
+        paid out because a random walk never reaches an ending, and none proved because a proof needs one
+        within reach. Pondering then deduces nothing, however long it is given and however many relaxations it
+        tries, and the fault is not in the search.
+
+        A game that was played ends, and its last position paid somebody. Handed those, the payoff route has
+        material for the first time — what the heuristic is being fitted to is what the game actually gave,
+        which is the one thing here that is nobody's opinion.
+
+        Walking stays the way to start on a game nobody has played yet, which is why it is still the default
+        rather than a thing to remove."""
         started = time.monotonic()
-        positions = self._gatherer.gather(game, settings.positions + settings.held_out, settings.seed)
+        positions = tuple(positions) or self._gatherer.gather(
+            game, settings.positions + settings.held_out, settings.seed
+        )
         tried: list[Labelling] = []
         rows = self._valued(game, game, positions, settings, tried)
         if not rows and settings.relaxations:
