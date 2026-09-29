@@ -164,7 +164,7 @@ These cost real time to establish. Do not re-derive them.
 ## How to verify the loop end to end
 
 ```
-.venv/bin/pytest        # framework: 1624 pass in ~85s
+.venv/bin/pytest        # framework: 1584 pass in ~70s
 .venv/bin/pytest        # chess: 71 pass in ~7 min, from the repo root
 ```
 
@@ -199,7 +199,7 @@ somebody an afternoon.
 |---|---|
 | the running job "does not run the heuristic half — the code was written after it launched" | it ran it and pondered successfully, then crashed in judging |
 | `ModelDrawer` "is tested nowhere" | it could not be imported at all |
-| "All framework tests (1,416) pass" | 1,611 at the time, 1,624 now |
+| "All framework tests (1,416) pass" | 1,611 at the time; 1,584 now, the difference being tests deleted with the code they pinned |
 | the run launched "at 20:15" | 20:10:04 |
 | the pondering clock "needs a decision before the loop matches the specification" | there was no dilemma: a worker plays a game then ponders, and a game-and-a-think is a long game |
 | — | `--contests` defaulted to zero and silently disabled specification step 3 entirely |
