@@ -19,10 +19,17 @@ class GameReplayer:
 
     def positions(self, game: RuleBasedGame, summary: GameSummary) -> tuple[State, ...]:
         """Every position of the game, from where it started to where its last action led: one more than its actions.
-        A summary without an outcome seed raises ValueError."""
-        if len(summary.seeds) < 2:
-            raise ValueError(f"{summary.label} wasn't remembered with an outcome seed: it can't be played again")
-        chance = random.Random(summary.seeds[1])
+
+        **The seed is asked for where a chance is actually drawn, and not before.** An action with one outcome
+        leads where it leads, and picking from a list of one gives that one whatever the generator says — so a
+        game whose every action is settled replays exactly without any seed at all. Demanded up front, the
+        requirement turned every game of a deterministic game into one that could not be shown: two hundred and
+        sixty chess games, none of which draws a chance anywhere.
+
+        Where an action really does have several outcomes and no seed was kept, this raises: there the seed is
+        the only record of which way the game went, and guessing would be showing positions the game never
+        reached."""
+        chance = random.Random(summary.seeds[1]) if len(summary.seeds) > 1 else None
         state = game.start()
         states = [state]
         for action in summary.actions:
@@ -33,8 +40,16 @@ class GameReplayer:
             outcomes = game.joint_outcomes(state, JointAction(((player, action),))).outcomes
             if not outcomes:
                 break
-            state = chance.choices(
-                [outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes]
-            )[0]
+            if len(outcomes) == 1:
+                state = outcomes[0][0]
+            elif chance is None:
+                raise ValueError(
+                    f"{summary.label} wasn't remembered with an outcome seed, and an action of it had "
+                    f"{len(outcomes)} outcomes: it can't be played again"
+                )
+            else:
+                state = chance.choices(
+                    [outcome for outcome, _ in outcomes], weights=[probability for _, probability in outcomes]
+                )[0]
             states.append(state)
         return tuple(states)

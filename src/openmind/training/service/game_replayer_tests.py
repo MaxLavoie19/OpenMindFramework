@@ -5,8 +5,10 @@ import pytest
 from openmind.agent.model.game_summary import GameSummary
 from openmind.agent.model.model_description import ModelDescription
 from openmind.rbs.service.rule_based_game import RuleBasedGame
+from openmind.rule.model.python_rule import PythonRule
 from openmind.training.service.game_replayer import GameReplayer
 from openmind.world.model.action import Action
+from openmind.world.model.state import State
 
 type Game = Callable[[str], RuleBasedGame]
 
@@ -63,13 +65,34 @@ def test_playing_it_again_draws_the_same_chances_it_drew_the_first_time(game: Ga
     assert replayer.positions(played, a_summary()) == replayer.positions(played, a_summary())
 
 
-def test_a_game_remembered_without_an_outcome_seed_says_so(game: Game) -> None:
+def test_a_game_of_chance_remembered_without_an_outcome_seed_says_so(declared) -> None:
     """Silently replaying it with a fresh seed would show positions that never happened, and nothing on the
-    page would say they hadn't."""
-    played = game("tictactoe")
+    page would say they hadn't.
+
+    Asked of a game that really draws a chance, because that is where the seed is the only record of which way
+    the game went. Asked of a game whose every action is settled, the same demand made two hundred and sixty
+    chess games unshowable to protect them from a choice nothing ever makes."""
+    played = declared(
+        State((("at", 0),)),
+        parameters={"step": {"by": PythonRule("[1]")}},
+        legal={"step": ()},
+        outcomes={"step": ((0.5, PythonRule("{'at': 1}")), (0.5, PythonRule("{'at': 2}")))},
+    )
 
     with pytest.raises(ValueError, match="outcome seed"):
-        GameReplayer().positions(played, a_summary(seeds=(7,)))
+        GameReplayer().positions(
+            played, a_summary(seeds=(7,), actions=(Action("step", (("by", 1),)),))
+        )
+
+
+def test_a_game_that_draws_no_chance_is_replayed_without_a_seed(game: Game) -> None:
+    """Every action leads where it leads, so there is nothing a seed could settle and nothing to get wrong. A
+    game remembered by a player that kept no seed is still exactly replayable, and a page can show it."""
+    played = game("tictactoe")
+
+    positions = GameReplayer().positions(played, a_summary(seeds=()))
+
+    assert len(positions) == len(PLAYED) + 1
 
 
 def test_a_game_where_several_acted_at_once_is_not_followed_past_that(
