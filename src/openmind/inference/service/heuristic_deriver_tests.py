@@ -226,3 +226,59 @@ def test_a_game_with_no_structures_at_all_is_seeded_with_nothing():
     assert not HeuristicDeriver().seeds(
         HeuristicDeriver().holdings(worth_of("chosen", "rock", 3.0)), a_vocabulary({})
     )
+
+
+def offer(kind: str, distance: int, refused: bool) -> Example:
+    """One way of acting, with what the game itself said of it."""
+    return Example(
+        (about(kind), Literal("steps", (Constant("source"), Constant("target"), Constant(distance)))), refused
+    )
+
+
+#: What the game allowed, which is the thing the learner is learning from: a walker may take one step, a
+#: runner may take any. Nothing has been induced from it yet.
+OFFERED = tuple(
+    offer(kind, distance, refused=kind == "walker" and distance > 1)
+    for kind in ("walker", "runner")
+    for distance in range(1, 8)
+)
+
+
+def test_what_the_game_allows_ranks_things_before_any_rule_has_been_learned() -> None:
+    """The first ponder happens before a single constraint exists, and `afforded` is flat exactly there:
+    nothing is refused, so every thing affords every candidate and the things come out equal. The game's own
+    answer is already on each case, and read from it a runner outranks a walker at move one."""
+    deriver = HeuristicDeriver()
+
+    flat = {one.about: one.parameters[0].initial for one in deriver.afforded((), OFFERED, lambda clause, case: False)}
+    found = {one.about: one.parameters[0].initial for one in deriver.allowed(OFFERED)}
+
+    assert flat["walker"] == flat["runner"], "with nothing learned the rules refuse nothing and rank nothing"
+    assert found["walker"] == 1.0
+    assert found["runner"] == 7.0
+
+
+def test_what_the_rules_leave_and_what_the_game_allows_can_disagree() -> None:
+    """The gap is the point: a thing OMF believes is hemmed in where the game lets it move is a thing its
+    rules are wrong about. Here the rules refuse a runner going far and the game does not."""
+    refuses_a_runner_going_far = lambda clause, case: (  # noqa: E731
+        {one.predicate: one.arguments[-1].name for one in case.literals}.get("at") == "runner"
+        and int({one.predicate: one.arguments[-1].name for one in case.literals}.get("steps", 0)) > 1
+    )
+    deriver = HeuristicDeriver()
+
+    believed = {one.about: one.parameters[0].initial for one in
+                deriver.afforded((rule(about("runner"), steps(2)),), OFFERED, refuses_a_runner_going_far)}
+    truly = {one.about: one.parameters[0].initial for one in deriver.allowed(OFFERED)}
+
+    assert believed["runner"] == 1.0, "the rules hold it to one step"
+    assert truly["runner"] == 7.0, "the game does not"
+
+
+def test_a_worth_counted_against_the_game_says_so_rather_than_naming_the_rules() -> None:
+    """A worth points at the ground its number stood on. Counted against the game and labelled as what the
+    rules afford, it would name a ground it never rested on."""
+    found = HeuristicDeriver().allowed(OFFERED)
+
+    assert all(one.parameters[0].holds.startswith("what the game lets") for one in found)
+    assert all(one.derivation.conclusion.name.startswith("what the game lets") for one in found)

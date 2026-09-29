@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 AFFORDS = "what {about} affords"
 WORTH = "worth of {about}"
 
+#: The same number reached by believing the game rather than the rules worked out about it. Named apart
+#: because a worth has to be able to say what it rests on, and these two rest on different authorities: one
+#: on what nothing OMF believes refuses, the other on what the game itself did not refuse.
+LETS = "what the game lets {about} do"
+
 #: How many combinations of readings are tried before the count is taken as read.
 ENOUGH = 200_000
 
@@ -127,10 +132,52 @@ class HeuristicDeriver:
 
         What comes back is starting points, exactly as `derive`'s are: a thing that can do fourteen things here
         is worth looking for near fourteen, and what it is really worth is what the games say."""
+        return self._affording(
+            cases, about, lambda case: any(covers(clause, case) for clause in clauses), clauses, AFFORDS, "the rules"
+        )
+
+    def allowed(
+        self,
+        cases: Sequence[Example],
+        about: Callable[[Sequence[Literal]], Sequence[Literal]] | None = None,
+    ) -> tuple[Heuristic, ...]:
+        """What each thing affords under what the game itself allows.
+
+        **The same arithmetic, asked of the other authority.** `afforded` counts the cases no constraint
+        refuses, which is what a thing may do as far as OMF has worked the game out. This counts the cases the
+        game did not refuse, which is what a thing may do in fact. Both are mobility, and they differ only in
+        who is being believed.
+
+        **It is what lets the first ponder say anything at all.** Before one constraint has been learned
+        nothing is refused, so `afforded` finds every thing affording every candidate and ranks seventeen
+        things exactly equal — the signal is flat precisely when it is first needed. The game's own answer is
+        already on every case, being the thing the learner is learning from, and read from there a rook is
+        worth more than a pawn at move one, before anything has been induced.
+
+        **The two part company as the constraints grow, and the distance between them is worth having.** A
+        thing OMF believes is hemmed in where the game lets it move is a thing its rules are wrong about, and
+        that comparison costs nothing once both numbers exist.
+
+        Starting points, as `afforded`'s are: what a thing is really worth is what the games say."""
+        return self._affording(cases, about, lambda case: case.holds, (), LETS, "the game")
+
+    def _affording(
+        self,
+        cases: Sequence[Example],
+        about: Callable[[Sequence[Literal]], Sequence[Literal]] | None,
+        refuses: Callable[[Example], bool],
+        clauses: Sequence[Clause],
+        reason: str,
+        whose: str,
+    ) -> tuple[Heuristic, ...]:
+        """How many of the cases each thing appears in survive, said once per thing.
+
+        The counting both questions share. What differs is `refuses` — who says a candidate is out — and
+        `reason`, which is what the number rests on and must name that same authority."""
         standing: dict[Value, int] = {}
         seen: dict[Value, int] = {}
         for case in cases:
-            refused = any(covers(clause, case) for clause in clauses)
+            refused = refuses(case)
             for thing in self._carried(about(case.literals) if about else case.literals):
                 seen[thing] = seen.get(thing, 0) + 1
                 if not refused:
@@ -140,18 +187,19 @@ class HeuristicDeriver:
                 thing,
                 clauses[0] if clauses else Clause(()),
                 POSITION,
-                self._why(thing, (), standing.get(thing, 0)),
+                self._why(thing, (), standing.get(thing, 0), reason),
                 aim=OPTIMAL,
                 parameters=(
-                    Parameter(WORTH.format(about=thing), float(standing.get(thing, 0)), AFFORDS.format(about=thing)),
+                    Parameter(WORTH.format(about=thing), float(standing.get(thing, 0)), reason.format(about=thing)),
                 ),
             )
             for thing in sorted(seen, key=str)
         ]
         logger.info(
-            "Of %d candidates, %d survive the rules; %d things can do anything at all: %s",
+            "Of %d candidates, %d survive %s; %d things can do anything at all: %s",
             len(cases),
-            sum(1 for case in cases if not any(covers(clause, case) for clause in clauses)),
+            sum(1 for case in cases if not refuses(case)),
+            whose,
             sum(1 for one in found if one.parameters[0].initial),
             "; ".join(one.readable for one in found if one.parameters[0].initial),
         )
@@ -320,15 +368,22 @@ class HeuristicDeriver:
         """Whether the rule allows that way of acting, its readings taken together."""
         return self._learner.covers(clause, case)
 
-    def _why(self, thing: Value, clauses: Sequence[Clause], admitted: int) -> Derivation:
-        """The reasoning that reached it: the rules it read, and the counting it did over them."""
+    def _why(
+        self, thing: Value, clauses: Sequence[Clause], admitted: int, reason: str = AFFORDS
+    ) -> Derivation:
+        """The reasoning that reached it: the rules it read, and the counting it did over them.
+
+        `reason` names what the count rests on, which is not always the same thing — counted against the
+        rules OMF worked out it is what they afford, and counted against the game it is what the game lets
+        happen. A derivation that named the first while resting on the second would be a worth pointing at a
+        ground it never stood on."""
         steps = tuple(
             DerivationStep(number + 1, GIVEN, (), clause) for number, clause in enumerate(clauses)
         )
         reached = Clause(
             (Literal(WORTH.format(about=thing), (Constant(thing), Constant(admitted))),),
             1.0,
-            AFFORDS.format(about=thing),
+            reason.format(about=thing),
         )
         return Derivation(
             reached,
