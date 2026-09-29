@@ -198,6 +198,88 @@ weight each coefficient's penalty rather than charge them all alike. It is not a
   genuinely costs that on every position, fired or not. Replacing `share` with the firing rate must not
   quietly forgive the reading. **Undecided** whether the firing rate replaces `share` or multiplies beside it.
 
+## The vouching mechanism
+
+`RuleBudget` and `RulePrice` are built. What is not is the thing that spends: who bids, where the gate sits,
+and what pays the signals back. This section is the one waiting for an OK.
+
+### Where the gate sits
+
+`HeuristicFinder._declared` links **every** non-zero term of the chosen fit into the ruleset. The gate goes
+exactly there, between "the fit kept it" and "it is linked". Everything a signal could want to read is already
+in hand at that line: the term's readings on the training rows, the payoffs those rows led to, the weight the
+fit gave it, and the terms admitted before it.
+
+> **This is a second gate, after L1, and that is deliberate.** The price sweep decides what a term *weighs*;
+> the budget decides whether it is *admitted*. A term the fit zeroed never reaches a signal, so the budget can
+> only ever let through fewer rules than the fit kept — which is the direction open question 41 is about.
+
+### The port
+
+```python
+class RuleSignal(Protocol):
+    """A way of proposing that a rule earns its place.
+
+    A signal rates rather than bids. What it wants is on whatever scale suits it; how much it gets is its
+    budget, which is the point of a budget over a weight — a signal cannot talk its way to more by rating
+    louder."""
+
+    @property
+    def name(self) -> str: ...
+
+    def rates(self, candidates: Sequence[Candidate]) -> Sequence[float]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    """One term the fit kept, and everything a signal may read about it. Every field is already computed by
+    the sweep that produced it; nothing here costs a second pass over the rows."""
+
+    expression: Expression
+    rule: PythonRule
+    weight: float          # what the fit gave it
+    readings: np.ndarray   # its column on the training rows
+    payoffs: np.ndarray    # what those rows led to
+
+
+class RuleAdmission:
+    """Which candidates got vouched for, and by whom.
+
+    Each signal walks its own candidates in the order it rates them and buys while it can afford to, so a
+    signal spends on what it wants most first. A candidate several signals bought is admitted once and
+    credited to all of them, which is the share map `RuleBudget.earned` already takes."""
+
+    def admitted(
+        self, knowledge_base, context_id: str, candidates: Sequence[Candidate],
+        signals: Sequence[RuleSignal], vocabulary: int,
+    ) -> Mapping[int, tuple[str, ...]]: ...
+```
+
+### The roster
+
+All of them, because they are different signals and some will suit some games — "the signal that gives the
+best heuristic for a problem is weighted more than others", and here that weighting is what it earns.
+
+| Signal | What it wants | Strand |
+|---|---|---|
+| `went with winning` | terms whose readings line up with the payoff on the rows they fired on | beats-chance |
+| `moved the fit` | terms whose absence costs the most held-out loss — leave-one-out, arithmetic over readings already taken | marginal contribution |
+| `says something new` | terms least explained by the terms already admitted | novelty |
+| `fires often enough to know` | terms that fired on enough rows for their record to mean something | confidence |
+
+**The fourth one needs saying out loud, because it looks like the error this project has a standing rule
+against.** "Coverage is reported beside the score and never folded into it" — a mate detector marked down for
+being rare is precisely the mistake. A signal that prefers common terms does not mark anything down: it
+declines to spend, and three other signals are still free to buy the mate detector. If preferring common terms
+is a bad way to pick rules, this signal earns less and buys less, which is the economy working. **If you would
+rather it were not there at all, say so and it goes** — the other three stand without it.
+
+### What pays them
+
+After a heuristic has played and been judged, `earned` is called once with each signal's share of that
+ruleset and the ruleset's worth. That is `_judged` in the chess repo, which already computes `mass` against
+`offered` per position. Nothing new is measured.
+
 ## The tuning knob
 
 **One budget on the command line sets how much comes through.** Income is scaled by an allowance, so a larger
