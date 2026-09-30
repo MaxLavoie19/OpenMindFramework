@@ -104,6 +104,12 @@ for now: a rule reading x adds weight × x.
   modules — is visible to its rules.
 - **`all_different(*values)`**, true when no two values are equal. The CSP turns a constraint that is a single
   `all_different` call over parameters and parameter-free values into an all-different group.
+- **`circuit(*successors)`**, true when the successors make one cycle through every position rather than several
+  loops: the successor of position `i` is the position `successors[i]`, so a value names a position by where it
+  stands among the arguments — the only way a rule can name a parameter, since it is handed values and never
+  learns which parameter each came from. The CSP turns a constraint that is a single `circuit` call over the
+  action's parameters into a circuit constraint, which says the successors are all different *and* that they join
+  up into one cycle.
 
 ## How rules are compiled
 

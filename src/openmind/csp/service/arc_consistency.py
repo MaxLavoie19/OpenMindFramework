@@ -1,59 +1,49 @@
 from collections import deque
 from collections.abc import Iterable
 
+from openmind.csp.model.constraint_index import ConstraintIndex
 from openmind.csp.model.support_table import SupportTable
-from openmind.csp.model.wipeout import Wipeout
-from openmind.structure.model.value import Value
+from openmind.csp.repository.domain_repository import DomainRepository
 
 
 class ArcConsistency:
-    """AC-3 over support tables: removes every value that has no allowed partner left in a table's other variable."""
+    """AC-3 over support tables: removes every value that has no allowed partner left in a table's other variable.
 
-    def propagate(
-        self,
-        domains: dict[str, frozenset[Value]],
-        tables: tuple[SupportTable, ...],
-        changed: Iterable[str],
-    ) -> dict[str, frozenset[Value]]:
-        """Narrows the domains starting from the changed variables; unchanged domains are kept as they are. Raises Wipeout
-        when a domain empties."""
-        by_variable: dict[str, list[SupportTable]] = {}
-        for table in tables:
-            by_variable.setdefault(table.first, []).append(table)
-            by_variable.setdefault(table.second, []).append(table)
-        narrowed = dict(domains)
+    It narrows the repository it is given and answers nothing — what it changed is on the trail, which is where the
+    search reads it from. The index is built once for a search rather than rebuilt here per call."""
+
+    def propagate(self, repository: DomainRepository, index: ConstraintIndex, changed: Iterable[str]) -> None:
+        """Narrows the domains starting from the changed variables. Raises Wipeout when a domain empties."""
         queue = deque(
             (table, self._other(table, variable))
             for variable in changed
-            for table in by_variable.get(variable, ())
+            for table in index.tables_of(variable)
         )
         while queue:
             table, target = queue.popleft()
-            supported = self._supported(table, target, narrowed)
-            if len(supported) == len(narrowed[target]):
+            unsupported = self._unsupported(table, target, repository)
+            if not unsupported:
                 continue
-            if not supported:
-                raise Wipeout(target)
-            narrowed[target] = supported
+            for value in unsupported:
+                repository.remove(target, value)
             queue.extend(
-                (other, self._other(other, target)) for other in by_variable[target] if other is not table
+                (other, self._other(other, target)) for other in index.tables_of(target) if other is not table
             )
-        return narrowed
 
-    def _supported(
-        self, table: SupportTable, target: str, domains: dict[str, frozenset[Value]]
-    ) -> frozenset[Value]:
+    def _unsupported(self, table: SupportTable, target: str, repository: DomainRepository) -> list[object]:
         if target == table.first:
-            partners = domains[table.second]
-            return frozenset(
+            partners = repository.values[table.second]
+            return [
                 value
-                for value in domains[target]
-                if any((value, partner) in table.allowed for partner in partners)
-            )
-        partners = domains[table.first]
-        return frozenset(
-            value for value in domains[target] if any((partner, value) in table.allowed for partner in partners)
-        )
+                for value in repository.values[target]
+                if not any((value, partner) in table.allowed for partner in partners)
+            ]
+        partners = repository.values[table.first]
+        return [
+            value
+            for value in repository.values[target]
+            if not any((partner, value) in table.allowed for partner in partners)
+        ]
 
     def _other(self, table: SupportTable, variable: str) -> str:
         return table.second if variable == table.first else table.first

@@ -3,7 +3,7 @@ from types import FunctionType
 
 from openmind.parallel.factory.memory_guard_factory import process_memory_guard
 from openmind.parallel.service.memory_evictor import evict_oldest
-from openmind.rule.constant.rule_constant import ALL_DIFFERENT
+from openmind.rule.constant.rule_constant import ALL_DIFFERENT, CIRCUIT
 from openmind.rule.mapper.state_namespace_mapper import StateNamespaceMapper
 from openmind.rule.model.compiled_rule import CompiledRule
 from openmind.structure.model.cell_names import CellNames
@@ -25,11 +25,33 @@ def _all_different(*values: object) -> bool:
     return len(set(values)) == len(values)
 
 
+def _circuit(*successors: object) -> bool:
+    """Whether the successors make one cycle through every position: the successor of position i is the position
+    `successors[i]`, so a value names a position by where it stands among these arguments — the only way a rule
+    can name one, since it is handed values and never learns which parameter each came from.
+
+    It holds where walking from nought comes back to nought in exactly as many steps as there are positions, which
+    is one cycle through all of them rather than several loops."""
+    total = len(successors)
+    if total == 0:
+        return True
+    if any(not isinstance(step, int) or isinstance(step, bool) or not 0 <= step < total for step in successors):
+        return False
+    seen = 0
+    position = 0
+    while seen < total:
+        position = successors[position]  # type: ignore[assignment]
+        seen += 1
+        if position == 0 and seen < total:
+            return False
+    return position == 0
+
+
 class RuleRunner:
     """Runs compiled rules against states. A value rule is called as a function of the parameters it reads, with the
     definitions' names and the state's variables as its globals, built once per state and kept. An effects rule runs as
     a module in a fresh copy of those names plus the action's parameters, and what it leaves in the state's variables is
-    the next state. Every rule also sees `all_different(*values)` and the data models, `Grid`, `List`, `Map`, `Scalar` and
+    the next state. Every rule also sees `all_different(*values)`, `circuit(*successors)` and the data models, `Grid`, `List`, `Map`, `Scalar` and
     `CellNames`, so a state a game built from them reads back here. The namespaces built per state are kept until the
     process's memory guard clears them."""
 
@@ -110,7 +132,7 @@ class RuleRunner:
             # game starts says it as the position written out, so it names the classes that position holds —
             # and for a game of parts those include its own. They are here rather than declared because a
             # record registers itself: it is one of OMF's formats, so OMF knows it without being told.
-            namespace = {ALL_DIFFERENT: _all_different, **STRUCTURES, **Record.kinds()}
+            namespace = {ALL_DIFFERENT: _all_different, CIRCUIT: _circuit, **STRUCTURES, **Record.kinds()}
             if definitions is not None:
                 exec(definitions.code, namespace)
             self._definitions[definitions] = namespace

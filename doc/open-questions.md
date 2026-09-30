@@ -520,6 +520,44 @@ not follow is that allowing more is being worth more, and that step is where eac
       which is three times fewer rulesets at the cost of the candidate pool the sweep exists to create.
     - **Undecided**, and waiting on the same night's measurement question 41 is waiting on.
 
+44. **A binary constraint over large domains is unaffordable in the CSP even where its relation is sparse, and
+    three smaller things around it.** Found while stating a positioning problem — which stretch of a wall a few
+    colored markers identify — as a constraint problem
+    ([marker-wall.md](interfaces/marker-wall.md)). The trail and `circuit` work
+    ([search-trail.md](interfaces/search-trail.md), [circuit-constraint.md](interfaces/circuit-constraint.md))
+    fixes none of these, because the encoding it settled on has no binary constraints at all. So they are
+    recorded rather than met.
+    - **A support table is materialised over the whole cross product.** `solver.py:171-181` builds a
+      two-parameter constraint's allowed pairs by iterating `domains[first] × domains[second]` and checking
+      every pair. Where both domains are large, that is paid up front whatever the relation turns out to hold.
+      The encoding this was found with — a chain of variables each ranging over every window pattern, each
+      neighbouring pair constrained to overlap — costs `N` tables of `N²` checks:
+
+      ```
+          positions N   checks to build the tables   verdict
+                  343                    4.0 x 10^7   minutes
+                2 401                    1.4 x 10^10   out
+      ```
+
+      The relation itself holds only `N × Q` pairs, so what is wasted is the whole difference. A lazily
+      checked binary constraint, or one built from the relation where a caller can offer it, would not pay
+      it — and would also not have arc consistency's support counts to work from, which is the real tension.
+    - **Identical constraints each get their own table.** In that encoding all `N-1` overlap constraints are
+      *the same relation*, and each is materialised separately. Keying the table by the prepared source and
+      the two domains would build one. Small, and it buys a factor of `N`.
+    - **An all-different group is written as one Python source string.** `Solver._group` reads its operands
+      out of a `PythonRule`, so a group of `N` parameters is a source string with `N` operands: over a
+      megabyte before anything is solved once `N` reaches six figures, compiled and cached as one rule. The
+      values-as-values path already exists for parameter domains — `DomainRule` was added for exactly this
+      reason — and there is no counterpart for a constraint's operands.
+    - **`AllDifferentPropagator` recurses.** `augment` and `_components` are both recursive
+      (`all_different_propagator.py:49` and `:82`), so stack depth is bounded by the group size. No
+      `RecursionError` fired on the groups measured, but that is those instances' luck rather than a
+      guarantee, and nothing about the group size is under OMF's control.
+    - **Undecided**, and nothing is filling a disk or crashing a run today: the problem that found these
+      states `circuit` alone and forms no group and no table, so it meets none of them. They wait for the
+      next problem that does.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.

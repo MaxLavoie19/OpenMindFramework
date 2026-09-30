@@ -119,3 +119,28 @@ def test_a_failing_rule_shows_its_own_source_in_the_traceback() -> None:
         new_runner().value(value_rule("1 / zero", ("zero",)), STATE, {"zero": 0})
 
     assert "1 / zero" in "".join(traceback.format_exception(raised.value))
+
+
+def test_rules_see_circuit_which_holds_for_one_cycle_through_every_position() -> None:
+    rule = value_rule("circuit(1, 2, 0)")
+
+    assert new_runner().value(rule, STATE) is True
+
+
+def test_circuit_refuses_successors_that_make_more_than_one_loop() -> None:
+    """Three different values, so all_different holds — and they are two loops, which is what circuit is for."""
+    assert new_runner().value(value_rule("all_different(1, 0, 2)"), STATE) is True
+    assert new_runner().value(value_rule("circuit(1, 0, 2)"), STATE) is False
+
+
+def test_circuit_refuses_a_successor_used_twice() -> None:
+    assert new_runner().value(value_rule("circuit(1, 1, 0)"), STATE) is False
+
+
+def test_circuit_refuses_a_value_that_names_no_position() -> None:
+    assert new_runner().value(value_rule("circuit(1, 2, 3)"), STATE) is False
+
+
+def test_circuit_over_nothing_holds_and_over_one_position_is_its_own_cycle() -> None:
+    assert new_runner().value(value_rule("circuit()"), STATE) is True
+    assert new_runner().value(value_rule("circuit(0)"), STATE) is True

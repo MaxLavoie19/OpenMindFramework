@@ -4,6 +4,7 @@ from itertools import permutations
 import pytest
 
 from openmind.csp.model.all_different_group import AllDifferentGroup
+from openmind.csp.model.circuit_constraint import CircuitConstraint
 from openmind.csp.model.scoped_constraint import ScopedConstraint
 from openmind.csp.model.search_space import SearchSpace
 from openmind.csp.model.solve_statistics import SolveStatistics
@@ -11,6 +12,7 @@ from openmind.csp.model.support_table import SupportTable
 from openmind.csp.service.all_different_propagator import AllDifferentPropagator
 from openmind.csp.service.arc_consistency import ArcConsistency
 from openmind.csp.service.backtracking_search import BacktrackingSearch
+from openmind.csp.service.circuit_propagator import CircuitPropagator
 from openmind.csp.service.constraint_checker import ConstraintChecker
 from openmind.rule.factory.rule_factory import create_rule_caller
 from openmind.rule.model.python_rule import PythonRule
@@ -24,6 +26,7 @@ def search(
     groups: tuple[AllDifferentGroup, ...] = (),
     constraints: tuple[ScopedConstraint, ...] = (),
     limit: int | None = None,
+    circuits: tuple[CircuitConstraint, ...] = (),
 ) -> tuple[tuple[dict[str, Value], ...], SolveStatistics]:
     space = SearchSpace(
         "set",
@@ -31,10 +34,12 @@ def search(
         tables,
         groups,
         constraints,
+        circuits,
     )
     backtracking = BacktrackingSearch(
         ArcConsistency(),
         AllDifferentPropagator(),
+        CircuitPropagator(),
         ConstraintChecker(create_rule_caller()),
     )
     return backtracking.search(space, State(()), limit)
@@ -123,3 +128,30 @@ def test_statistics_count_assignments_and_pruned_values() -> None:
     _, statistics = search({"a": (1,), "b": (1, 2), "c": (1, 2, 3)}, groups=(AllDifferentGroup(("a", "b", "c")),))
 
     assert statistics == SolveStatistics(solutions=1, assignments=0, dead_ends=0, pruned_values=3)
+
+
+def test_a_constraint_false_once_every_one_of_its_variables_is_settled_gives_no_solution() -> None:
+    """Forward checking narrows the one variable still open; where propagation leaves none open, the constraint
+    is simply asked, and an answer of false is the end of it."""
+    never = create_rule_caller().prepare(PythonRule("a == 3 or b == 3 or c == 3"), ("a", "b", "c"))
+
+    solutions, statistics = search(
+        {"a": (1,), "b": (1,), "c": (1,)}, constraints=(ScopedConstraint(never, ("a", "b", "c")),)
+    )
+
+    assert (solutions, statistics) == ((), SolveStatistics(0, 0, 0, 0))
+
+
+def test_with_a_limit_a_circuits_least_constraining_value_goes_first(caplog: pytest.LogCaptureFixture) -> None:
+    """What a value costs a circuit is how many other positions could still have taken it: 1 is wanted by two of
+    them and 2 by one, so 2 is tried first — which is not the order the values were given in."""
+    caplog.set_level(logging.DEBUG, logger="openmind.csp.service.backtracking_search")
+    variables = {"a": (1, 2), "b": (1, 3), "c": (1, 0), "d": (2, 0)}
+    circuits = (CircuitConstraint(("a", "b", "c", "d")),)
+
+    search(variables, circuits=circuits, limit=1)
+    with_limit = first_try(caplog)
+    caplog.clear()
+    search(variables, circuits=circuits)
+
+    assert (with_limit, first_try(caplog)) == ("set: try a = 2", "set: try a = 1")

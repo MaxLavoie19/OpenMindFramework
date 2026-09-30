@@ -190,3 +190,63 @@ def test_allows_checks_one_action_against_its_constraints_rather_than_searching(
     assert not solver.allows(
         State.of(cell=Grid((3, 3), ("X",) + (None,) * 8)), Action("place", (("col", 1), ("row", 1))), values, empty
     )
+
+
+def tour(*domains: tuple[int, ...]) -> Action_:
+    """A circuit over as many parameters as domains given, each its own values."""
+    names = tuple(f"successor_{place}" for place in range(len(domains)))
+    values = {name: PythonRule(repr(domain)) for name, domain in zip(names, domains)}
+    return "tour", values, (PythonRule(f"circuit({', '.join(names)})"),)
+
+
+def test_a_circuit_over_three_parameters_gives_the_two_cycles_through_them() -> None:
+    every = (0, 1, 2)
+
+    assert solve(tour(every, every, every), State(())) == (
+        Action("tour", (("successor_0", 1), ("successor_1", 2), ("successor_2", 0))),
+        Action("tour", (("successor_0", 2), ("successor_1", 0), ("successor_2", 1))),
+    )
+
+
+def test_a_circuit_refuses_the_loops_that_leave_a_position_out() -> None:
+    """All-different alone would allow 0 to 1, 1 to 0, 2 to itself: three different values, two separate loops."""
+    solutions = solve(tour((0, 1, 2), (0, 1, 2), (0, 1, 2)), State(()))
+
+    assert all(solution.parameters[2][1] != 2 for solution in solutions)
+
+
+def test_a_circuit_over_one_parameter_is_its_own_cycle() -> None:
+    assert solve(tour((0,)), State(())) == (Action("tour", (("successor_0", 0),)),)
+
+
+def test_a_circuit_takes_the_actions_parameters_and_nothing_else() -> None:
+    action = ("tour", {"successor_0": PythonRule("(0,)")}, (PythonRule("circuit(successor_0, elsewhere)"),))
+
+    with pytest.raises(ValueError, match="elsewhere"):
+        solve(action, State(()))
+
+
+def test_a_circuit_refuses_a_parameter_it_names_twice() -> None:
+    values = {"successor_0": PythonRule("(0, 1)"), "successor_1": PythonRule("(0, 1)")}
+    action = ("tour", values, (PythonRule("circuit(successor_0, successor_0)"),))
+
+    with pytest.raises(ValueError, match="successor_0"):
+        solve(action, State(()))
+
+
+def test_a_circuit_refuses_a_value_that_names_no_position() -> None:
+    with pytest.raises(ValueError, match="names no position"):
+        solve(tour((1, 5), (0, 1)), State(()))
+
+
+def test_a_computed_tour_is_checked_against_the_circuit() -> None:
+    """What an optimizer gives is checked rather than searched for, so the predicate has to answer on its own."""
+    name, values, constraints = tour((0, 1, 2), (0, 1, 2), (0, 1, 2))
+    solver = create_solver()
+    cycle = Action(name, (("successor_0", 1), ("successor_1", 2), ("successor_2", 0)))
+    loops = Action(name, (("successor_0", 1), ("successor_1", 0), ("successor_2", 2)))
+
+    assert (
+        solver.allows(State(()), cycle, values, constraints),
+        solver.allows(State(()), loops, values, constraints),
+    ) == (True, False)

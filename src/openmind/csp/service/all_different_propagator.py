@@ -2,20 +2,23 @@ from collections import deque
 
 from openmind.csp.model.all_different_group import AllDifferentGroup
 from openmind.csp.model.wipeout import Wipeout
+from openmind.csp.repository.domain_repository import DomainRepository
 from openmind.structure.model.value import Value
 
 type Node = tuple[str, object]
+type Domains = dict[str, set[Value]]
 
 
 class AllDifferentPropagator:
-    """Régin's filtering for all-different: keeps exactly the values that belong to some assignment giving every variable
-    of the group a different value."""
+    """Régin's filtering for all-different: keeps exactly the values that belong to some assignment giving every
+    variable of the group a different value.
 
-    def propagate(
-        self, domains: dict[str, frozenset[Value]], group: AllDifferentGroup
-    ) -> dict[str, frozenset[Value]]:
-        """Narrows the group's domains; unchanged domains are kept as they are. Raises Wipeout when the variables can't
-        all take different values."""
+    It narrows the repository it is given and answers nothing, leaving what it changed on the trail for the search
+    to read. The filtering itself is unchanged."""
+
+    def propagate(self, repository: DomainRepository, group: AllDifferentGroup) -> None:
+        """Narrows the group's domains. Raises Wipeout when the variables can't all take different values."""
+        domains = repository.values
         matching = self._maximum_matching(domains, group.variables)
         edges: dict[Node, list[Node]] = {}
         values: set[Value] = set()
@@ -30,20 +33,18 @@ class AllDifferentPropagator:
         nodes = [("variable", variable) for variable in group.variables] + [("value", value) for value in values]
         component = self._components(edges, nodes)
 
-        narrowed = dict(domains)
         for variable in group.variables:
-            kept = frozenset(
+            dropped = [
                 value
                 for value in domains[variable]
-                if value == matching[variable]
-                or component[("value", value)] == component[("variable", variable)]
-                or ("value", value) in reachable
-            )
-            if len(kept) < len(domains[variable]):
-                narrowed[variable] = kept
-        return narrowed
+                if value != matching[variable]
+                and component[("value", value)] != component[("variable", variable)]
+                and ("value", value) not in reachable
+            ]
+            for value in dropped:
+                repository.remove(variable, value)
 
-    def _maximum_matching(self, domains: dict[str, frozenset[Value]], variables: tuple[str, ...]) -> dict[str, Value]:
+    def _maximum_matching(self, domains: Domains, variables: tuple[str, ...]) -> dict[str, Value]:
         owner: dict[Value, str] = {}
 
         def augment(variable: str, visited: set[Value]) -> bool:
