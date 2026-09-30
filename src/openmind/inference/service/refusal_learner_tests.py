@@ -4,6 +4,7 @@ from openmind.inference.model.evidence import Evidence
 from openmind.inference.model.example import Example
 from openmind.inference.model.inference_budget import InferenceBudget
 from openmind.inference.service.candidate_readings import CandidateReadings
+from openmind.inference.service.hypothetical import ALLOWED_AFTER, TAKEN_AFTER
 from openmind.inference.service.refusal_learner import REFUSED, RefusalLearner
 from openmind.statement.model.clause import Clause
 from openmind.statement.model.literal import Literal
@@ -407,3 +408,89 @@ def test_one_candidate_shares_nothing_because_there_is_nothing_to_tell_apart() -
 
     assert learner._everywhere((one,)) == frozenset()
     assert learner._everywhere(()) == frozenset()
+
+
+class ACountingHypothetical:
+    """A stand-in that answers the dear question and says how often it was asked.
+
+    What it answers is not the point — how many times it is reached is. Answering one for real means drawing a
+    position and sweeping every candidate of it, so the count is the cost."""
+
+    def __init__(self, covering=()):
+        self.asked = 0
+        self._covering = set(covering)
+
+    def below(self, among):
+        return tuple(one for one in among if not any(
+            held.predicate in (ALLOWED_AFTER, TAKEN_AFTER) for held in one.body
+        ))
+
+    def taken(self, example, whose, what, refuses):
+        self.asked += 1
+        return example in self._covering
+
+
+def refusing(name):
+    """A constraint refusing the cases that read `name`."""
+    return Clause((Literal(REFUSED, ()), Literal(name, (), negated=True)))
+
+
+def asking_after():
+    """A constraint asking about the board a move leads to, which is the dear kind."""
+    return Clause((Literal(REFUSED, ()), Literal(TAKEN_AFTER, (Constant("white"), Constant("king")), negated=True)))
+
+
+def case(*names, holds=True):
+    return Example(tuple(Literal(one, ()) for one in names), holds)
+
+
+def test_a_constraint_asking_about_the_board_after_is_asked_only_of_what_the_others_leave():
+    """**Because answering one is a whole position swept, and the rest is a lookup.** Measured on a real board:
+    forty plain constraints accounted for 14,363 of 14,400 cases in seven seconds, and the one asking about the
+    board after was being put to all 14,400 — fifty-five minutes a position, where thirty-seven would do.
+
+    `_matching` already refuses to ask such a rule at all, in these words. Nothing had met it here because the
+    learner cannot build one: only a set written by hand contains one."""
+    cases = [case("a"), case("b"), case("c"), case("d")]
+    hypothetical = ACountingHypothetical()
+    learner = RefusalLearner(CandidateReadings(), hypothetical=hypothetical)
+
+    learner.coverage((refusing("a"), refusing("b"), asking_after()), cases)
+
+    assert hypothetical.asked == 2, "the two nothing else accounted for, not all four"
+
+
+def test_what_is_still_unaccounted_for_is_the_same_either_way():
+    """The union is what learning reads, and it must not move: a case the dear rule covers is accounted for
+    whether or not a cheaper rule covers it too."""
+    cases = [case("a"), case("b"), case("c"), case("d")]
+    hypothetical = ACountingHypothetical(covering=(cases[2],))
+    learner = RefusalLearner(CandidateReadings(), hypothetical=hypothetical)
+
+    held = learner.coverage((refusing("a"), refusing("b"), asking_after()), cases)
+
+    assert frozenset().union(*held.values()) == frozenset({0, 1, 2}), "d is covered by nothing"
+
+
+def test_every_other_constraint_keeps_the_whole_of_what_it_covers():
+    """Only the dear one is narrowed. A plain constraint's set is what it has always been, asked in no
+    particular order, so nothing that reads those sets depends on which was asked first."""
+    cases = [case("a"), case("a", "b"), case("b"), case("c")]
+    learner = RefusalLearner(CandidateReadings(), hypothetical=ACountingHypothetical())
+
+    held = learner.coverage((refusing("a"), refusing("b"), asking_after()), cases)
+
+    assert held[refusing("a")] == frozenset({0, 1})
+    assert held[refusing("b")] == frozenset({1, 2}), "the overlap is credited to both, as before"
+
+
+def test_a_set_with_nothing_asking_about_the_board_after_is_untouched():
+    """Every run that learns its own rules is this one, because a learner cannot build a rule that asks about a
+    board that does not exist yet."""
+    cases = [case("a"), case("b")]
+    learner = RefusalLearner(CandidateReadings())
+
+    held = learner.coverage((refusing("a"), refusing("b")), cases)
+
+    assert held[refusing("a")] == frozenset({0})
+    assert held[refusing("b")] == frozenset({1})

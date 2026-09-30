@@ -217,13 +217,49 @@ class RefusalLearner:
         Worked out once and handed to whoever needs it. Learning asks it to find what is still unaccounted for
         and distilling asks it to know what may be given up, and each computing it for itself means asking every
         constraint about every candidate twice — which at a hundred and eighty constraints and four thousand
-        candidates is most of a position's budget spent arriving back where the other one started."""
-        return {
-            clause: frozenset(
+        candidates is most of a position's budget spent arriving back where the other one started.
+
+        **A constraint asking about the board a move leads to is asked only of what the others leave.** Answering
+        one means drawing the position the candidate leads to and then sweeping *its* whole candidate space to
+        see whether anything takes the mover's king — in chess, fourteen thousand more candidates, each drawing
+        every consequence the predictor holds. Asked of every case that is fourteen thousand sweeps; asked of
+        what the rest leave it is thirty-seven, measured on a real position where forty plain constraints
+        accounted for 14,363 of 14,400 cases in seven seconds.
+
+        `_matching` already refuses to ask such a rule at all, for this reason and in these words — *unaffordable
+        ... fourteen thousand boards-after per position*. Nothing had met it here because the learner cannot
+        build one: no reading offers a question about a board that does not exist yet, so only a set written by
+        hand contains one. The first run given chess by hand sat in this for fifty-five minutes a position.
+
+        **What that costs is this one clause's answer, and the change is worth saying plainly.** Its set becomes
+        the cases *only* it covers rather than every case it covers. The union over all clauses is unchanged, so
+        what learning reads — what is still unaccounted for — is exactly what it was. Distilling asks whether a
+        clause may be given up, and a clause credited with what nothing else accounts for is the right basis for
+        that question. Every other clause keeps its full set, asked in no particular order, so nothing else here
+        depends on which was asked first."""
+        found: dict[Clause, frozenset[int]] = {}
+        asking = [one for one in clauses if self._asks_after(one)]
+        plain = [one for one in clauses if one not in asking]
+        for clause in plain:
+            found[clause] = frozenset(
                 number for number, one in enumerate(examples) if self.covers(clause, one, clauses)
             )
-            for clause in clauses
-        }
+        if not asking:
+            return found
+        accounted = frozenset().union(*found.values(), frozenset())
+        left = [(number, one) for number, one in enumerate(examples) if number not in accounted]
+        for clause in asking:
+            found[clause] = frozenset(
+                number for number, one in left if self.covers(clause, one, clauses)
+            )
+        return found
+
+    def _asks_after(self, clause: Clause) -> bool:
+        """Whether that constraint asks about the board a move leads to rather than the board it is played on.
+
+        The one thing that makes a clause dear enough to be worth telling apart: every other reading is a lookup
+        in a case that has already been read, and this one draws a position and searches it."""
+        return any(one.predicate in (ALLOWED_AFTER, TAKEN_AFTER) for one in clause.body)
 
     def refuses(self, clauses: Sequence[Clause], example: Example) -> bool:
         """Whether any of them refuses that candidate.
