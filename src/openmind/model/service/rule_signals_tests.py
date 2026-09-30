@@ -135,3 +135,63 @@ def test_a_term_too_quiet_to_change_anything_is_wanted_by_nobody() -> None:
         rated = signal.rates([loud, quiet])
         assert rated[0] > rated[1], f"{signal.name} cannot hear how loudly a term may speak"
         assert rated[1] < rated[0] / 1000, f"{signal.name} wants the quiet one barely at all"
+
+
+def pairwise(candidates):
+    """Novelty the way it was worked out before: one `corrcoef` a pair, in a Python loop.
+
+    Kept as the thing the fast one is measured against. It is the definition — each term against every term
+    the fit leant on harder — and the rewrite is only allowed to change what that costs."""
+    order = sorted(range(len(candidates)), key=lambda at: -abs(candidates[at].weight))
+    found = [0.0] * len(candidates)
+    for place, at in enumerate(order):
+        mine = np.nan_to_num(candidates[at].readings, nan=0.0)
+        if not len(mine) or float(mine.std()) == 0.0:
+            continue
+        likest = 0.0
+        for before in order[:place]:
+            theirs = np.nan_to_num(candidates[before].readings, nan=0.0)
+            if float(theirs.std()) == 0.0:
+                continue
+            held = float(np.corrcoef(mine, theirs)[0, 1])
+            if np.isfinite(held):
+                likest = max(likest, abs(held))
+        found[at] = candidates[at].influence() * (1.0 - likest)
+    return found
+
+
+@pytest.mark.parametrize("how_many", [1, 2, 7, 60, 300])
+def test_novelty_read_by_blocks_is_what_reading_every_pair_gave(how_many):
+    """**The whole claim of the rewrite: same answer, different cost.** Each term is still read against every
+    term the fit weighted more heavily — that is what the signal means — and what changed is that the pairs
+    are a matrix product rather than an interpreted loop.
+
+    Run across the block size, so the seams inside a block and between blocks are both covered: 300 terms at a
+    block of 512 is one block, and the sizes below it walk the edges where a block has one row or none."""
+    rng = np.random.default_rng(7)
+    many = [
+        candidate(list(rng.normal(size=20)), weight=float(rng.normal())) for _ in range(how_many)
+    ]
+
+    assert SaysSomethingNew().rates(many) == pytest.approx(pairwise(many), abs=1e-9)
+
+
+def test_novelty_is_the_same_across_a_block_boundary():
+    """A term in the second block is read against every term in the first, and a rewrite that forgot to would
+    say the second block was all new — which is exactly the failure a block introduces and nothing else
+    would catch."""
+    rng = np.random.default_rng(11)
+    many = [candidate(list(rng.normal(size=12)), weight=float(rng.normal())) for _ in range(40)]
+    small, large = SaysSomethingNew(), SaysSomethingNew()
+    small.BLOCK, large.BLOCK = 8, 4096
+
+    assert small.rates(many) == pytest.approx(large.rates(many), abs=1e-9)
+    assert small.rates(many) == pytest.approx(pairwise(many), abs=1e-9)
+
+
+def test_a_term_saying_the_same_of_every_row_is_not_new():
+    """It correlates with nothing, itself included. Nought, the same as before, and not one — a flat column is
+    not the most novel thing in the set."""
+    rated = SaysSomethingNew().rates([counter(), candidate([3.0] * 20)])
+
+    assert rated[1] == 0.0

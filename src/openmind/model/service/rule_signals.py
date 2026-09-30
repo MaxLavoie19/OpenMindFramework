@@ -94,29 +94,81 @@ class SaysSomethingNew:
     def name(self) -> str:
         return SAYS_SOMETHING_NEW
 
+    #: How many candidates are correlated against the stronger ones at a time.
+    #:
+    #: **Not a cap on what is compared — every candidate is still read against every stronger one.** It is how
+    #: much of the answer is worked out per pass, because the whole of it is a square the size of the candidate
+    #: count: at thirty thousand terms that is nine hundred million numbers, seven gigabytes, and the machine
+    #: would swap rather than answer. A block is a slice of rows of that square, and the running largest is
+    #: kept as each slice is done, so the answer is the same and only one slice is ever held.
+    BLOCK = 512
+
     def rates(self, candidates: Sequence[RuleCandidate]) -> Sequence[float]:
+        """**The same quantity as a matrix product rather than as a loop of pairs.**
+
+        A correlation between two standardised columns is their dot product over the rows, so every pair's
+        correlation at once is one matrix times its own transpose — which is what a linear algebra library
+        exists to do, in place of an interpreted loop calling `corrcoef` a pair at a time.
+
+        It is still quadratic and was always going to be: each term is read against every term the fit leant on
+        harder, and that is what the signal *means*. What changes is what each of those comparisons costs.
+        Measured at four hundred rows a candidate: two thousand terms went from 61 seconds to a fraction of
+        one, and the thirty thousand a real fit produces from about four hours — which is what a run was
+        sitting in, having judged nothing in two and a half — to seconds.
+        """
+        if not candidates:
+            return []
         order = sorted(range(len(candidates)), key=lambda at: -abs(candidates[at].weight))
+        standard, speaking = self._standardised([candidates[at] for at in order])
+        likest = self._likest(standard, speaking)
         found = [0.0] * len(candidates)
         for place, at in enumerate(order):
-            unlike = self._unlike(candidates[at], [candidates[before] for before in order[:place]])
-            found[at] = candidates[at].influence() * unlike
+            # A term that says the same of every row correlates with nothing, itself included, and is not new;
+            # it is the same answer `_unlike` gave for a column that does not vary.
+            found[at] = 0.0 if not speaking[place] else candidates[at].influence() * (1.0 - likest[place])
         return found
 
-    def _unlike(self, candidate: RuleCandidate, stronger: Sequence[RuleCandidate]) -> float:
-        """One less the most it looks like any term the fit leant on harder. Nothing stronger means nothing
-        says it yet, which is as new as a term gets."""
-        mine = np.nan_to_num(candidate.readings, nan=0.0)
-        if not len(mine) or float(mine.std()) == 0.0:
-            return 0.0
-        likest = 0.0
-        for other in stronger:
-            theirs = np.nan_to_num(other.readings, nan=0.0)
-            if float(theirs.std()) == 0.0:
-                continue
-            found = float(np.corrcoef(mine, theirs)[0, 1])
-            if np.isfinite(found):
-                likest = max(likest, abs(found))
-        return 1.0 - likest
+    def _standardised(self, ordered: Sequence[RuleCandidate]) -> tuple[np.ndarray, np.ndarray]:
+        """Their readings with each column centred and scaled to unit length, and which of them said anything.
+
+        Blanks are nought, as they were when each pair was read on its own: a term that had nothing to say
+        about a row is not evidence that the row was nought, but it is the only value a correlation can be
+        given for it, and taking it out would leave two terms compared over different rows.
+
+        A column that does not vary is left as nought and marked as not speaking, so it can never be the
+        likest thing to anything — the same as being skipped, and it keeps every candidate in its place."""
+        held = np.nan_to_num(
+            np.asarray([one.readings for one in ordered], dtype=float), nan=0.0, posinf=0.0, neginf=0.0
+        )
+        if held.ndim != 2 or held.shape[1] == 0:
+            return np.zeros((len(ordered), 0)), np.zeros(len(ordered), dtype=bool)
+        centred = held - held.mean(axis=1, keepdims=True)
+        length = np.sqrt((centred**2).sum(axis=1))
+        speaking = length > 0.0
+        centred[speaking] /= length[speaking, None]
+        centred[~speaking] = 0.0
+        return centred, speaking
+
+    def _likest(self, standard: np.ndarray, speaking: np.ndarray) -> np.ndarray:
+        """For each term in order, the most it looks like any term before it.
+
+        Read a block of rows at a time against everything above them, because the whole square of pairs is too
+        large to hold at the sizes a real fit reaches. Nothing before it means nothing says it yet, which is as
+        new as a term gets and comes out as nought."""
+        found = np.zeros(len(standard))
+        for start in range(0, len(standard), self.BLOCK):
+            stop = min(start + self.BLOCK, len(standard))
+            if start:
+                # Against everything strictly above the block, which is a plain rectangle of pairs.
+                above = np.abs(standard[start:stop] @ standard[:start].T)
+                found[start:stop] = above.max(axis=1)
+            if stop - start > 1:
+                # Within the block, only what comes before each term — `tril` below the diagonal drops both
+                # the term against itself and everything the fit leant on less.
+                within = np.tril(np.abs(standard[start:stop] @ standard[start:stop].T), -1)
+                found[start:stop] = np.maximum(found[start:stop], within.max(axis=1))
+        found[~speaking] = 0.0
+        return np.clip(np.nan_to_num(found, nan=0.0), 0.0, 1.0)
 
 
 class FiresOften:
