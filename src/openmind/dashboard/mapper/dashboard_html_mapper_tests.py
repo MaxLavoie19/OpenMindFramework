@@ -115,6 +115,18 @@ def test_a_game_page_shows_the_rules_each_side_judged_with():
     assert "Previous game" not in page  # it is the first, so there is nothing before it
 
 
+def test_each_side_is_one_box_so_a_heading_stays_with_its_own_table():
+    """A heading, a caption and a table laid beside each other are three things to a row of boxes and not one.
+
+    Left loose, two sides came out as six items strung across the page, each heading beside somebody else's
+    rules — nothing wrong with the numbers and the page unreadable. Pinned by counting the boxes, because that
+    is the thing that was missing rather than anything the boxes contain."""
+    page = DashboardHtmlMapper().game_page("chess", a_game(), 30)
+
+    assert page.count("<div class='judged'>") == 2
+    assert "<div class='heuristics'><div class='judged'><h3>" in page
+
+
 def test_a_side_that_judged_with_nothing_says_so_rather_than_showing_an_empty_table():
     page = DashboardHtmlMapper().game_page(
         "chess", a_game(heuristics=(("X", "self-play", ()),)), 30

@@ -49,7 +49,9 @@ td.count { text-align: right; font-variant-numeric: tabular-nums; }
 .board svg { width: 100%; height: auto; display: block; }
 .board pre { margin: 0; border: 0; }
 .heuristics { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
-.heuristics > div, .heuristics table { max-width: 40rem; }
+.judged { flex: 1 1 24rem; min-width: 0; max-width: 40rem; }
+.judged h3 { margin-top: 0; }
+.judged table { width: 100%; }
 .steps { display: flex; gap: .4rem; align-items: center; margin-top: .5rem; flex-wrap: wrap; }
 .steps button { font-size: 1rem; padding: .2rem .6rem; }
 .record { flex: 1 1 18rem; min-width: 0; white-space: pre-wrap; word-break: break-word; }
@@ -494,21 +496,30 @@ class DashboardHtmlMapper:
 
         A name says which heuristic won and nothing about why. The weight on a rule is what the thing that rule
         reads is worth to it, so these read as what each side believed a position was made of — which is the
-        thing to argue with when one of them keeps winning."""
+        thing to argue with when one of them keeps winning.
+
+        **Each side is one box, and it has to be said in the markup.** A heading, a caption and a table laid
+        beside each other are three things to a row of boxes, not one — so two sides came out as six items
+        strung across the page, each heading beside somebody else's table. Nothing was wrong with the numbers
+        and the page was unreadable."""
         if not game.heuristics:
             return ""
         sections = []
         for player, named, rules in game.heuristics:
             heading = f"<h3>{html.escape(player)}: {html.escape(named)}</h3>"
             if not rules:
-                sections.append(f"{heading}<p class='muted'>No rules to read: it judged with nothing.</p>")
+                sections.append(
+                    f"<div class='judged'>{heading}<p class='muted'>No rules to read: it judged with nothing.</p></div>"
+                )
                 continue
             body = self._table(
                 ("rule", "weight"),
                 [(html.escape(name), f"{weight:+.6g}") for name, weight in rules],
                 escaped=True,
             )
-            sections.append(f"{heading}<p class='muted'>{len(rules)} rules, heaviest first</p>{body}")
+            sections.append(
+                f"<div class='judged'>{heading}<p class='muted'>{len(rules)} rules, heaviest first</p>{body}</div>"
+            )
         return f"<h2>What each side judged with</h2><div class='heuristics'>{''.join(sections)}</div>"
 
     def _models(self, snapshot: DashboardSnapshot) -> str:

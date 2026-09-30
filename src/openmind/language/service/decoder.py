@@ -157,13 +157,27 @@ class Decoder:
         measured, it put `c4` where the game wrote `Qe4` — a square the move never went to.
 
         The two directions have to agree about which sayings count, or the round trip measures the difference
-        between them rather than the notation."""
+        between them rather than the notation.
+
+        **And a symbol may not be written where anything it says is false of this happening.** A place carries
+        several sayings and the same character can be in more than one of them — a file at the front of a chess
+        move says both where the move goes *and* that a pawn is what is going. Asking only that some saying
+        match wrote `f3` for a knight going to f3: the file was right about the square and wrong about the
+        mover, and the name that came out belonged to another move altogether. Reading has always been a
+        conjunction — `_agrees` is `all` — so writing being a disjunction meant the two directions disagreed
+        about what a symbol says, which is the one thing that makes a round trip meaningless."""
         letters = []
         for at in range(len(shape)):
+            speaking = [one for one in couplings if one.surely >= surely and self._speaks(one, shape, at)]
             saying = [
                 one
-                for one in couplings
-                if one.surely >= surely and self._speaks(one, shape, at) and held.get(one.part) == one.value
+                for one in speaking
+                if held.get(one.part) == one.value
+                and all(
+                    held.get(also.part) == also.value
+                    for also in speaking
+                    if also.symbol == one.symbol
+                )
             ]
             if not saying:
                 return None
