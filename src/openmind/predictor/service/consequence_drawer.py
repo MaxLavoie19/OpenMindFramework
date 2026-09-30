@@ -4,9 +4,12 @@ from collections.abc import Callable, Mapping, Sequence
 from openmind.inference.model.example import Example
 from openmind.statement.model.consequence import Consequence
 from openmind.statement.model.clause import Clause
-from openmind.statement.model.drawn import ALWAYS, ASKED, COLUMN, Drawn, MORE, OTHER, PLACE, ROW, STANDING, STEPPED, drawing, part
+from openmind.statement.model.drawn import (
+    ACTING, ALWAYS, ASKED, COLUMN, Drawn, MADE, MORE, OTHER, PLACE, ROW, STANDING, STEPPED, drawing, part,
+)
 from openmind.structure.model.coordinates import Coordinates
 from openmind.structure.model.grid import Grid
+from openmind.structure.model.kind import Kind
 from openmind.structure.model.record import Record
 from openmind.structure.model.value import Value
 from openmind.world.model.action import Action
@@ -18,14 +21,23 @@ logger = logging.getLogger(__name__)
 #: What a part comes to where it cannot be drawn at all, told apart from its coming to nothing.
 UNDRAWN = object()
 
-MADE = {"Placed": Placed, "Removed": Removed, "Moved": Moved, "Told": Told}
+#: Which change a consequence names, by the name it gives it.
+CHANGES = {"Placed": Placed, "Removed": Removed, "Moved": Moved, "Told": Told}
 
 
 class ConsequenceDrawer:
     """Turns what an action is said to do into what it does here.
 
     A consequence names its parts by where they come from rather than by what they are, so drawing them against a
-    position and an action is what makes a rule about every game into a change on this board."""
+    position and an action is what makes a rule about every game into a change on this board.
+
+    **It is given the game's kinds so that a drawing can build a value and not only find one.** Every other
+    drawing reaches into what a position or an action already holds; `made` puts one together, and putting one
+    together needs whatever the game said such a thing is made with. Given none, a `made` drawing cannot be
+    drawn — which is the honest answer and leaves every other drawing exactly as it was."""
+
+    def __init__(self, kinds: Mapping[str, "Kind"] | None = None) -> None:
+        self._kinds = dict(kinds or {})
 
     def changes(
         self,
@@ -77,7 +89,7 @@ class ConsequenceDrawer:
         One consequence and its conditions unasked. `changes` is what a caller wants, and this is what it is
         built from."""
         parameters = dict(action.parameters)
-        made = MADE[consequence.change]
+        made = CHANGES[consequence.change]
         if made is Told:
             value = self._part(consequence.value, state, parameters, acting, players)
             return None if value is UNDRAWN else Told(consequence.model, value)
@@ -134,10 +146,14 @@ class ConsequenceDrawer:
         if which == OTHER:
             others = [player for player in players if player != acting]
             return others[0] if len(others) == 1 else UNDRAWN
+        if which == ACTING:
+            return acting if acting is not None else UNDRAWN
         if which == MORE:
             held = state.value(str(part(drawn, 0)))
             by = part(drawn, 1)
             return held + by if self._number(held) and self._number(by) else UNDRAWN  # type: ignore[operator]
+        if which == MADE:
+            return self._built(drawn, state, parameters, acting, players)
         if which == STANDING:
             model = str(part(drawn, 0))
             at = self._at(state, model, parameters.get(str(part(drawn, 1))))
@@ -148,9 +164,12 @@ class ConsequenceDrawer:
         if which == PLACE:
             return self._held(parameters.get(str(part(drawn, 0))), str(part(drawn, 1)))
         if which == STEPPED:
+            # By what a parameter says, or by a fixed amount where the step is a number — the square a pawn
+            # passed over is one step from where it started, and one is nowhere in the action.
+            by = part(drawn, 2)
             return self._stepped(
                 self._held(parameters.get(str(part(drawn, 0))), str(part(drawn, 1))),
-                parameters.get(str(part(drawn, 2))),
+                by if self._number(by) else parameters.get(str(by)),
             )
         if which not in (ROW, COLUMN):
             return UNDRAWN
@@ -158,6 +177,27 @@ class ConsequenceDrawer:
         if at is None:
             return None
         return at[0] if which == ROW else at[1]
+
+    def _built(
+        self,
+        drawn: Drawn,
+        state: State,
+        parameters: Mapping[str, Value],
+        acting: Value,
+        players: Sequence[Value],
+    ) -> Value:
+        """A value of that kind, put together out of a drawing for each of its places.
+
+        Nothing where the kind is one this was never given, or the game never said how to make one, or any of
+        its places cannot be drawn — a value half built is a value that is wrong, and a change not made is a
+        change somebody can see missing."""
+        kind = self._kinds.get(str(part(drawn, 0)))
+        if kind is None or kind.builds is None:
+            return UNDRAWN
+        made = [self._part(one, state, parameters, acting, players) for one in drawn.arguments[1:]]
+        if len(made) != len(kind.parts) or any(one is UNDRAWN or one is None for one in made):
+            return UNDRAWN
+        return kind.builds(*made)
 
     def _held(self, value: Value, place: str) -> Value:
         """That named place of what a parameter holds.

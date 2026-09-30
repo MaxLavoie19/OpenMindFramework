@@ -58,6 +58,14 @@ ALWAYS = "always"
 #: The player whose action this is not. In a game of two, the one about to act.
 OTHER = "other"
 
+#: The player whose action this is — the missing half of `OTHER`, and missing for no reason.
+#:
+#: Whose turn it becomes is said as "the one not acting" and has been since this was written; who is *doing* it
+#: had no word. It goes unnoticed while every consequence is about squares, because a square does not care who
+#: moved onto it — and it stops the moment an action puts down something that belongs to somebody: a pawn
+#: becoming a queen becomes *that player's* queen, and no drawing could say whose.
+ACTING = "acting"
+
 #: What a scalar read before, and so much more — a clock counting, a tally kept.
 #:
 #: Every other way of drawing a part names something the position already holds. This one does arithmetic on
@@ -65,8 +73,23 @@ OTHER = "other"
 #: any other way.
 MORE = "more"
 
+#: A value of several places, built out of a drawing for each of them.
+#:
+#: **The one drawing that puts something together rather than taking it apart.** Every other way here reaches
+#: into what a position or an action already holds — a place of a parameter, what stands somewhere, what a
+#: scalar read before. None of them makes a value that was not there, and a game whose action *produces* one
+#: could say nothing about it: chess carries the square a pawn may be taken in passing on, which is a cell built
+#: from the row the pawn came from and the column it went to, and neither half is a cell.
+#:
+#: Said as a kind and its parts in the order the kind names them, so the value that comes out is the game's own
+#: and not a tuple somebody has to interpret. Nothing here is a board: a card made of a suit and a rank, a bid
+#: made of a player and an amount, are the same shape.
+MADE = "made"
+
 #: Every way there is, so anything reading them by name has one list to read rather than its own.
-DRAWINGS: tuple[str, ...] = (PLACE, STEPPED, ROW, COLUMN, STANDING, ASKED, ALWAYS, OTHER, MORE)
+DRAWINGS: tuple[str, ...] = (
+    PLACE, STEPPED, ROW, COLUMN, STANDING, ASKED, ALWAYS, OTHER, ACTING, MORE, MADE,
+)
 
 #: What a part of a change is drawn as. A term, because that is what everything else that says where something
 #: is is made of.
@@ -78,9 +101,17 @@ def place(parameter: str, named: str) -> Functor:
     return Functor(PLACE, (Constant(parameter), Constant(named)))
 
 
-def stepped(parameter: str, named: str, by: str) -> Functor:
-    """That place of that parameter, moved on by what another parameter says."""
-    return Functor(STEPPED, (Constant(parameter), Constant(named), Constant(by)))
+def stepped(parameter: str, named: str, by: str | int) -> Functor:
+    """That place of that parameter, moved on by what another parameter says, or by a fixed amount.
+
+    **A fixed amount because some steps are not in the action.** A move says how far it goes and a drawing can
+    step by that; the square a pawn *passed over* is one step from where it started, and one is nowhere in
+    `move(self, x, y)`. It is the same completion `more` already has for a scalar, and it keeps the shape of a
+    step in one drawing rather than growing a second."""
+    return Functor(
+        STEPPED,
+        (Constant(parameter), Constant(named), Number(by) if isinstance(by, int) else Constant(by)),
+    )
 
 
 def row(parameter: str) -> Functor:
@@ -113,9 +144,19 @@ def other() -> Functor:
     return Functor(OTHER, ())
 
 
+def acting() -> Functor:
+    """The player whose action this is."""
+    return Functor(ACTING, ())
+
+
 def more(model: str, by: int = 1) -> Functor:
     """What that scalar read before, and that much more."""
     return Functor(MORE, (Constant(model), Number(by)))
+
+
+def made(kind: str, *parts: Drawn) -> Functor:
+    """A value of that kind, built from a drawing for each of its places, in the order the kind names them."""
+    return Functor(MADE, (Constant(kind), *parts))
 
 
 def drawing(term: Drawn) -> str:
@@ -148,6 +189,10 @@ def said(term: Drawn) -> str:
         return repr(part(term, 0))
     if which == OTHER:
         return "the player not acting"
+    if which == ACTING:
+        return "the player acting"
     if which == MORE:
         return f"{part(term, 0)} and {part(term, 1)} more"
+    if which == MADE:
+        return f"a {part(term, 0)} of " + " and ".join(said(one) for one in term.arguments[1:])
     return str(term)

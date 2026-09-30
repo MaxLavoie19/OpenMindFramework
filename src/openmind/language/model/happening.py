@@ -25,18 +25,42 @@ class Happening:
         by its own parts — so a game whose pieces have a colour and a kind offers both, and a game whose cells
         hold a number offers that. Whether anything was taken is whether a removal is among the changes.
 
+        **Where two changes do the same job, the second is said again under its own name.** A happening of one
+        move fills `from place 1` and `to place 1`; a happening that carries two things fills those and then
+        `from place 1 again` and `to place 1 again`. Written into the one set of names, the second change simply
+        overwrote the first — so a castling described itself as its *rook's* journey and nothing else, which is
+        the plain rook move to the same square, exactly. Two happenings that say the same thing cannot be told
+        apart by any notation, and chess's had no name for castling as a result.
+
+        The later one is the one renamed, so a game whose actions carry one thing keeps every name it had.
+
         These are what a notation can be found to talk about. Nothing here knows that a notation exists."""
         found: dict[str, Value] = {"takes": "yes" if any(isinstance(one, Removed) for one in self.changes) else "no"}
         found["changes"] = len(self.changes)
+        seen: dict[str, int] = {}
         for change in self.changes:
             for name, where in self._places(change):
+                held = seen[name] = seen.get(name, 0) + 1
+                again = "" if held == 1 else " again" * (held - 1)
                 for number, one in enumerate(where, start=1):
-                    found[f"{name} place {number}"] = one
+                    found[f"{name} place {number}{again}"] = one
                 for part, value in self._parts(state, change.model, where):
-                    found[f"{name} {part}"] = value
-            if isinstance(change, Told):
-                found[f"told {change.model}"] = change.value
+                    found[f"{name} {part}{again}"] = value
+            if isinstance(change, Placed):
+                # **What is put down, which nothing said.** A placement was described by where it is and by what
+                # stood there *before* — so a pawn becoming a queen said "a pawn was here" and never once said
+                # "queen", and no notation could name the thing the whole action is about. Opened up by its own
+                # parts, the same way what stands somewhere is, so a game whose pieces have a colour and a kind
+                # offers both and a game whose cells hold a number offers that.
+                for part, value in self._opened(change.value):
+                    found[f"put {part}"] = value
         return found
+
+    def _opened(self, value: Value) -> tuple[tuple[str, Value], ...]:
+        """That value by its own parts, or as itself where it has none."""
+        if isinstance(value, Record):
+            return tuple((one.name, getattr(value, one.name)) for one in fields(value))
+        return (("holds", value),)
 
     def _places(self, change: Change) -> tuple[tuple[str, tuple[int, ...]], ...]:
         """A change's places, by the names the change gives them."""
@@ -56,7 +80,4 @@ class Happening:
         held = state.model(model)
         if not isinstance(held, Grid) or not held.inside(where):
             return ()
-        standing = held.at(where)
-        if isinstance(standing, Record):
-            return tuple((one.name, getattr(standing, one.name)) for one in fields(standing))
-        return (("holds", standing),)
+        return self._opened(held.at(where))
