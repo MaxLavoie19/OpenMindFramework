@@ -77,7 +77,17 @@ class Grid:
         return tuple(where for where, held in self.items() if held == value)
 
     def inside(self, where: Coordinates) -> bool:
-        return len(where) == len(self.shape) and all(1 <= part <= size for part, size in zip(where, self.shape, strict=True))
+        """Whether those coordinates name a cell of this grid.
+
+        Written as a loop rather than `all` over a generator because it is read hundreds of thousands of
+        times in a judging: the generator and the `all` frame cost more than the comparisons they wrap."""
+        shape = self.shape
+        if len(where) != len(shape):
+            return False
+        for at, part in enumerate(where):
+            if not 1 <= part <= shape[at]:
+                return False
+        return True
 
     def alias(self, where: Coordinates) -> str:
         """The cell's name as the game gives it; its coordinates written out without aliases."""
@@ -201,10 +211,19 @@ class Grid:
         return tuple(where)
 
     def _index(self, where: Coordinates) -> int:
-        if not self.inside(where):
-            raise KeyError(f"{where} is outside a grid of shape {self.shape}")
+        """Where that cell sits in the row-major cells, checking it is a cell of this grid on the way.
+
+        **Checked and indexed in one walk.** Asking `inside` first walked the coordinates twice over, and
+        this is the path every cell read takes — profiled over one judging, 712 thousand reads, and the
+        second walk was pure duplication."""
+        shape = self.shape
+        if len(where) != len(shape):
+            raise KeyError(f"{where} is outside a grid of shape {shape}")
         index = 0
-        for part, size in zip(where, self.shape, strict=True):
+        for at, part in enumerate(where):
+            size = shape[at]
+            if not 1 <= part <= size:
+                raise KeyError(f"{where} is outside a grid of shape {shape}")
             index = index * size + (part - 1)
         return index
 
