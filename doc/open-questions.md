@@ -592,12 +592,13 @@ not follow is that allowing more is being worth more, and that step is where eac
     column, and the measurement itself. Asked for where the teller's opinion is visible, the honest answer today
     is nowhere whenever the pool is at or below `keeping` — and the column reads `not asked` for every
     heuristic, which is true and looks like a wiring fault.
-    Two purposes are wearing one function. Narrowing is a decision about cost and belongs behind a threshold;
-    measuring is evidence and has no reason to be. Separating them is not obviously right either — asking a
-    teller about every heuristic in every judging costs engine time that the threshold exists to avoid, and the
-    whole point of narrowing was that the dear question comes after the cheap one.
-    **Undecided**, and not filled: which of the two the threshold should govern is a call about what the teller
-    is for, and the run is currently measuring nothing rather than measuring the wrong thing.
+    Two purposes looked like they were wearing one function. They are not: narrowing is the whole job, and the
+    measurement is a by-product of it rather than a thing owed to anybody.
+    **Answered: the teller stays silent where there is nothing to narrow.** A teller that measures a pool it is
+    not cutting is spending engine time to fill a column, and the column is not what it is for. What was
+    actually wrong is the other end — a pool of twenty against a cut of twenty-four is a pool too small to need
+    cutting, and the fix belongs where heuristics are generated rather than where they are measured. So the
+    early return stays, and `tracks the teller` reading `not asked` across a small pool is the truth.
 
 ## Struck, by number
 
