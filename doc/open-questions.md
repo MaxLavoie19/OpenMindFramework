@@ -579,6 +579,26 @@ not follow is that allowing more is being worth more, and that step is where eac
     different flag but a layer that holds degrees of belief, and that is the epistemic domain's job rather than
     this file's.
 
+46. **The teller only measures the heuristics it is asked to narrow, so where there is nothing to cut it
+    measures nobody.** (found after the rule-level teller signal was removed, when the heuristic-level line had
+    never appeared once in a running build)
+    `_told` returns early on `len(models) <= keeping`, which is correct for what it was written to do: narrow a
+    pool before the dear payoff question, and a pool already smaller than the cut needs no narrowing. The live
+    run is `--teller-keeping 24` over 20 heuristics, so it has taken that branch every time and the teller has
+    not been asked anything.
+    That was invisible while a rule signal was printing teller numbers every ponder. With the signal gone this
+    is the only place outside knowledge enters, and the early return now skips two things that are not
+    narrowing: `JudgingRecord().told(...)`, which is what the Heuristics page reads for its `tracks the teller`
+    column, and the measurement itself. Asked for where the teller's opinion is visible, the honest answer today
+    is nowhere whenever the pool is at or below `keeping` — and the column reads `not asked` for every
+    heuristic, which is true and looks like a wiring fault.
+    Two purposes are wearing one function. Narrowing is a decision about cost and belongs behind a threshold;
+    measuring is evidence and has no reason to be. Separating them is not obviously right either — asking a
+    teller about every heuristic in every judging costs engine time that the threshold exists to avoid, and the
+    whole point of narrowing was that the dear question comes after the cheap one.
+    **Undecided**, and not filled: which of the two the threshold should govern is a call about what the teller
+    is for, and the run is currently measuring nothing rather than measuring the wrong thing.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
