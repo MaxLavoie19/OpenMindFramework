@@ -30,3 +30,26 @@ class Node:
     def of(self, state: State) -> "Node":
         """A node for another state of the same game, its features its own."""
         return Node(state, self.game)
+
+    def __getstate__(self) -> dict[str, object]:
+        """What has been worked out stays behind when a node is copied to another process.
+
+        **A feature can hold functions, so a node that has been read cannot be sent.** `RuleHeuristic` keeps
+        the consequence library's names as a feature, and those names are closures over this process's library
+        — `win chance`, `wins` and `near` are lambdas. So a node is picklable until something values it and
+        never afterwards, which is the worst shape a thing can have: it crosses in a test and fails in a run.
+        The same reason `ConsequenceLibrary.__getstate__` leaves its lookups behind, and the same answer.
+
+        Measured: a judging died on `Can't pickle local object 'ConsequenceLibrary.names.<locals>.<lambda>'`
+        after the teller valued the decisions in this process and the payoff judging tried to send those same
+        decisions to six workers. It had been unreachable until a pool grew past what the teller narrows to.
+
+        Nothing is lost but the work: a feature is extracted on demand, so a worker receiving a bare node
+        extracts what it needs. It pays again for what this process already worked out, which is a cost to
+        measure rather than a reason to send functions over a pipe."""
+        return {"state": self.state, "game": self.game}
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        self.state = state["state"]  # type: ignore[assignment]
+        self.game = state["game"]
+        self.features = {}
