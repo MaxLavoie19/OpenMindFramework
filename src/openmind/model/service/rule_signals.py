@@ -243,7 +243,17 @@ class AgreedWithTheTeller:
             return [0.0] * len(candidates)
         fitted = np.sum(weighted, axis=0)
         whole = self._together(fitted, said)
-        return [max(0.0, whole - self._together(fitted - one, said)) for one in weighted]
+        found = [max(0.0, whole - self._together(fitted - one, said)) for one in weighted]
+        # **Said out loud, because wanting nothing and being broken read the same in a log.** This signal is
+        # silent in three different situations — nobody to ask, a fit that tracks the teller not at all, and a
+        # fit every term of which is spare — and a line saying only that it bought nothing cannot be told from
+        # a column that never arrived. What the whole fit agrees at is the number that separates them.
+        logger.info(
+            "the fit as a whole tracks the teller at %.3f over %d rows; the most any one term is worth to that "
+            "is %.4f",
+            whole, len(said), max(found) if found else 0.0,
+        )
+        return found
 
     def _together(self, ours: np.ndarray, theirs: np.ndarray) -> float:
         """How closely those two move together, as a correlation that ignores which way it points.
