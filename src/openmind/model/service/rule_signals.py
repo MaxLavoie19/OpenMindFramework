@@ -1,11 +1,8 @@
-import logging
 from collections.abc import Sequence
 
 import numpy as np
 
 from openmind.model.model.rule_candidate import RuleCandidate
-
-logger = logging.getLogger(__name__)
 
 #: **Every signal scales what it wants by how loudly the term may speak.** Three of these read only what a
 #: term says — how it went with winning, whether it says something new, how often it fires — and none of those
@@ -19,7 +16,6 @@ WENT_WITH_WINNING = "went with winning"
 MOVED_THE_FIT = "moved the fit"
 SAYS_SOMETHING_NEW = "says something new"
 FIRES_OFTEN = "fires often enough to know"
-AGREED_WITH_THE_TELLER = "agreed with the teller"
 
 
 class WentWithWinning:
@@ -198,74 +194,3 @@ class FiresOften:
         if not len(candidate.readings):
             return 0.0
         return float(np.mean(candidate.fires()))
-
-
-class AgreedWithTheTeller:
-    """Wants terms the heuristic's agreement with a teller would miss most.
-
-    **What is measured is the *set's* fit, not the term's.** A term that tracks a teller beautifully and says
-    nothing the other terms do not already say adds nothing to the heuristic, and a signal scoring terms one
-    at a time would buy it anyway. So the question asked here is the one that matters: how much worse does
-    this heuristic read the observed positions if this term is taken out of it?
-
-    **Leave-one-out is arithmetic, not a hundred refits** — the same reason `MovedTheFit` gives. A fitted value
-    is the sum of its terms' weighted readings, so the value without one term is the value minus that term's
-    weighted reading, and every leave-one-out agreement falls out of columns the fit already took.
-
-    **It is raced like the others and that is what keeps it a teller.** It earns, spends, and is paid on what
-    the heuristics it backed turn out to be worth in play — so a signal that keeps buying terms which track a
-    teller and lose games earns less and buys less. Outside knowledge enters as a claim with measured
-    reliability, never as truth, and the payoff stays the anchor without anybody weighting it by hand.
-
-    **Nothing at all where no teller was asked.** A run without one leaves the column empty, and a signal that
-    rated everything at some number would be spending its budget on an ordering invented out of an absence.
-
-    Correlation and not rank agreement, which `TellerScorer` uses one level up. There, two evaluations of a
-    position are on scales nothing makes comparable and only their ordering can honestly be asked about; here
-    both sides are already numbers over the same rows, and what is compared is one candidate against another
-    within this one signal. Ranking every leave-one-out column would also be a sort per candidate where this
-    is a pass."""
-
-    @property
-    def name(self) -> str:
-        return AGREED_WITH_THE_TELLER
-
-    def rates(self, candidates: Sequence[RuleCandidate]) -> Sequence[float]:
-        told = next((one.told for one in candidates if one.told is not None and len(one.told)), None)
-        if told is None:
-            return [0.0] * len(candidates)
-        said = np.nan_to_num(np.asarray(told, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
-        weighted = [
-            one.weight * np.nan_to_num(np.asarray(one.readings, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
-            for one in candidates
-        ]
-        if not weighted or len(weighted[0]) != len(said):
-            return [0.0] * len(candidates)
-        fitted = np.sum(weighted, axis=0)
-        whole = self._together(fitted, said)
-        found = [max(0.0, whole - self._together(fitted - one, said)) for one in weighted]
-        # **Said out loud, because wanting nothing and being broken read the same in a log.** This signal is
-        # silent in three different situations — nobody to ask, a fit that tracks the teller not at all, and a
-        # fit every term of which is spare — and a line saying only that it bought nothing cannot be told from
-        # a column that never arrived. What the whole fit agrees at is the number that separates them.
-        # **With the spreads, because a correlation of nothing has two quite different causes.** Either side
-        # saying the same of every row has nothing to correlate *with*, and that is a column to go and fix; two
-        # columns that vary and still do not line up is a finding about the heuristic. Printed to three places
-        # the first time, both read as 0.000 and told nobody which.
-        logger.info(
-            "the fit as a whole tracks the teller at %.6f over %d rows (the fit varies by %.4g, the teller by "
-            "%.4g); the most any one term is worth to that is %.6f",
-            whole, len(said), float(fitted.std()), float(said.std()), max(found) if found else 0.0,
-        )
-        return found
-
-    def _together(self, ours: np.ndarray, theirs: np.ndarray) -> float:
-        """How closely those two move together, as a correlation that ignores which way it points.
-
-        Either direction is a heuristic that has seen something; which way it points is the weights' business,
-        the same reading `WentWithWinning` takes. Nought where either side says the same of every row, which
-        is nothing to agree with rather than perfect disagreement."""
-        if ours.std() == 0.0 or theirs.std() == 0.0:
-            return 0.0
-        found = float(np.corrcoef(ours, theirs)[0, 1])
-        return 0.0 if not np.isfinite(found) else abs(found)

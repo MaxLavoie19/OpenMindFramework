@@ -6,9 +6,7 @@ from openmind.model.service.rule_admission import RuleAdmission
 from openmind.model.service.ruleset_builder import RulesetBuilder
 from openmind.model.service.model_retirement import ModelRetirement
 from openmind.model.service.rule_price import RulePrice
-from openmind.model.service.rule_signals import (
-    AgreedWithTheTeller, FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning,
-)
+from openmind.model.service.rule_signals import FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning
 from openmind.model.service.model_registry import ModelRegistry
 from openmind.model.service.model_timer import ModelTimer
 
@@ -58,15 +56,16 @@ def create_rule_signals() -> tuple[RuleSignal, ...]:
     these reward a term for being sharp where it fired, which is what a specific rule is good at; the fourth
     asks for coverage, which is what nothing else in the economy would ask for.
 
-    **And one that asks somebody who knows.** It is `WentWithWinning` against a different anchor — what a
-    teller says of a position rather than what the game paid for it — which is thousands of graded
-    observations where the payoff gives a handful of sparse ones. It is in the list rather than above it: it
-    earns, spends and is paid on what it backed, so a teller that keeps buying losers earns less and buys
-    less. That is what keeps outside knowledge a claim with measured reliability rather than an authority, and
-    it wants nothing at all where no teller was asked."""
-    return (
-        WentWithWinning(), MovedTheFit(), SaysSomethingNew(), FiresOften(), AgreedWithTheTeller(),
-    )
+    **None of them asks a teller, and that is a decision rather than an omission.** A teller grades a
+    position, so only something that produces a position value can be compared with what it says — and a
+    single term does not produce one. There was a fifth signal here that asked how much a heuristic's
+    agreement with a teller owed to each of its terms, and what it kept running into were the symptoms of
+    that mismatch: a term with no variance over the rows it fires on has nothing to correlate, and the rows a
+    detector is silent on are most of them. The teller's question belongs one level up, where a whole
+    heuristic reads the positions and `TellerJudging` asks how closely that ordering follows the teller's.
+    Outside knowledge is a claim with measured reliability either way; what changed is the unit it is a claim
+    about."""
+    return WentWithWinning(), MovedTheFit(), SaysSomethingNew(), FiresOften()
 
 
 def create_model_retirement() -> ModelRetirement:

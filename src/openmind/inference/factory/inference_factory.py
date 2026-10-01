@@ -24,7 +24,7 @@ def create_choice_fitter() -> ChoiceFitter:
 
 
 def create_heuristic_ponderer(
-    knowledge_base: KnowledgeBase, workers: int = 1, allowance: float = 0.0, telling=None
+    knowledge_base: KnowledgeBase, workers: int = 1, allowance: float = 0.0
 ) -> HeuristicPonderer:
     """The ponderer that deduces a game's first heuristics from its rules, with its gatherer, its deducer, its value
     generator, the relaxer it tries a game's relaxations with, the three services that reason out what the
@@ -34,9 +34,9 @@ def create_heuristic_ponderer(
     With an allowance above nought its finder runs an economy: a fitted term is written into a ruleset only
     where some signal staked a budget on it. At nought every term the fit keeps is written.
 
-    `telling` is how to ask somebody who knows what each position is worth, where the domain has somebody to
-    ask. Given none the rows carry nothing but what the games paid, and the signal that reads a teller wants
-    nothing — which is what having nobody to ask looks like."""
+    Nobody is asked what a position is worth here beyond what the games paid. A teller grades whole positions,
+    which is a question about a whole heuristic rather than about any one of its terms, and it is asked where
+    heuristics are judged."""
     expression_generator = ExpressionGenerator()
     return HeuristicPonderer(
         PositionGatherer(),
@@ -46,6 +46,5 @@ def create_heuristic_ponderer(
         expression_generator,
         create_term_evaluator(workers),
         Stability(),
-        telling,
     )
 
