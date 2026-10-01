@@ -27,6 +27,14 @@ class RuleAdmission:
     set doing better without it. This says only that somebody was willing to back it."""
 
     def __init__(self, budget: RuleBudget, price: RulePrice) -> None:
+        #: What each signal made of each candidate in the last admission, and what each candidate is called.
+        #:
+        #: **Held only between `admitted` and `rated`, which is one call apart.** A service here keeps nothing
+        #: across callers, and this does not: it is the working of one admission, read once by whoever asked
+        #: for it. Written as state rather than returned because `admitted` already answers a different
+        #: question and two answers in one return is how a caller comes to ignore the second.
+        self._rated: dict[str, tuple[float, ...]] = {}
+        self._candidates: list[str] = []
         self._budget = budget
         self._price = price
 
@@ -54,8 +62,15 @@ class RuleAdmission:
         self._budget.allowed(knowledge_base, context_id, [one.name for one in signals])
         prices = [self._price.priced(one.expression, vocabulary) for one in candidates]
         bought: dict[int, list[str]] = {}
+        self._rated = {}
+        self._candidates = [str(getattr(one.rule, "source", "") or "") for one in candidates]
         for signal in signals:
             rates = signal.rates(candidates)
+            # Kept as they are computed, because they are the only account of *why* a rule is in a heuristic
+            # and they were being thrown away the moment they had been spent on. Every signal's opinion and
+            # not only the buyers': a signal rating a rule at nearly nothing says as much about that rule as
+            # one that paid for it.
+            self._rated[signal.name] = tuple(float(one) for one in rates)
             wanted = sorted(range(len(candidates)), key=lambda at: -rates[at])
             spent, took = 0.0, 0
             for at in wanted:
@@ -81,6 +96,29 @@ class RuleAdmission:
             sum(1 for who in bought.values() if len(who) > 1),
         )
         return {at: tuple(who) for at, who in bought.items()}
+
+    def rated(self, admitted: Mapping[int, tuple[str, ...]]) -> Mapping[str, Mapping[str, float]]:
+        """What every signal made of each rule that was bought, by the rule's own name.
+
+        **The latest and never a total.** A ponder rates afresh over its own rows, so what a signal thought
+        last time is not evidence about this fit — it is a different fit. Nothing accumulates here.
+
+        Named by what the rule reads, because that is what it is called everywhere else and what a page will
+        show. Empty before anything has been admitted, which is the honest answer rather than a table of
+        noughts."""
+        found: dict[str, dict[str, float]] = {}
+        for at in admitted:
+            name = self._named(at)
+            if not name:
+                continue
+            found[name] = {
+                signal: rates[at] for signal, rates in self._rated.items() if at < len(rates)
+            }
+        return found
+
+    def _named(self, at: int) -> str:
+        """What the candidate in that place is called, which is what it reads."""
+        return self._candidates[at] if at < len(self._candidates) else ""
 
     def shares(self, admitted: Mapping[int, tuple[str, ...]]) -> Mapping[str, float]:
         """How much of what was admitted each signal vouched for, which is what `RuleBudget.earned` pays on.

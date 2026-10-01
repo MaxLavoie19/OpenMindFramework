@@ -27,6 +27,18 @@ class RuleCandidate:
     readings: np.ndarray
     #: What those rows paid whoever played them.
     payoffs: np.ndarray
+    #: What somebody who knows makes of each of those rows, blanks as NaN; empty where nobody was asked.
+    #:
+    #: **A second anchor beside the payoff, and never a replacement for it.** What a game paid is one number
+    #: per game credited back across every decision in it; a teller gives one per position, which is thousands
+    #: of graded observations where the payoff gives a handful of sparse ones. That is what it buys — evidence
+    #: per row — and what it cannot buy is the right to decide, because a term that tracks a teller perfectly
+    #: has tracked its blind spots too.
+    #:
+    #: Empty rather than nought where no teller was asked. Nought is a real evaluation — a level position — so
+    #: a column of them would read as a teller that called every row even, and a signal would correlate against
+    #: it and come back with nothing, silently.
+    told: np.ndarray | None = None
 
     def fires(self) -> np.ndarray:
         """Where the term had something to say: present, and not nought."""

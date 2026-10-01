@@ -6,7 +6,9 @@ from openmind.model.service.rule_admission import RuleAdmission
 from openmind.model.service.ruleset_builder import RulesetBuilder
 from openmind.model.service.model_retirement import ModelRetirement
 from openmind.model.service.rule_price import RulePrice
-from openmind.model.service.rule_signals import FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning
+from openmind.model.service.rule_signals import (
+    AgreedWithTheTeller, FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning,
+)
 from openmind.model.service.model_registry import ModelRegistry
 from openmind.model.service.model_timer import ModelTimer
 
@@ -54,8 +56,17 @@ def create_rule_signals() -> tuple[RuleSignal, ...]:
     **A variety, because both kinds of rule are wanted.** A game needs the specific rule that speaks once and
     decides the game, and the generic one that speaks every position and is a little right each time. Three of
     these reward a term for being sharp where it fired, which is what a specific rule is good at; the fourth
-    asks for coverage, which is what nothing else in the economy would ask for."""
-    return (WentWithWinning(), MovedTheFit(), SaysSomethingNew(), FiresOften())
+    asks for coverage, which is what nothing else in the economy would ask for.
+
+    **And one that asks somebody who knows.** It is `WentWithWinning` against a different anchor — what a
+    teller says of a position rather than what the game paid for it — which is thousands of graded
+    observations where the payoff gives a handful of sparse ones. It is in the list rather than above it: it
+    earns, spends and is paid on what it backed, so a teller that keeps buying losers earns less and buys
+    less. That is what keeps outside knowledge a claim with measured reliability rather than an authority, and
+    it wants nothing at all where no teller was asked."""
+    return (
+        WentWithWinning(), MovedTheFit(), SaysSomethingNew(), FiresOften(), AgreedWithTheTeller(),
+    )
 
 
 def create_model_retirement() -> ModelRetirement:

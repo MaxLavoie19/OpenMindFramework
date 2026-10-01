@@ -18,6 +18,19 @@ EARNED = "earned"
 VOUCHING = "{signal} vouched for {heuristic}"
 VOUCHED_FOR = "vouched for"
 
+#: What one signal made of one rule of one heuristic, and the two tags that find it again.
+#:
+#: **The only account of *why* a rule is in a heuristic.** A signal rates every candidate and spends on the
+#: ones it wants; the ratings were used to decide and then dropped, so a heuristic said who had backed it and
+#: never what any of them had thought of any particular rule.
+#:
+#: The latest and never a total: a ponder rates afresh over its own rows, so what a signal thought last time
+#: is about a different fit and adding the two would be adding opinions of different things.
+RATING = "{signal} rated {rule} of {heuristic}"
+RATED_FOR = "rated for"
+RATED_RULE = "rated rule"
+RATED_BY = "rated by"
+
 #: What every signal is given each round, and the floor decay may not take a budget below.
 #:
 #: **An income rather than a balance, which is the difference between never shut out and never spent.** A
@@ -129,6 +142,46 @@ class RuleBudget:
                     tags=((VOUCHED_FOR, heuristic),),
                 )
             )
+
+    def rating(
+        self,
+        knowledge_base: KnowledgeBase,
+        context_id: str,
+        heuristic: str,
+        ratings: Mapping[str, Mapping[str, float]],
+    ) -> None:
+        """What every signal made of each rule of that heuristic, written where a page can read it again.
+
+        **Every signal and not only the buyers.** A signal rating a rule at nearly nothing says as much about
+        that rule as one that paid for it — more, where the two disagree — and a table with only the buyers in
+        it cannot show a disagreement at all.
+
+        Written against the heuristic's name the way the vouching is, and settled nowhere: this is not a debt,
+        it is a record of what was thought."""
+        for rule, held in ratings.items():
+            for signal, rate in held.items():
+                knowledge_base.believe(
+                    Belief(
+                        RATING.format(signal=signal, rule=rule, heuristic=heuristic),
+                        context_id,
+                        float(rate),
+                        tags=((RATED_FOR, heuristic), (RATED_RULE, rule), (RATED_BY, signal)),
+                    )
+                )
+
+    def ratings(
+        self, knowledge_base: KnowledgeBase, context_id: str, heuristic: str
+    ) -> Mapping[str, Mapping[str, float]]:
+        """What every signal made of each of its rules, by the rule's own name, or nothing where none said."""
+        found: dict[str, dict[str, float]] = {}
+        for belief in knowledge_base.beliefs(context_id, tags=((RATED_FOR, heuristic),)):
+            if not isinstance(belief.value, int | float):
+                continue
+            tags = dict(belief.tags)
+            rule, signal = str(tags.get(RATED_RULE, "")), str(tags.get(RATED_BY, ""))
+            if rule and signal:
+                found.setdefault(rule, {})[signal] = float(belief.value)  # type: ignore[arg-type]
+        return found
 
     def vouchers(self, knowledge_base: KnowledgeBase, context_id: str, heuristic: str) -> Mapping[str, float]:
         """Who backed how much of it, or nothing at all where nobody did.

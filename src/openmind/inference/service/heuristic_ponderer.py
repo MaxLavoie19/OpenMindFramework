@@ -1,6 +1,6 @@
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.inference.model.expression import Expression
@@ -75,7 +75,14 @@ class HeuristicPonderer:
         expression_generator: ExpressionGenerator,
         term_evaluator: TermEvaluator | None = None,
         stability: Stability | None = None,
+        telling: Callable[[Sequence[State]], Sequence[float | None]] | None = None,
     ) -> None:
+        #: How to ask somebody who knows what each position is worth, or None where there is nobody to ask.
+        #:
+        #: **Handed over rather than held, because nothing here may know what a teller is.** A teller is a
+        #: stronger player, a table, a person — whatever the domain has — and this sees a list of positions in
+        #: and a list of numbers out. A run without one fits on what the games paid alone, exactly as before.
+        self._telling = telling
         self._gatherer = position_gatherer
         self._deducer = position_deducer
         self._finder = heuristic_finder
@@ -211,8 +218,16 @@ class HeuristicPonderer:
         # times over, so appending them would have quietly made the held-out set whatever the walks happened
         # to touch — endgames, where a proof is cheap — rather than the positions the heuristic is for. A price
         # chosen on a distribution the model will never meet is chosen on nothing.
-        for state, payoffs in (*along, *settled.items()):
-            rows.extend(PositionRow(state, player, payoff) for player, payoff in zip(players, payoffs, strict=True))
+        # **What a teller makes of each board, asked once for all of them.** Asking is dear to start and cheap
+        # per position, so every position this ponder will fit on goes in one request — and a run with no
+        # teller gets None everywhere, which is what having nobody to ask looks like.
+        boards = [state for state, _ in (*along, *settled.items())]
+        said = self._telling(boards) if self._telling is not None and boards else [None] * len(boards)
+        for (state, payoffs), told in zip((*along, *settled.items()), said, strict=True):
+            rows.extend(
+                PositionRow(state, player, payoff, told)
+                for player, payoff in zip(players, payoffs, strict=True)
+            )
         labelling = Labelling(
             named, len(settled) + len(along), len({row.target for row in rows}), time.monotonic() - started
         )

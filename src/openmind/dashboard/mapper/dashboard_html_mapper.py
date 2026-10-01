@@ -311,8 +311,47 @@ class DashboardHtmlMapper:
         return self._page(
             f"{domain} heuristics",
             refresh_seconds,
-            f"<h2>Heuristics ({len(standings)})</h2>{explanation}{self._table(header, rows)}",
+            f"<h2>Heuristics ({len(standings)})</h2>{explanation}{self._table(header, rows)}"
+            f"{self._rated(standings)}",
         )
+
+    def _rated(self, standings: Sequence[HeuristicStanding]) -> str:
+        """Each heuristic's rules, with what every signal made of each one.
+
+        **This is the only account of why a rule is in a heuristic.** The table above says who backed the whole
+        of it; this says what each signal thought of each part, including the signals that thought little and
+        did not pay. Where two disagree about a rule is the thing worth reading — one prizes a term that lines
+        up with winning and another a term nothing else already says, and which of them was right about a game
+        is settled by what each earns rather than by an argument.
+
+        Only heuristics whose rules anybody rated, because a run with no economy buys nothing and a page of
+        empty tables says less than no table at all."""
+        found = [one for one in standings if one.rated]
+        if not found:
+            return ""
+        sections = []
+        for one in found:
+            signals = sorted({name for _, held in one.rated for name, _ in held})
+            rows = [
+                (rule, *(self._rate(dict(held), name) for name in signals))
+                for rule, held in sorted(one.rated)
+            ]
+            sections.append(
+                f"<div class='judged'><h3>{html.escape(one.name)}</h3>"
+                f"{self._table(('rule', *signals), rows)}</div>"
+            )
+        return (
+            "<h2>What each signal made of each rule</h2>"
+            "<div class='muted'>Every signal's rating of every rule a fit kept, not only the ones it paid "
+            "for. A signal rating a rule at nearly nothing says as much about that rule as one that bought "
+            "it, and where two disagree is the thing to read. The scales are each signal's own and are never "
+            "comparable across columns — only the order within a column means anything.</div>"
+            f"<div class='heuristics'>{''.join(sections)}</div>"
+        )
+
+    def _rate(self, held: dict, signal: str) -> str:
+        """What that signal made of that rule, or nothing where it said nothing about it."""
+        return "—" if signal not in held else f"{held[signal]:.4g}"
 
     def games_page(self, domain: str, games: Sequence[GameListing], refresh_seconds: int) -> str:
         """The page listing every remembered game, newest first, each linking to its own page."""

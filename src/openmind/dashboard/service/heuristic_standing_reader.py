@@ -3,7 +3,7 @@ from pathlib import Path
 from openmind.dashboard.model.heuristic_standing import HeuristicStanding
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.model.service.model_retirement import RETIRED
-from openmind.model.service.rule_budget import VOUCHED_FOR
+from openmind.model.service.rule_budget import RATED_BY, RATED_FOR, RATED_RULE, VOUCHED_FOR
 from openmind.training.service.judging_record import (
     DECIDED, DECLINED, JUDGED, JUDGINGS, MASS, OFFERED, TOLD, TOLD_OF, UNDECIDED,
 )
@@ -53,10 +53,19 @@ class HeuristicStandingReader:
             if name is not None:
                 found.setdefault(name, {})["retired"] = bool(belief.value)
                 continue
-            vouched = dict(belief.tags).get(VOUCHED_FOR)
+            tags = dict(belief.tags)
+            vouched = tags.get(VOUCHED_FOR)
             if vouched is not None:
                 held = found.setdefault(str(vouched), {})
                 held["vouched"] = (*held.get("vouched", ()), str(belief.variable).split(" vouched for ")[0])
+                continue
+            rated = tags.get(RATED_FOR)
+            if rated is not None and isinstance(belief.value, int | float):
+                held = found.setdefault(str(rated), {})
+                gathered = dict(held.get("rated", ()))
+                rule, signal = str(tags.get(RATED_RULE, "")), str(tags.get(RATED_BY, ""))
+                gathered[rule] = (*dict(gathered.get(rule, ())).items(), (signal, float(belief.value)))
+                held["rated"] = tuple(gathered.items())
         return tuple(
             sorted(
                 (HeuristicStanding(name=name, **held) for name, held in found.items()),

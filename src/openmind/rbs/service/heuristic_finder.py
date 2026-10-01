@@ -110,6 +110,15 @@ class HeuristicFinder:
         training row or no price raises ValueError."""
         if not training:
             raise ValueError("Value generation needs training rows")
+        # **Held for this call rather than threaded through four signatures.** What a teller made of each row
+        # is read in one place — where the candidates are built — and passing it down every step between would
+        # add a parameter to each for one reader. The same shape `RuleAdmission` uses for the ratings it keeps
+        # between admitting and being asked about them.
+        self._told_rows = (
+            np.array([np.nan if one.told is None else float(one.told) for one in training])
+            if any(one.told is not None for one in training)
+            else None
+        )
         if not settings.prices:
             raise ValueError("Value generation needs at least one price")
         several = len(targets) > 1
@@ -317,8 +326,12 @@ class HeuristicFinder:
             return list(kept)
         knowledge_base = target.knowledge_base
         context_id = knowledge_base.ensure_context(target.context).id
+        # What a teller made of each row travels with the rows, so a signal asking how much the heuristic's
+        # agreement with it owes to each term has it without anybody fetching anything here.
+        told = getattr(self, "_told_rows", None)
         candidates = [
-            RuleCandidate(expressions[at], terms[at], float(fit.weights[at]), columns[at], targets) for at in kept
+            RuleCandidate(expressions[at], terms[at], float(fit.weights[at]), columns[at], targets, told)
+            for at in kept
         ]
         admitted = self._rule_admission.admitted(
             knowledge_base, context_id, candidates, self._rule_signals, len(terms)
@@ -330,6 +343,12 @@ class HeuristicFinder:
         # something once it has played and been judged, which is somewhere else entirely.
         self._rule_admission.budget.vouching(
             knowledge_base, context_id, ruleset_name, self._rule_admission.shares(admitted)
+        )
+        # And what every signal made of each rule it kept, which is the only account of *why* a rule is in a
+        # heuristic. The shares above say who backed it and how much; this says what each of them thought,
+        # including the ones that thought little and did not buy.
+        self._rule_admission.budget.rating(
+            knowledge_base, context_id, ruleset_name, self._rule_admission.rated(admitted)
         )
         logger.info(
             "%s%d of the fit's %d terms were vouched for: %s",

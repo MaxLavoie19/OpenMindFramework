@@ -4,21 +4,30 @@ import pytest
 from openmind.inference.model.expression import Expression
 from openmind.model.factory.model_factory import create_rule_signals
 from openmind.model.model.rule_candidate import RuleCandidate
-from openmind.model.service.rule_signals import FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning
+from openmind.model.service.rule_signals import (
+    AGREED_WITH_THE_TELLER, AgreedWithTheTeller, FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning,
+)
 
 pytestmark = pytest.mark.log_level("INFO")
 
 #: What a game paid over twenty positions, half won and half lost.
 PAYOFFS = np.array([1.0] * 10 + [-1.0] * 10)
 
+#: What a teller made of the same rows. The same shape as the payoffs and graded rather than won-or-lost,
+#: which is the whole of what a teller buys: a number per position where a game gives one per game.
+TOLD = np.array([0.9, 0.4] * 5 + [-0.9, -0.4] * 5)
 
-def candidate(readings: list[float], weight: float = 1.0, clauses: int = 2) -> RuleCandidate:
+
+def candidate(
+    readings: list[float], weight: float = 1.0, clauses: int = 2, told: np.ndarray | None = TOLD
+) -> RuleCandidate:
     return RuleCandidate(
         Expression(template="VIEW", clauses=clauses, plies=0),
         rule=None,  # type: ignore[arg-type]
         weight=weight,
         readings=np.array(readings, dtype=float),
         payoffs=PAYOFFS,
+        told=told,
     )
 
 
@@ -132,6 +141,12 @@ def test_a_term_too_quiet_to_change_anything_is_wanted_by_nobody() -> None:
     quiet = candidate([3.0, 1.0] * 5 + [-3.0, -1.0] * 5, weight=0.000036)
 
     for signal in create_rule_signals():
+        if signal.name == AGREED_WITH_THE_TELLER:
+            # **Not an exemption, a degenerate fixture.** These two are the *same column* at two weights, and
+            # that signal asks what the set's agreement would miss — which, with each term leaving the other
+            # behind to say the same thing, is nothing either way. It is right to want neither. It is held to
+            # the same standard over columns that are not duplicates, a few tests below.
+            continue
         rated = signal.rates([loud, quiet])
         assert rated[0] > rated[1], f"{signal.name} cannot hear how loudly a term may speak"
         assert rated[1] < rated[0] / 1000, f"{signal.name} wants the quiet one barely at all"
@@ -195,3 +210,52 @@ def test_a_term_saying_the_same_of_every_row_is_not_new():
     rated = SaysSomethingNew().rates([counter(), candidate([3.0] * 20)])
 
     assert rated[1] == 0.0
+
+
+def test_the_teller_s_signal_wants_the_term_the_heuristic_s_fit_would_miss():
+    """**What is measured is the set's fit, not the term's.** A term that tracks the teller beautifully and
+    says nothing the other terms do not already say adds nothing to the heuristic — and a signal scoring terms
+    one at a time would buy it anyway.
+
+    Here one term carries the whole agreement and a second is noise. Taking the first out costs the fit
+    everything; taking the second out costs it nothing."""
+    carries = candidate([0.9, 0.4] * 5 + [-0.9, -0.4] * 5)
+    noise = candidate([0.1, -0.1] * 10, weight=0.05)
+
+    rated = AgreedWithTheTeller().rates([carries, noise])
+
+    assert rated[0] > rated[1], "the one the fit would miss"
+    assert rated[1] < 0.05, "and the one it would not, barely wanted at all"
+
+
+def test_the_teller_s_signal_wants_neither_of_two_terms_that_say_the_same_thing():
+    """**The whole reason this asks about the set.** Two terms reading alike each leave the other behind to
+    say the same thing, so the heuristic's agreement with the teller survives losing either — and neither is
+    what the fit would miss. A signal scoring a term on its own would buy both."""
+    one = candidate([0.9, 0.4] * 5 + [-0.9, -0.4] * 5)
+    same = candidate([0.9, 0.4] * 5 + [-0.9, -0.4] * 5)
+
+    rated = AgreedWithTheTeller().rates([one, same])
+
+    assert max(rated) < 1e-9, "each is spare while the other is there"
+
+
+def test_the_teller_s_signal_hears_how_loudly_a_term_may_speak():
+    """A term the fit will barely let speak can barely move what the fit agrees with, which is the same
+    defect the other signals were measured against — read here through the arithmetic rather than asserted,
+    since a weight multiplies the column before any of this."""
+    loud = candidate([0.9, 0.4] * 5 + [-0.9, -0.4] * 5, weight=1.0)
+    quiet = candidate([0.5, -0.5] * 10, weight=0.000036)
+
+    rated = AgreedWithTheTeller().rates([loud, quiet])
+
+    assert rated[0] > rated[1]
+
+
+def test_the_teller_s_signal_wants_nothing_where_no_teller_was_asked():
+    """**Wanting nothing is what having nothing to say looks like.** A run with no teller leaves the column
+    empty, and a signal rating everything at some number would be spending its budget on an ordering it
+    invented out of an absence."""
+    held = [candidate([0.9, 0.4] * 5 + [-0.9, -0.4] * 5, told=None)]
+
+    assert AgreedWithTheTeller().rates(held) == [0.0]

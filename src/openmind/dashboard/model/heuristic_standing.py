@@ -45,6 +45,16 @@ class HeuristicStanding:
     losses: int = 0
     vouched: tuple[str, ...] = ()
     retired: bool = False
+    #: Each of its rules, with what every signal made of it.
+    #:
+    #: **The only account of why a rule is in a heuristic.** The signals rate every candidate a fit kept and
+    #: spend on the ones they want; what they thought was used to decide and then dropped, so a heuristic could
+    #: say who had backed it and never what any of them made of any particular rule.
+    #:
+    #: Every signal and not only the buyers, because a signal rating a rule at nearly nothing says as much
+    #: about that rule as one that paid for it — most of all where the two disagree, which a table of buyers
+    #: cannot show at all.
+    rated: tuple[tuple[str, tuple[tuple[str, float], ...]], ...] = ()
 
     @property
     def asked(self) -> int:
