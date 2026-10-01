@@ -298,9 +298,22 @@ class Hypothetical:
         return found
 
     def _takes(self, state: State, action: Action, whose: Value, what: Value, theirs: Value) -> bool:
-        """Whether doing that there takes away a thing of that player's, of that kind."""
+        """Whether doing that there takes away a thing of that player's, of that kind.
+
+        **A consequence is drawn with its conditions unasked, and then asked before it is believed.** Drawing is
+        cheap and asking is not — answering a condition means reading a whole case — so the order is: draw,
+        look at the square, and only where something of the wanted kind stands there go and find out whether
+        that consequence applies at all. Over fourteen thousand candidates nearly none reaches the last step.
+
+        **Without the last step a knight takes a pawn in passing.** A consequence's square is drawn from the
+        action, so one that belongs to a pawn's capture still computes a square for a knight's move — and the
+        square it computes is a real square with a real piece on it. Measured: a knight on h7 going to f6 was
+        reported as taking the king on f7, by the consequence for taking in passing and by the one that moves
+        a castling's rook, neither of which a knight has anything to do with. King safety then refused a legal
+        move, the repair went to mend a rule that was not wrong, and a night's training sat in it."""
         if self._drawer is None:
             return False
+        case = None
         for one in self.doing:
             change = self._drawer.drawn(one, state, action, theirs, self._players)
             at = getattr(change, "losing", None)
@@ -308,7 +321,17 @@ class Hypothetical:
                 continue
             held = state.model(change.model)
             standing = held.at(at) if isinstance(held, Grid) and held.inside(at) else None
-            if standing is not None and standing != getattr(change, "value", None) and self._is(standing, whose, what):
+            if standing is None or standing == getattr(change, "value", None):
+                continue
+            if not self._is(standing, whose, what):
+                continue
+            if not one.when or self._holds is None:
+                return True
+            # Read once and only here: a consequence with no conditions happens every time, and one with
+            # conditions is worth the reading only now that its square is known to hold what is being asked
+            # about.
+            case = case or Example(self._readings.read(state, action), False, state)
+            if self._holds(one.when, case):
                 return True
         return False
 

@@ -23,6 +23,15 @@ class Disagreement:
     where: State
     allowed: tuple[Action, ...] = ()
     forbade: tuple[Action, ...] = ()
+    #: For each candidate wrongly refused, the constraints that refused it.
+    #:
+    #: **A refusal nobody can attribute is a refusal nobody can argue with.** Saying that a move the game allows
+    #: was turned away names the fault and not the rule, so every time one turned up the only way to the rule
+    #: responsible was to write a script asking each constraint in turn. Chasing a single one cost a day.
+    #:
+    #: Only for the ones wrongly refused, because those are the few that matter — a position offers fourteen
+    #: thousand candidates and nearly all of them are rightly refused by something.
+    blamed: tuple[tuple[Action, tuple], ...] = ()
 
     @property
     def settled(self) -> bool:
@@ -32,3 +41,11 @@ class Disagreement:
     @property
     def readable(self) -> str:
         return f"{len(self.allowed)} allowed that are refused, {len(self.forbade)} refused that are allowed"
+
+    @property
+    def why(self) -> str:
+        """The moves wrongly refused, each with the constraints that refused it, for somebody to read."""
+        return "; ".join(
+            f"{dict(action.parameters)} by {' and '.join(one.readable for one in clauses)}"
+            for action, clauses in self.blamed
+        )

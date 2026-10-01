@@ -267,6 +267,18 @@ class RefusalLearner:
         There is no second list to consult and no exception to check. This is the whole of legality."""
         return any(self.covers(one, example, clauses) for one in clauses)
 
+    def refusing(self, clauses: Sequence[Clause], example: Example) -> tuple[Clause, ...]:
+        """Which of them refuse that candidate, rather than merely whether any does.
+
+        **A refusal nobody can attribute is a refusal nobody can argue with.** Scoring says a move the game
+        allows was turned away and stops there, so every time one turned up the only way to the rule responsible
+        was to write a script that asked each constraint in turn — which is what chasing one cost a day. The
+        answer was always one `covers` away.
+
+        All of them and not the first, because two constraints refusing the same move is a different fault from
+        one doing it: the first is a rule said twice, the second is a rule that is wrong."""
+        return tuple(one for one in clauses if self.covers(one, example, clauses))
+
     def scored(
         self,
         clauses: Sequence[Clause],
@@ -282,14 +294,19 @@ class RefusalLearner:
         out, they are read here, which is what a caller asking about constraints it did not learn from wants."""
         if cases is None:
             cases = self._readings.cases(evidence, domains)
-        allowed, forbade = [], []
+        allowed, forbade, blamed = [], [], []
         for action, case in zip(self._readings.candidates(evidence, domains), cases, strict=True):
             refusing = self.refuses(clauses, case)
             if case.holds and not refusing:
                 allowed.append(action)
             elif not case.holds and refusing:
                 forbade.append(action)
-        found = Disagreement(evidence.where, tuple(allowed), tuple(forbade))
+                # Asked again rather than kept from the line above, because this is the handful of moves the
+                # constraints got wrong and `refuses` stops at the first rule that answers. Over a position of
+                # fourteen thousand candidates it is the few that matter, and knowing which rule is wrong is
+                # the whole of what somebody does next.
+                blamed.append((action, self.refusing(clauses, case)))
+        found = Disagreement(evidence.where, tuple(allowed), tuple(forbade), tuple(blamed))
         logger.info("Against one position, %d constraints leave %s", len(clauses), found.readable)
         return found
 
