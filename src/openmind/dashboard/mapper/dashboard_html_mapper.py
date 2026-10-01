@@ -6,6 +6,7 @@ from openmind.dashboard.constant.dashboard_constant import RUN, TRAINING, WORKER
 from openmind.dashboard.mapper.svg_chart_mapper import SvgChartMapper
 from openmind.dashboard.model.dashboard_snapshot import DashboardSnapshot
 from openmind.dashboard.model.game_listing import GameListing
+from openmind.dashboard.model.heuristic_standing import HeuristicStanding
 from openmind.dashboard.model.constraint_learning import ConstraintLearning
 from openmind.dashboard.model.game_view import GameView
 
@@ -230,7 +231,12 @@ class DashboardHtmlMapper:
 
     #: Every page worth going to, and what to call it. One list, so a page added here is reachable from all of
     #: them rather than from whichever one happened to link to it.
-    PAGES = (("/", "Training"), (CONSTRAINTS_PATH, "What it is learning"), ("/games", "Games"))
+    PAGES = (
+        ("/", "Training"),
+        (CONSTRAINTS_PATH, "What it is learning"),
+        ("/heuristics", "Heuristics"),
+        ("/games", "Games"),
+    )
 
     def _page(self, title: str, refresh_seconds: int, body: str) -> str:
         """A page of its own, under the title, reloading itself every so many seconds (never at 0).
@@ -250,6 +256,63 @@ class DashboardHtmlMapper:
         return "<nav>" + " ".join(
             f"<a href='{where}'>{html.escape(name)}</a>" for where, name in self.PAGES
         ) + "</nav>"
+
+    def heuristics_page(
+        self, domain: str, standings: Sequence[HeuristicStanding], refresh_seconds: int
+    ) -> str:
+        """Every heuristic a run has judged, with what each measure made of it.
+
+        **Each measure is its own column and none is folded into another.** What games paid is the anchor and
+        what a teller makes of a position is a claim beside it; a heuristic may do well on one and badly on the
+        other, and that is the case somebody opens this page to find. A single blended number would hide it.
+
+        **Coverage is read beside the score, never inside it.** A detector that speaks on a twentieth of the
+        decisions and is right every time is the thing this project keeps saying it wants, and it is
+        indistinguishable from a useless one if what it says is averaged over the decisions it declined."""
+        if not standings:
+            return self._page(
+                f"{domain} heuristics",
+                refresh_seconds,
+                "<h2>Heuristics</h2><p class='muted'>Nothing judged yet. A heuristic appears here once a "
+                "judging has put it to the decisions of a game that finished.</p>",
+            )
+        rows = [
+            (
+                one.name,
+                f"{one.worth:+.4f}",
+                f"{one.mass:.3f}",
+                f"{one.offered:.3f}",
+                one.speaks,
+                str(one.declined),
+                str(one.undecided),
+                str(one.judgings),
+                "not asked" if one.tracks is None else f"{one.tracks:+.3f}",
+                str(one.told),
+                f"{one.wins}-{one.draws}-{one.losses}" if one.games else "never played",
+                ", ".join(one.vouched) or "nobody",
+                "retired" if one.retired else "",
+            )
+            for one in standings
+        ]
+        header = (
+            "heuristic", "worth", "mass", "ignorance", "decided", "declined", "undecided", "judgings",
+            "tracks the teller", "positions", "W-D-L", "vouched by", "",
+        )
+        explanation = (
+            "<div class='muted'>What each heuristic has been measured at, by each measure separately. "
+            "<b>worth</b> is the mass it put on what was actually played, less what a heuristic with no "
+            "opinion would have put there — above nought it saw something, at nought it knows nothing, below "
+            "it is wrong about what wins. <b>decided</b> is how often it had an opinion at all, and it is "
+            "beside the score rather than in it: a rule that fires rarely and is right is a rule worth "
+            "keeping. <b>tracks the teller</b> is how closely its reading of a position follows a stronger "
+            "player's, from -1 to 1 — a claim with measured reliability, never the thing that decides, "
+            "because a heuristic that tracks a teller perfectly has learned its blind spots too.</div>"
+        )
+        return self._page(
+            f"{domain} heuristics",
+            refresh_seconds,
+            f"<h2>Heuristics ({len(standings)})</h2>{explanation}{self._table(header, rows)}",
+        )
 
     def games_page(self, domain: str, games: Sequence[GameListing], refresh_seconds: int) -> str:
         """The page listing every remembered game, newest first, each linking to its own page."""

@@ -12,6 +12,7 @@ from openmind.dashboard.factory.dashboard_factory import create_dashboard_servic
 from openmind.dashboard.mapper.dashboard_html_mapper import DashboardHtmlMapper
 from openmind.dashboard.model.dashboard_settings import DashboardSettings
 from openmind.dashboard.service.constraint_learning_reader import ConstraintLearningReader
+from openmind.dashboard.service.heuristic_standing_reader import HeuristicStandingReader
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,9 @@ def page(settings: DashboardSettings, refresh: int, path: str = "/") -> tuple[in
                 settings.domain, learning or (runs[0] if runs else None), refresh, runs
             ).encode("utf-8")
         browser = _SERVICE.game_browser
+        if path == "/heuristics":
+            standings = HeuristicStandingReader().standings(settings.knowledge_directory, settings.domain)
+            return 200, mapper.heuristics_page(settings.domain, standings, refresh).encode("utf-8")
         if path == "/games":
             games = browser.decisive(settings.knowledge_directory, settings.domain)
             return 200, mapper.games_page(settings.domain, games, refresh).encode("utf-8")
