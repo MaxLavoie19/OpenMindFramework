@@ -248,10 +248,14 @@ class AgreedWithTheTeller:
         # silent in three different situations — nobody to ask, a fit that tracks the teller not at all, and a
         # fit every term of which is spare — and a line saying only that it bought nothing cannot be told from
         # a column that never arrived. What the whole fit agrees at is the number that separates them.
+        # **With the spreads, because a correlation of nothing has two quite different causes.** Either side
+        # saying the same of every row has nothing to correlate *with*, and that is a column to go and fix; two
+        # columns that vary and still do not line up is a finding about the heuristic. Printed to three places
+        # the first time, both read as 0.000 and told nobody which.
         logger.info(
-            "the fit as a whole tracks the teller at %.3f over %d rows; the most any one term is worth to that "
-            "is %.4f",
-            whole, len(said), max(found) if found else 0.0,
+            "the fit as a whole tracks the teller at %.6f over %d rows (the fit varies by %.4g, the teller by "
+            "%.4g); the most any one term is worth to that is %.6f",
+            whole, len(said), float(fitted.std()), float(said.std()), max(found) if found else 0.0,
         )
         return found
 
