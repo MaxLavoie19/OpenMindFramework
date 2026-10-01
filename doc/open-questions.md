@@ -558,6 +558,27 @@ not follow is that allowing more is being worth more, and that step is where eac
       states `circuit` alone and forms no group and no table, so it meets none of them. They wait for the
       next problem that does.
 
+45. **"Hardcoded" and "held as axiomatic" are being treated as one thing, and one of them is a model we wrote.**
+    (found when a hand-written rule turned away a legal move and the mending went to rewrite it)
+    A rule record is frozen unless `open`, which is the right shape: a belief held as basic is one nothing inside
+    may revise, and `open` is how a caller says *except this one*. Given constraints are now written frozen and
+    the mending honours it.
+    What that flattens is a real difference between two things both given by hand. The constraints are the rules
+    of chess — the game is what they say it is, so calling them basic is calling the game the game. The
+    predictions are a *model* of what a move does, written by somebody who could be wrong, and one of them is
+    known to be incomplete today: the square a pawn may be taken in passing on is recorded only where a pawn
+    stands to take there, and whether that pawn is pinned wants the hypothetical, which would have the predictor
+    waiting on the constraints that wait on it.
+    So a constraint held as basic can turn away a legal move for a reason that is entirely the predictor's, and
+    both are frozen. Nothing inside can settle which of two things held as basic is the wrong one — the warning
+    says so and stops there, which is right and is also an admission that the two were declared alike when they
+    are not. What the epistemic domain would add is somewhere for the conflict to go: confidence in what a move
+    is predicted to do is a thing that can move, where the rules of the game are not.
+    **Undecided.** Writing the predictions `open` would let the mending rewrite them, which is worse — a model
+    corrected to fit one position is the fault this project has a standing rule against. What is wanted is not a
+    different flag but a layer that holds degrees of belief, and that is the epistemic domain's job rather than
+    this file's.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
