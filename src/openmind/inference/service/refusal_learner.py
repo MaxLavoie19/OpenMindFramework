@@ -238,7 +238,7 @@ class RefusalLearner:
         that question. Every other clause keeps its full set, asked in no particular order, so nothing else here
         depends on which was asked first."""
         found: dict[Clause, frozenset[int]] = {}
-        asking = [one for one in clauses if self._asks_after(one)]
+        asking = [one for one in clauses if self.asks_after(one)]
         plain = [one for one in clauses if one not in asking]
         for clause in plain:
             found[clause] = frozenset(
@@ -254,7 +254,7 @@ class RefusalLearner:
             )
         return found
 
-    def _asks_after(self, clause: Clause) -> bool:
+    def asks_after(self, clause: Clause) -> bool:
         """Whether that constraint asks about the board a move leads to rather than the board it is played on.
 
         The one thing that makes a clause dear enough to be worth telling apart: every other reading is a lookup
