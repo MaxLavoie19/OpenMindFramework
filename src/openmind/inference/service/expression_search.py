@@ -42,6 +42,13 @@ type Candidate = tuple[Expression, str | None, Columns | None, Columns | None, f
 #: For every target by name: the kept expressions' weights at the price, the residual, and the training loss.
 type Fits = dict[str, tuple[np.ndarray, np.ndarray, float]]
 
+#: The kinds a candidate comes in, in the order the log reports them. A candidate's kind says what it cost to
+#: try rather than what it says: a `derived` one is arithmetic over columns already computed, where a
+#: `look ahead` reads the position after every legal action — in chess upwards of thirty-five evaluations for
+#: one candidate. A generation's budget is spent in these proportions, and nothing until now reported them.
+LEAF, DERIVED, PATTERN, AGGREGATE, LOOK_AHEAD = "leaf", "derived", "pattern", "aggregate", "look ahead"
+CANDIDATE_KINDS = (LEAF, DERIVED, PATTERN, AGGREGATE, LOOK_AHEAD)
+
 
 class ExpressionSearch:
     """Searches expressions that value positions, for any rbs, from the leaves up, within a budget of time, memory and
@@ -172,13 +179,18 @@ class ExpressionSearch:
             generation += 1
             fits = self._fit_all(expressions, kept, named, price, max_steps, tolerance, weighed)
             residuals = {name: residual for name, (_, residual, _) in fits.items()}
+            spending: dict[str, int] = {}
             candidates: Iterator[Candidate] = (
                 iter([(expression, None, None, None, None) for expression in first])
                 if generation == 1
-                else self._expand(expressions, kept, fits, vocabulary, expanded, combined, passed_over)
+                else self._expand(
+                    expressions, kept, fits, vocabulary, expanded, combined, passed_over, spending
+                )
             )
             fresh = (candidate for candidate in candidates if self._digest(candidate[0].template) not in tried)
             tried_count = admitted = evicted = 0
+            # Where the generation's candidates went, by what each one cost to try rather than by what it says.
+            by_kind: dict[str, list[int]] = {kind: [0, 0, 0, 0] for kind in CANDIDATE_KINDS}
             while True:
                 if self._clock() >= deadline:
                     stopped = "the time budget ran out"
@@ -199,6 +211,14 @@ class ExpressionSearch:
                 tried.update(self._digest(candidate[0].template) for candidate in batch)
                 tried_count += len(batch)
                 tried_total += len(batch)
+                kinds = {}
+                for candidate in batch:
+                    kind = self._kind(candidate, generation == 1)
+                    kinds[candidate[0].template] = kind
+                    tally = by_kind[kind]
+                    tally[0] += 1
+                    if self._crossing(candidate[0]):
+                        tally[2] += 1
                 try:
                     admissions, passed = self._admitted(
                         rbs, batch, training, held_out, screening, screen_rows, residuals, price
@@ -216,6 +236,11 @@ class ExpressionSearch:
                     expressions.append(expression)
                     kept.append(columns)
                     admitted += 1
+                    tally = by_kind.get(kinds.get(expression.template, DERIVED))
+                    if tally is not None:
+                        tally[1] += 1
+                        if self._crossing(expression):
+                            tally[3] += 1
                     logger.debug("Kept %s", generator.source(expression).source)
                 if len(expressions) > capacity:
                     evicted += self._evict(expressions, kept, keys, capacity, named, price, max_steps, tolerance)
@@ -236,6 +261,7 @@ class ExpressionSearch:
                 max(0.0, deadline - self._clock()),
                 self._memory_meter.resident_bytes(),
             )
+            self._report_spending(generation, by_kind, spending)
             if not stopped and tried_count == 0:
                 stopped = "nothing left to try"
         logger.info(
@@ -373,6 +399,7 @@ class ExpressionSearch:
         expanded: set[bytes],
         combined: dict[bytes, set[bytes]],
         passed_over: list[tuple[Expression, float]],
+        spending: dict[str, int] | None = None,
     ) -> Iterator[Candidate]:
         """Every kept expression's candidates, the weighted first, by their largest weight then steepest gradient over
         the targets, then those of the expressions passed over since the last expansion, the steepest first; the parents
@@ -391,8 +418,11 @@ class ExpressionSearch:
             if digest not in expanded:
                 expanded.add(digest)
                 groups.append(self._passed_over_candidates(expression, vocabulary))
+        if spending is not None:
+            spending["parents"] = len(groups)
+            spending["kept parents"] = len(partners)
         passed_over.clear()
-        return self._turns(groups)
+        return self._turns(groups, spending)
 
     def _kept_candidates(
         self,
@@ -403,18 +433,71 @@ class ExpressionSearch:
         expanded: set[bytes],
         combined: dict[bytes, set[bytes]],
     ) -> Iterator[Candidate]:
-        generator = self._expression_generator
         digest = self._digest(expression.template)
+        # **One stream per kind of child, drawn from in turn, because a fixed order lets one kind take
+        # everything.** Yielded one kind after another, a parent handed over all fourteen of its look-aheads
+        # before its first pattern condition — and with hundreds of parents taking turns, that is thousands of
+        # the dearest candidates there are before the cheapest. Measured on a search whose target was white's
+        # rooks less black's: of 5,800 candidates tried in a generation, 5,800 were look-aheads, and no term
+        # pairing two models was ever reached although only such a term could say what the target was.
+        #
+        # Taking one from each kind in turn needs no number for what a kind costs. Each kind gets a share of
+        # the generation by having a turn, so a parent's pattern conditions are reached in the first rotation
+        # whatever else it has to offer. The cheapest go first within a rotation, which is the ordering, and no
+        # candidate is removed: a look-ahead is still reached where there is budget for it.
+        streams: list[Iterator[Candidate]] = []
         if digest not in expanded:
             expanded.add(digest)
-            yield from ((child, None, None, None, None) for child in generator.look_aheads(expression))
-            yield from ((child, operator, columns, None, None) for child, operator in generator.unary(expression))
-            yield from (
-                (child, relation, columns, None, cut)
-                for child, relation, cut in generator.thresholds(expression, columns[0][~np.isnan(columns[0])].tolist())
+            streams.extend(
+                (
+                    self._reusing_candidates(expression, columns),
+                    self._pattern_candidates(expression, vocabulary),
+                    self._aggregate_candidates(expression, vocabulary),
+                    self._look_ahead_candidates(expression),
+                )
             )
-            yield from ((child, None, None, None, None) for child in generator.pattern_children(expression, vocabulary))
-            yield from ((child, None, None, None, None) for child in generator.aggregate_children(expression, vocabulary))
+        streams.append(self._combining_candidates(expression, columns, partners, digest, combined))
+        yield from self._turns(streams)
+
+    def _reusing_candidates(self, expression: Expression, columns: Columns) -> Iterator[Candidate]:
+        """The children that need no new reading: arithmetic over a column already computed."""
+        generator = self._expression_generator
+        yield from ((child, operator, columns, None, None) for child, operator in generator.unary(expression))
+        yield from (
+            (child, relation, columns, None, cut)
+            for child, relation, cut in generator.thresholds(expression, columns[0][~np.isnan(columns[0])].tolist())
+        )
+
+    def _pattern_candidates(self, expression: Expression, vocabulary: Vocabulary) -> Iterator[Candidate]:
+        """A condition added to a pattern: one reading of the position as it stands."""
+        yield from (
+            (child, None, None, None, None)
+            for child in self._expression_generator.pattern_children(expression, vocabulary)
+        )
+
+    def _aggregate_candidates(self, expression: Expression, vocabulary: Vocabulary) -> Iterator[Candidate]:
+        yield from (
+            (child, None, None, None, None)
+            for child in self._expression_generator.aggregate_children(expression, vocabulary)
+        )
+
+    def _look_ahead_candidates(self, expression: Expression) -> Iterator[Candidate]:
+        """The dearest children there are: each reads the position again after every legal action."""
+        yield from ((child, None, None, None, None) for child in self._expression_generator.look_aheads(expression))
+
+    def _combining_candidates(
+        self,
+        expression: Expression,
+        columns: Columns,
+        partners: Sequence[tuple[Expression, Columns]],
+        digest: bytes,
+        combined: dict[bytes, set[bytes]],
+    ) -> Iterator[Candidate]:
+        """This expression put together with each other kept expression, a partner at a time.
+
+        Cheap to try, one per partner and so the most numerous kind by far, which is why it takes its turn
+        rather than being yielded in a block."""
+        generator = self._expression_generator
         met = combined.setdefault(digest, set())
         for partner, partner_columns in partners:
             partner_digest = self._digest(partner.template)
@@ -427,19 +510,37 @@ class ExpressionSearch:
             )
 
     def _passed_over_candidates(self, expression: Expression, vocabulary: Vocabulary) -> Iterator[Candidate]:
-        generator = self._expression_generator
-        yield from ((child, None, None, None, None) for child in generator.look_aheads(expression))
-        yield from ((child, None, None, None, None) for child in generator.pattern_children(expression, vocabulary))
-        yield from ((child, None, None, None, None) for child in generator.aggregate_children(expression, vocabulary))
+        """An expression nothing weighted, expanded once anyway — by turns over its kinds, as a kept one is.
 
-    def _turns(self, groups: Iterable[Iterator[Candidate]]) -> Iterator[Candidate]:
-        """One candidate from each group in turn, until every group is done."""
-        live = deque(groups)
+        This is the path that matters most for a term whose parent shows nothing on its own: counting a kind of
+        piece without saying whose it is counts both players' and is nearly constant, so the parent is passed
+        over, and only its conditions can say the thing worth saying."""
+        yield from self._turns(
+            [
+                self._pattern_candidates(expression, vocabulary),
+                self._aggregate_candidates(expression, vocabulary),
+                self._look_ahead_candidates(expression),
+            ]
+        )
+
+    def _turns(
+        self, groups: Iterable[Iterator[Candidate]], spending: dict[str, int] | None = None
+    ) -> Iterator[Candidate]:
+        """One candidate from each group in turn, until every group is done.
+
+        `spending` is filled as it goes with how many parents were queued and how many were reached: a
+        generation that runs out of time partway round leaves the parents after that point unexpanded, and
+        whether that is happening is not otherwise visible."""
+        live = deque(enumerate(groups))
+        reached: set[int] = set()
         while live:
-            group = live.popleft()
+            at, group = live.popleft()
             candidate = next(group, None)
             if candidate is not None:
-                live.append(group)
+                live.append((at, group))
+                if spending is not None:
+                    reached.add(at)
+                    spending["reached"] = len(reached)
                 yield candidate
 
     def _fit_all(
@@ -662,6 +763,60 @@ class ExpressionSearch:
         """Every value finite where not blank, and the column, as the fit reads it, not all zeros."""
         present = column[~np.isnan(column)]
         return bool(np.all(np.isfinite(present))) and bool(np.any(self.standard(column) != 0.0))
+
+    def _report_spending(
+        self, generation: int, by_kind: Mapping[str, Sequence[int]], spending: Mapping[str, int]
+    ) -> None:
+        """Where a generation's candidates went, and how far round its parents it got.
+
+        **Written to answer one question: whether a cheap candidate that would pair two models is ever
+        reached.** A parent makes its children in a fixed order and the parents take turns, so a generation
+        that runs out of time partway round leaves the rest unexpanded — and a kind that costs thirty-five
+        readings where another costs one can take the whole budget without that being visible anywhere."""
+        if not any(tally[0] for tally in by_kind.values()):
+            return
+        logger.info("Generation %d, what its candidates were and what they cost to try:", generation)
+        logger.info("  %-10s %8s %8s %10s %10s", "kind", "tried", "kept", "crossing", "crossing kept")
+        for kind in CANDIDATE_KINDS:
+            tally = by_kind[kind]
+            if tally[0]:
+                logger.info("  %-10s %8d %8d %10d %10d", kind, tally[0], tally[1], tally[2], tally[3])
+        if spending:
+            logger.info(
+                "  of %d parents queued to expand (%d of them kept expressions), %d were reached",
+                spending.get("parents", 0), spending.get("kept parents", 0), spending.get("reached", 0),
+            )
+
+    def _kind(self, candidate: Candidate, seeding: bool) -> str:
+        """What a candidate cost to try, which is what its kind says.
+
+        One carrying an operator is arithmetic over columns already computed. The rest are evaluated as rules
+        against every row, and of those a pattern or an aggregate reads the position once where a look-ahead
+        reads it again after every legal action.
+
+        `seeding` is the first generation, whose candidates are the leaves and the seeds rather than anything
+        grown: a leaf reading one cell carries no operator and no shape, and calling it a look-ahead would put
+        the cheapest candidates there are in the column for the dearest."""
+        expression, operator = candidate[0], candidate[1]
+        if operator is not None:
+            return DERIVED
+        if expression.pattern is not None:
+            return PATTERN
+        if expression.aggregate is not None:
+            return AGGREGATE
+        return LEAF if seeding else LOOK_AHEAD
+
+    def _crossing(self, expression: Expression) -> bool:
+        """Whether a pattern speaks of more than one model at once — "a rook, and mine" rather than "a rook".
+
+        **The measurement this was written for.** Where a game declares a cell as two grids, as chess declares
+        a square as the piece standing there and whose it is, a condition on one of them alone cannot say whose
+        anything is: counting rooks counts both players'. Only a pattern pairing two bases says it, and nothing
+        reported whether any such candidate was ever reached."""
+        pattern = expression.pattern
+        if pattern is None:
+            return False
+        return len({condition.base for condition in pattern.conditions} | {pattern.anchor}) > 1
 
     def _digest(self, template: str) -> bytes:
         return hashlib.blake2b(template.encode(), digest_size=8).digest()

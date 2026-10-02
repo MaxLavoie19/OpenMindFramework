@@ -618,6 +618,28 @@ not follow is that allowing more is being worth more, and that step is where eac
     survives on a different path. So a game whose readings are spelled another way still has half a deducer,
     and nobody has asked what else in the inference layer assumes a spelling that moved on.
 
+48. **No atom describes one cell by two grids at once, so "a rook of mine" cannot be said and material is
+    uncountable.** (found asking whether a binning model could gate on a material signature — two rooks against
+    bishop and two knights — and checking what the vocabulary can express)
+    Counting is not the gap: a `Pattern` *is* a tally, `sum(1 for at in here.base if ...)`, and `leaves()` makes
+    one for every value of every base. The gap is narrower. Chess declares a square as two grids, `piece`
+    holding the kind and `color` holding whose it is, and every leaf speaks of exactly one base. So the 85 leaves
+    that mention `piece` all read like `here.piece[at] == 'rook'`, which counts **both** sides' rooks — four at
+    the start, and four until either player trades one. Measured on the start position: 211 leaves, 85 naming
+    `piece`, **0 naming `piece` and `color` together.**
+    The consequence is visible in the store rather than inferred. Of 531 kept rules in `data/knowledge/given`,
+    **not one mentions `piece`**; every surviving tally counts colours — `sum(1 for at in here.color if
+    here.color[at] == me)` and offsets of it. A colour-blind piece count is nearly constant, so it reads as noise
+    and is correctly thrown away; the useful term, `piece[at] == 'rook' and color[at] == me`, is a two-base
+    conjunction reachable only by *growing* from that worthless parent. A greedy search ordered by what a parent
+    showed cannot get there, which is why nothing about pieces has ever been learned.
+    What is not settled, and is the question: whether `leaves()` should seed cross-base conjunctions at a shared
+    index — a cell described by every grid that indexes it, which for chess is the (kind, whose) pair that a
+    square actually is. It is cheap where two grids share indices and combinatorial where many do, and the
+    alternative is to let growth reach it by rating a parent on what its *children* could show rather than on
+    what it shows itself. Neither is chosen. **No new reading is needed either way**, which is why this is a
+    seeding question and not a vocabulary one.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
