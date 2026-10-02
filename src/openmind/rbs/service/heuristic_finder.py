@@ -154,7 +154,8 @@ class HeuristicFinder:
             for name, (values, held_out_values) in scaled.items():
                 found = self._assembled(rbs, found, training, held_out, values, self._label(name, several))
                 results[name] = self._sweep(
-                    rbs, target, self._label(name, several), found, values, held_out_values, prices, settings, bool(held_out)
+                    rbs, target, self._label(name, several), found, values, held_out_values, prices, settings,
+                    bool(held_out), [one.certainty for one in training],
                 )
         return {name: results[name] for name in targets}
 
@@ -169,6 +170,7 @@ class HeuristicFinder:
         prices: Sequence[float],
         settings: ValueSettings,
         has_held_out: bool,
+        certainty: Sequence[float] = (),
     ) -> ValueGenerationResult:
         """One target's fits at every price over the search's expressions, and the value base of the fit chosen."""
         expressions = found.expressions
@@ -195,6 +197,18 @@ class HeuristicFinder:
             if terms
             else np.empty((rows, 0))
         )
+        # **A row the fit should listen to less is scaled down, which is what weighting a least squares is.**
+        # Minimising the weighted square of the error is minimising the plain square of it once each row and
+        # its target are multiplied by the root of its weight, so a fitter that knows nothing of weights still
+        # honours them exactly. It is the only way the certainty on a row reaches the fit at all.
+        #
+        # Normalised to average one, because the price of a weight is charged against the size of the loss: a
+        # fit whose rows were all scaled down would find the same price suddenly expensive and keep fewer
+        # terms for a reason that has nothing to do with the terms.
+        certain = np.asarray(certainty, dtype=float)
+        if certain.size and float(certain.mean()) > 0.0 and float(certain.std()) > 0.0:
+            heard = np.sqrt(certain / float(certain.mean()))
+            standard, targets = standard * heard[:, None], targets * heard
         held_standard = (
             np.column_stack([search.standard(column, scaling) for column, scaling in zip(found.held_out, scalings, strict=True)])
             if terms

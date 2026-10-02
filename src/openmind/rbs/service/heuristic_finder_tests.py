@@ -2,6 +2,8 @@ from collections.abc import Callable
 from pathlib import Path
 from tempfile import mkdtemp
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -234,3 +236,27 @@ def test_terms_are_assembled_from_what_a_fit_of_the_searched_terms_still_misses(
 
     assert asked[0] != [one.target for one in training], "it is not handed the payoff"
     assert min(left_over) > max(explained), "it is handed what the fit left over"
+
+
+def test_a_row_the_fit_should_listen_to_less_pulls_it_less(game: Game, knowledge: KnowledgeBase) -> None:
+    """**Because the two things a position can be valued by are not equally known.** A proof is what a position
+    *is* worth; a search's verdict is what it looks worth to something that looked ahead — better than the
+    heuristic that fed it and not the truth. Fitted at equal say the estimates outnumber the proofs, and the
+    fit learns mostly from the weaker of the two.
+
+    Weighting a least squares is scaling each row and its target by the root of its weight, so a fitter that
+    knows nothing of weights honours them exactly. Here the same rows are fitted twice, differing only in
+    which of them the fit was told to trust, and the values it settles on differ."""
+    played = game("tictactoe")
+    training, held_out = rows(played)
+    # The same positions, with the later rows trusted fully in one fit and barely at all in the other.
+    loud = [replace(one, certainty=1.0) for one in training]
+    quiet = [replace(one, certainty=1.0 if at < 2 else 0.01) for at, one in enumerate(training)]
+
+    first = create_heuristic_finder().generate(played, loud, held_out, settings(), HeuristicTarget(knowledge, "tictactoe"))
+    second = create_heuristic_finder().generate(played, quiet, held_out, settings(), HeuristicTarget(knowledge, "tictactoe"))
+
+    assert first.fits and second.fits
+    assert [one.training_loss for one in first.fits] != [one.training_loss for one in second.fits], (
+        "told to trust different rows, it settles somewhere different"
+    )

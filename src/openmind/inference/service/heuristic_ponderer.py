@@ -1,6 +1,7 @@
 import logging
 import time
-from collections.abc import Sequence
+from types import MappingProxyType
+from collections.abc import Mapping, Sequence
 
 from openmind.inference.model.deduction_budget import DeductionBudget
 from openmind.inference.model.expression import Expression
@@ -92,6 +93,8 @@ class HeuristicPonderer:
         game: RuleBasedGame,
         settings: PonderSettings,
         positions: Sequence[State] = (),
+        searched: Mapping[State, tuple[float, ...]] = MappingProxyType({}),
+        trusting: float = 0.5,
     ) -> Pondering:
         """What it deduced, and what every way of deducing was worth.
 
@@ -112,10 +115,10 @@ class HeuristicPonderer:
             game, settings.positions + settings.held_out, settings.seed
         )
         tried: list[Labelling] = []
-        rows = self._valued(game, game, positions, settings, tried)
+        rows = self._valued(game, game, positions, settings, tried, searched, trusting)
         if not rows and settings.relaxations:
             for relaxation in self._relaxations(knowledge_base, game):
-                rows = self._valued(game, relaxation, positions, settings, tried)
+                rows = self._valued(game, relaxation, positions, settings, tried, searched, trusting)
                 if rows:
                     break
         if not rows:
@@ -163,6 +166,8 @@ class HeuristicPonderer:
         positions: Sequence[State],
         settings: PonderSettings,
         tried: list[Labelling],
+        searched: Mapping[State, tuple[float, ...]] = MappingProxyType({}),
+        trusting: float = 0.5,
     ) -> tuple[PositionRow, ...]:
         """The positions this game could settle, as rows: what it paid where a position is over, what its rules
         prove where they reach an end within the plies given, and every position those proofs passed through.
@@ -183,9 +188,10 @@ class HeuristicPonderer:
         started = time.monotonic()
         named = SETTLED.format(context=reasoned_in.context)
         rows: list[PositionRow] = []
-        valued, paid, proved = 0, 0, 0
+        valued, paid, proved, guessed = 0, 0, 0, 0
         players = game.players().names
         settled: dict[State, tuple[float, ...]] = {}
+        guesses: set[State] = set()
         seen: dict = {}
         for state in positions:
             payoffs = self._payoffs(game, state, players)
@@ -194,6 +200,19 @@ class HeuristicPonderer:
             else:
                 payoffs = self._proved(reasoned_in, state, settings, seen)
                 proved += 1 if payoffs is not None else 0
+            if payoffs is None:
+                # **What a search made of it, where nothing could be proved.** A proof is the better label and
+                # the rarer one: it reaches the endings, where a line can be followed to a result. Everywhere
+                # else this had no label at all and the position was dropped — so the middlegame, which is
+                # most of a game and most of where the agent is bad, was never fitted on.
+                #
+                # A search's answer is the heuristic's own reading improved by looking ahead, which is what
+                # there is to learn from where there is nothing to prove. Proofs still win: this is only
+                # reached once one was not found.
+                payoffs = searched.get(state)
+                if payoffs is not None:
+                    guessed += 1
+                    guesses.add(state)
             if payoffs is None:
                 continue
             valued += 1
@@ -212,8 +231,11 @@ class HeuristicPonderer:
         # to touch — endgames, where a proof is cheap — rather than the positions the heuristic is for. A price
         # chosen on a distribution the model will never meet is chosen on nothing.
         for state, payoffs in (*along, *settled.items()):
+            # A proof and a terminal payoff are what a position is worth; a search's verdict is what it looks
+            # worth to something that looked ahead. Both are fitted, and the second is heard less.
+            held = trusting if state in guesses else 1.0
             rows.extend(
-                PositionRow(state, player, payoff)
+                PositionRow(state, player, payoff, held)
                 for player, payoff in zip(players, payoffs, strict=True)
             )
         labelling = Labelling(
