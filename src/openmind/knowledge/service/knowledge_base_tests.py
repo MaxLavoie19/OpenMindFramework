@@ -431,3 +431,52 @@ def test_a_preference_is_what_a_goal_weighs_for_its_holder_and_is_updated_under_
     assert base.preference(winning.id, holder=("black",)) == black_s
     assert base.preference(winning.id, role="player").weight == 0.4  # type: ignore[union-attr]
     assert new_base(tmp_path).preferences(holder=("black",)) == (black_s,)
+
+
+def test_the_same_rule_declared_twice_is_one_rule(tmp_path: Path) -> None:
+    """**A weight is not part of a rule.** What a rule weighs lives on a ruleset's link to it, so two
+    heuristics reading `here.color[4, 7] == me` are reading one thing at two weights — and two records of it
+    are two sets of evidence about one fact, neither of which can be added to the other.
+
+    Measured on a live store before this: 135 heuristics listed 643 rules that were 73 distinct things."""
+    knowledge = create_knowledge_base("tests", tmp_path)
+    rule = RuleRecord("here.color[4, 7] == me", POSITION, PythonRule("here.color[4, 7] == me"), Source(INFERENCE))
+
+    context = knowledge.ensure_context("a game").id
+    ruleset = knowledge.ruleset(Ruleset("a heuristic", POSITION, context, Source(INFERENCE)))
+
+    once = knowledge.declare(rule)
+    again = knowledge.declare(rule)
+
+    assert once.id == again.id
+    knowledge.link(ruleset.id, once.id, 1.0)
+    knowledge.link(ruleset.id, again.id, 2.0)
+    assert len(knowledge.ruleset_rules(ruleset.id)) == 1, "one rule, listed once, at whatever it is tuned to"
+
+
+def test_one_rule_listed_by_two_rulesets_is_weighed_differently_in_each(tmp_path: Path) -> None:
+    """Which is the whole point of keeping one of it: a rule is tuned where it is used, not copied to be
+    tuned."""
+    knowledge = create_knowledge_base("tests", tmp_path)
+    context = knowledge.ensure_context("a game").id
+    rule = knowledge.declare(RuleRecord("mobility", POSITION, PythonRule("here.mobility(me)"), Source(INFERENCE)))
+    first = knowledge.ruleset(Ruleset("careful", POSITION, context, Source(INFERENCE)))
+    second = knowledge.ruleset(Ruleset("bold", POSITION, context, Source(INFERENCE)))
+
+    knowledge.link(first.id, rule.id, 0.25)
+    knowledge.link(second.id, rule.id, 4.0)
+
+    assert [weight for _, weight in knowledge.ruleset_rules(first.id)] == [0.25]
+    assert [weight for _, weight in knowledge.ruleset_rules(second.id)] == [4.0]
+
+
+def test_a_store_read_back_does_not_declare_its_rules_all_over_again(tmp_path: Path) -> None:
+    """The index that makes a rule one rule is built in memory, so a run that read a store and did not rebuild
+    it would write a second copy of everything it already held, once per restart."""
+    rule = RuleRecord("mobility", POSITION, PythonRule("here.mobility(me)"), Source(INFERENCE))
+    before = create_knowledge_base("tests", tmp_path).declare(rule)
+
+    later = create_knowledge_base("tests", tmp_path)
+    again = later.declare(rule)
+
+    assert again.id == before.id, "the rule the store already held, not a second one beside it"

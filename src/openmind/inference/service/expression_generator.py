@@ -215,6 +215,10 @@ class ExpressionGenerator:
         zero = (0,) * arity
         offsets = (zero, *vocabulary.offsets_by_arity.get(arity, ())) if whole else (zero,)
         children: dict[str, Expression] = {}
+        # Every candidate condition, kept across the bases rather than used inside one. An absence pairs two
+        # bases at one offset — what a thing is and whose it is — so gathering them per base and pairing
+        # inside that loop would never put two bases together, which is the whole of what an absence says.
+        offered: list[PatternCondition] = []
         for base, indices in vocabulary.indices_by_base.items():
             same = indices == anchor_indices
             if self._arity(indices) != arity or not (same or (whole and base in vocabulary.grids)):
@@ -241,12 +245,50 @@ class ExpressionGenerator:
                 for condition in conditions:
                     if condition in pattern.conditions:
                         continue
-                    grown = Pattern(pattern.anchor, (*pattern.conditions, condition))
-                    self._add(
-                        children,
-                        Expression(self._pattern_template(grown, vocabulary), len(grown.conditions), 0, grown),
-                    )
+                    grown = Pattern(pattern.anchor, (*pattern.conditions, condition), pattern.absences)
+                    self._add(children, self._pattern(grown, vocabulary))
+                offered.extend(conditions)
+        self._absences(children, pattern, offered, vocabulary)
         return tuple(children.values())
+
+    def _absences(
+        self,
+        children: dict[str, Expression],
+        pattern: Pattern,
+        conditions: Sequence[PatternCondition],
+        vocabulary: Vocabulary,
+    ) -> None:
+        """The children that add what must *not* be there: a new group of two, or one more condition on a group.
+
+        **Seeded with two and never with one**, because an absence of one condition is the `!=` the pattern
+        already grows — kept, it would double every child for nothing. Two is the first thing this says that
+        nothing else can, and it is the shape the chess terms want: not a pawn *and* theirs.
+
+        **Only `==` conditions go in.** A group means "these are not all true at once", and a member that is
+        itself a `!=` makes a claim nobody reads easily and that the search can reach another way. The
+        vocabulary stays small enough to grow through."""
+        present = [one for one in conditions if one.relation == "==" and one.value is not None]
+        for at, first in enumerate(present):
+            for second in present[at + 1:]:
+                if first.steps != second.steps or first.base == second.base:
+                    continue
+                group = (first, second)
+                if group in pattern.absences:
+                    continue
+                grown = Pattern(pattern.anchor, pattern.conditions, (*pattern.absences, group))
+                self._add(children, self._pattern(grown, vocabulary))
+        for at, group in enumerate(pattern.absences):
+            for one in present:
+                if one in group or any(one.steps != held.steps for held in group):
+                    continue
+                absences = (*pattern.absences[:at], (*group, one), *pattern.absences[at + 1:])
+                grown = Pattern(pattern.anchor, pattern.conditions, absences)
+                self._add(children, self._pattern(grown, vocabulary))
+
+    def _pattern(self, pattern: Pattern, vocabulary: Vocabulary) -> Expression:
+        """That pattern as an expression, its size counting what must be there and what must not."""
+        clauses = len(pattern.conditions) + sum(len(group) for group in pattern.absences)
+        return Expression(self._pattern_template(pattern, vocabulary), clauses, 0, pattern)
 
     def aggregate_children(self, expression: Expression, vocabulary: Vocabulary) -> tuple[Expression, ...]:
         aggregate = expression.aggregate
@@ -418,7 +460,28 @@ class ExpressionGenerator:
             f"{readings[condition.other_condition] if condition.other_condition is not None else condition.value}"
             for reading, condition in zip(readings, pattern.conditions, strict=True)
         ]
+        # **And what must not be there**, which is the one thing the conjunction above cannot say. Each group
+        # is a conjunction in its own right and the whole of it is denied, so a group of two says "not a pawn
+        # of theirs" where two plain conditions would say "not a pawn, and not theirs" — a different and much
+        # stronger claim that also rules out a pawn of mine.
+        tests.extend(
+            f"not ({' and '.join(self._absent(pattern, group, readings, vocabulary))})"
+            for group in pattern.absences
+        )
         return f"sum(1 for {PATTERN_INDEX} in {VIEW}.{pattern.anchor} if {' and '.join(tests)})"
+
+    def _absent(
+        self, pattern: Pattern, group: Sequence[PatternCondition], readings: Sequence[str], vocabulary: Vocabulary
+    ) -> list[str]:
+        """One absence group's conditions, read the same way the kept conditions are.
+
+        A condition of a group may still point at a kept condition's reading, which is why `readings` comes in
+        rather than being worked out again here."""
+        return [
+            f"{self._pattern_reading(pattern.anchor, condition, vocabulary)} {condition.relation} "
+            f"{readings[condition.other_condition] if condition.other_condition is not None else condition.value}"
+            for condition in group
+        ]
 
     def _pattern_reading(self, anchor: str, condition: PatternCondition, vocabulary: Vocabulary) -> str:
         if not any(condition.steps) and vocabulary.indices_by_base[condition.base] == vocabulary.indices_by_base[anchor]:

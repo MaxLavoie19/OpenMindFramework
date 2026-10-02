@@ -1,9 +1,11 @@
 import logging
+import math
 from collections.abc import Mapping, Sequence
 
 from openmind.knowledge.model.belief import Belief
 from openmind.knowledge.model.model_record import ModelRecord
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.model.constant.model_constant import CURIOSITY
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +99,51 @@ class ModelRetirement:
             gone.append(model)
         return tuple(gone)
 
+    def worth_asking_again(self, knowledge_base: KnowledgeBase, context_id: str, model: str, among: int) -> float:
+        """The most that model could still turn out to be worth, given how little it has been asked.
+
+        What it has shown per decision, plus how far that could be out — the same bound `ModelDrawer` draws
+        with, read over decisions rather than games. Infinite where it has shown nothing yet, which is what no
+        evidence means on this scale."""
+        belief = knowledge_base.belief(STANDING.format(model=model), context_id)
+        if belief is None:
+            return math.inf
+        seen = int(dict(belief.tags).get(DECISIONS, 0))  # type: ignore[arg-type]
+        if seen < 1:
+            return math.inf
+        held = float(belief.value) if isinstance(belief.value, int | float) else 0.0  # type: ignore[arg-type]
+        return held / seen + CURIOSITY * math.sqrt(math.log(max(among, 2)) / seen)
+
     def keeping(
         self, knowledge_base: KnowledgeBase, context_id: str, records: Sequence[ModelRecord]
     ) -> tuple[ModelRecord, ...]:
-        """Those of the records that have not been retired, which is what a caller should judge and draw from.
+        """Those of the records worth asking: never retired, or retired and still possibly worth something.
+
+        **Retirement is a bound and not a door.** A heuristic retired on what it showed over a handful of
+        decisions was retired on almost nothing, and the reason it showed nothing may be that the pool it came
+        from had no variety for it to be different from. So what keeps it out is not the retirement but the
+        arithmetic: what it has shown per decision, plus how far that could still be out, and it comes back
+        the moment that is the best thing left to try. One that has been wrong over thousands of decisions has
+        a narrow bound and stays out.
+
+        **Nought is the line here too, and it is the same nought.** A heuristic is retired for showing nothing
+        where knowing nothing shows nought; it is asked again when it could still show more than nought. No
+        second threshold is chosen anywhere.
 
         A filter and not a registry method, so that nothing which merely lists a context's models starts
-        hiding things from whoever asks. Who ought to skip a retired heuristic is a question about what the
-        caller is doing, and the callers that skip it say so here."""
-        return tuple(one for one in records if not self.retired(knowledge_base, context_id, one.name))
+        hiding things from whoever asks."""
+        kept, back = [], []
+        for one in records:
+            if not self.retired(knowledge_base, context_id, one.name):
+                kept.append(one)
+                continue
+            if self.worth_asking_again(knowledge_base, context_id, one.name, len(records)) > 0.0:
+                kept.append(one)
+                back.append(one.name)
+        if back:
+            logger.info(
+                "%d retired heuristics are worth asking again, because what they showed rests on too little "
+                "to be sure of: %s",
+                len(back), ", ".join(back[:5]) + (" and more" if len(back) > 5 else ""),
+            )
+        return tuple(kept)

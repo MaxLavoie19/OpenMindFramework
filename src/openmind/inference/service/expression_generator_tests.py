@@ -1,4 +1,6 @@
 from openmind.inference.model.expression import Expression
+from openmind.inference.model.pattern import Pattern
+from openmind.inference.model.pattern_condition import PatternCondition
 from openmind.inference.model.vocabulary import Vocabulary
 from openmind.inference.service.expression_generator import ExpressionGenerator
 
@@ -154,3 +156,75 @@ def test_a_look_ahead_of_a_look_ahead_takes_a_variable_of_its_own():
 def test_an_expression_is_read_as_a_rule_over_the_position_in_hand():
     """The templates are written over a view so a look-ahead can rebind it; a rule reads the position itself."""
     assert ExpressionGenerator().source(Expression("{view}.mobility(me)", 1, 0)).source == "here.mobility(me)"
+
+
+def a_pattern(generator, vocabulary, *wanted: str):
+    """The first pattern among the leaves whose template holds every one of those fragments."""
+    return next(
+        one for one in generator.leaves(vocabulary)
+        if one.pattern is not None and all(part in one.template for part in wanted)
+    )
+
+
+def test_a_pattern_can_say_that_something_is_not_there_without_saying_it_is_nothing():
+    """**The one thing a conjunction could not say, and the nine chess terms that wanted it.**
+
+    A pattern joins with `and` and compares with `==` or `!=`, so "no knight of yours here" could not be
+    written: it is `not (piece == knight and colour == you)`, a disjunction. Written as two `!=` conditions it
+    says something stronger and different — it also rules out a knight of *mine* and a rook of *yours*.
+
+    Measured against the Chess Intelligence Agent's vocabulary before this was built: seven of its conjunctive
+    terms could be written and nine could not, and all nine failed here. Passed pawn is the one the whole
+    endgame vocabulary rests on."""
+    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
+    yours = PatternCondition("colour", (0, 0), "==", "other")
+    knight = PatternCondition("piece", (0, 0), "==", "'knight'")
+
+    absent = generator.pattern_expression(Pattern("piece", (), ((knight, yours),)), vocabulary).template
+    both_denied = generator.pattern_expression(
+        Pattern("piece", (PatternCondition("piece", (0, 0), "!=", "'knight'"), PatternCondition("colour", (0, 0), "!=", "other"))),
+        vocabulary,
+    ).template
+
+    assert "not (" in absent and " and " in absent, "one denial over the pair"
+    assert absent != both_denied, "which is not the same claim as denying each of them"
+
+
+def test_an_absence_is_grown_as_a_pair_because_one_of_them_is_a_relation_the_pattern_already_has():
+    """A group of one would be the `!=` child all over again, doubling every generation for nothing."""
+    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
+    found = generator.pattern_children(a_pattern(generator, vocabulary, "piece", "== 'knight'"), vocabulary)
+
+    absences = [one.pattern for one in found if one.pattern is not None and one.pattern.absences]
+
+    assert absences, "a pattern grows children that deny a pair"
+    assert all(len(group) >= 2 for one in absences for group in one.absences), "and never a pair of one"
+    assert any(
+        {held.base for held in group} == {"piece", "colour"} for one in absences for group in one.absences
+    ), "the pair that says 'no piece of theirs of that kind', which is what the chess terms need"
+
+
+def test_an_absence_of_a_pair_grows_into_an_absence_of_three():
+    """Nothing caps a group at two: two is where it starts saying something, not where it stops."""
+    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
+    pair = next(
+        one for one in generator.pattern_children(a_pattern(generator, vocabulary, "piece", "== 'knight'"), vocabulary)
+        if one.pattern is not None and one.pattern.absences
+    )
+
+    found = [one.pattern for one in generator.pattern_children(pair, vocabulary) if one.pattern is not None]
+
+    assert any(any(len(group) >= 3 for group in one.absences) for one in found)
+
+
+def test_a_pattern_counts_its_absences_among_what_it_costs():
+    """A term denying a pair is a term of two more readings, and a price that could not see them would buy
+    complexity for free."""
+    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
+    one = a_pattern(generator, vocabulary, "piece", "== 'knight'")
+
+    grown = next(
+        held for held in generator.pattern_children(one, vocabulary) if held.pattern is not None and held.pattern.absences
+    )
+
+    assert grown.clauses == one.clauses + 2

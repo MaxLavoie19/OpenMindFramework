@@ -82,16 +82,54 @@ def test_enough_bad_rounds_do_retire_it(tmp_path: Path) -> None:
     assert gone == ("steadily wrong",)
 
 
-def test_a_retired_heuristic_is_not_judged_again(tmp_path: Path) -> None:
+def test_a_heuristic_shown_wrong_over_enough_decisions_is_not_judged_again(tmp_path: Path) -> None:
     """The saving this is for. Judging costs candidates times decisions times moves, so a candidate that goes
-    on being asked after it has been retired is the cost the retirement was meant to remove."""
+    on being asked after it has been shown wrong is the cost the retirement was meant to remove.
+
+    Wrong by a wide margin and over four thousand decisions: nothing it could still turn out to be is above
+    nought, so no amount of not knowing brings it back."""
     knowledge, context = base(tmp_path)
     retirement = create_model_retirement()
+    retirement.shown(knowledge, context, "gone", worth=-400.0, decisions=4000)
     retirement.retire(knowledge, context, "gone", "it showed nothing")
 
     kept = retirement.keeping(knowledge, context, [record("gone"), record("still here")])
 
     assert [one.name for one in kept] == ["still here"]
+
+
+def test_a_heuristic_retired_on_almost_nothing_is_asked_again(tmp_path: Path) -> None:
+    """**Retirement is a bound and not a door**, because what a heuristic showed over a handful of decisions is
+    not evidence that it is useless — and the reason it showed nothing may be that the pool it came from had
+    no variety for it to be different from.
+
+    Here it was wrong, but barely and over three decisions. What it could still be worth is well above nought,
+    so it is the next best thing to try and it comes back. The one above was wrong over four thousand and does
+    not."""
+    knowledge, context = base(tmp_path)
+    retirement = create_model_retirement()
+    retirement.shown(knowledge, context, "hardly asked", worth=-0.1, decisions=3)
+    retirement.retire(knowledge, context, "hardly asked", "it showed nothing")
+
+    kept = retirement.keeping(knowledge, context, [record("hardly asked"), record("still here")])
+
+    assert [one.name for one in kept] == ["hardly asked", "still here"]
+
+
+def test_what_a_retired_heuristic_could_still_be_worth_narrows_as_it_is_asked_more(tmp_path: Path) -> None:
+    """The standard error is the whole of what brings one back, so it has to shrink with the evidence. Two
+    heuristics that have shown the same per decision, one over three decisions and one over three thousand:
+    only the first is still an open question."""
+    knowledge, context = base(tmp_path)
+    retirement = create_model_retirement()
+    retirement.shown(knowledge, context, "scant", worth=-0.3, decisions=3)
+    retirement.shown(knowledge, context, "plenty", worth=-300.0, decisions=3000)
+
+    scant = retirement.worth_asking_again(knowledge, context, "scant", among=20)
+    plenty = retirement.worth_asking_again(knowledge, context, "plenty", among=20)
+
+    assert scant > plenty, "the same showing over less evidence leaves more room to be wrong about"
+    assert plenty < 0.0, "and over enough of it, there is no room left"
 
 
 def test_retiring_the_same_heuristic_twice_does_not_add_to_its_record(tmp_path: Path) -> None:

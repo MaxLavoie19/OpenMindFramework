@@ -106,6 +106,8 @@ class KnowledgeBase:
         self._mechanisms: dict[str, Mechanism] = {}
         self._mechanism_ids: dict[str, str] = {}
         self._rules: dict[str, RuleRecord] = {}
+        #: What each distinct rule was first given as an id, so a rule declared again is the one already kept.
+        self._declared: dict[tuple, str] = {}
         self._rulesets: dict[str, Ruleset] = {}
         self._models: dict[str, ModelRecord] = {}
         self._policies: dict[str, Policy] = {}
@@ -304,16 +306,35 @@ class KnowledgeBase:
     def declare(self, rule: RuleRecord) -> RuleRecord:
         """Keeps the rule and gives it back with the id it can be found by. A rule already carrying an id is written
         anew under that id. This is how an application registers the rules of its game and how inference injects the
-        ones it produces; a ruleset then lists it (see `link`)."""
+        ones it produces; a ruleset then lists it (see `link`).
+
+        **One instance per rule, because what a rule weighs is not part of the rule.** A weight lives on a
+        ruleset's link to a rule, never on the rule, so two rulesets that both read `here.color[4, 7] == me`
+        are reading one thing at two weights — and writing it twice makes two records of one fact, each
+        gathering its own evidence that cannot be added to the other's. Measured on a live store: 135
+        heuristics listed 643 rules that were 73 distinct things, and 568 pairs of heuristics were identical
+        once the duplicates were seen through.
+
+        Same name, kind, rule, action, parameter, probability and openness is the same rule. The source is not
+        part of that: a rule inferred twice from different games is the same rule, and taking the first keeps
+        the record of when this was first known rather than overwriting it with when it was last rediscovered."""
         kept = rule
         if not kept.id:
+            held = self._rules.get(self._declared.get(self._same(kept), ""))
+            if held is not None:
+                return held
             kept = replace(kept, id=new_identifier(RULE))
+            self._declared[self._same(kept)] = kept.id
         if kept.source.at is None:
             kept = replace(kept, source=replace(kept.source, at=datetime.now()))
         self._rule_store.append(self._rule_mapper.to_data(kept))
         self._rules[kept.id] = kept
         logger.debug("Declared %s rule %s (%s)", kept.kind, kept.name, kept.id)
         return kept
+
+    def _same(self, rule: RuleRecord) -> tuple:
+        """What makes two rules one rule: everything about what it says, and nothing about where it came from."""
+        return (rule.name, rule.kind, rule.rule, rule.action, rule.parameter, rule.probability, rule.open)
 
     def revise(self, rule_id: str, rule: RuleRecord) -> RuleRecord:
         """Replaces the rule under that id with the revision, unless the rule is frozen: an application declared it and
@@ -674,6 +695,9 @@ class KnowledgeBase:
         for data in self._rule_store.load():
             rule = self._rule_mapper.from_data(data)
             self._rules[rule.id] = rule
+            # Rebuilt as the store loads, or a restart would declare every rule it already holds all over
+            # again and the store would grow a copy of itself per run.
+            self._declared.setdefault(self._same(rule), rule.id)
         for data in self._ruleset_store.load():
             ruleset = self._ruleset_mapper.from_data(data)
             self._rulesets[ruleset.id] = ruleset

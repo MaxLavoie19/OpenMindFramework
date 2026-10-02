@@ -5,15 +5,12 @@ from collections.abc import Sequence
 
 from openmind.inference.constant.certainty_constant import ACCURACY, SCORED
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
+from openmind.model.constant.model_constant import CURIOSITY
 from openmind.knowledge.model.model_record import ModelRecord
 from openmind.model.service.model_registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
 
-#: How far a model that has hardly played is preferred over one that has done well. The usual constant of the
-#: bound, kept rather than chosen: it is the one that makes the regret of the whole run grow like the log of
-#: its length, which is the property the bound is for.
-CURIOSITY = math.sqrt(2.0)
 
 
 class ModelDrawer:
