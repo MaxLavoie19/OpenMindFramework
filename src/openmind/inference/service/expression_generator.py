@@ -325,6 +325,7 @@ class ExpressionGenerator:
                     if whole:
                         readings.extend((self._changed(base, player, variable), 1) for player in (ME, OTHER))
                         readings.extend(self._what_if_readings(base, variable, renderings))
+                        readings.extend(self._exchange_readings(base, variable, renderings))
                 if pair and not self._numeric(values):
                     readings.append((f"{VIEW}.{base}[{AGGREGATE_INDEX}] == {VIEW}.{base}[{AGGREGATE_OTHER_INDEX}]", 0))
                 if pair and whole:
@@ -371,6 +372,32 @@ class ExpressionGenerator:
                 for owner, player in ((OTHER, ME), (ME, OTHER))
             )
         return readings
+
+    def _exchange_readings(self, base: str, index: str, renderings: Sequence[str]) -> list[tuple[str, int]]:
+        """Take on this square, and then what can still be done to it: an exchange, without knowing what one is.
+
+        **The narrow look-ahead, which is the one a tactic needs.** `look_aheads` reads the position after
+        every move a player has; this reads it after the moves that touch one square, and asks what the other
+        side can then do to that same square. Of the moves that take here, the one after which they can take
+        back least is the question "can I take this and keep it" — and nobody had to say what a capture is, or
+        that a square can be defended, for that to be askable.
+
+        Two plies: the move, and counting what answers it. Nesting one of these inside another's reading is
+        the rest of the chain, which the search grows the way it grows everything else.
+
+        Only where the base says whose a thing is, since an exchange is about ownership changing hands."""
+        if ME not in renderings:
+            return []
+        variable = f"{LOOK_AHEAD_VARIABLE}{index}"
+        return [
+            (
+                f"{VIEW}.{kind}_changing({mover}, {base!r}, {index}, "
+                f"lambda {variable}: {variable}.changed({answering}, {base!r}, {index}))",
+                2,
+            )
+            for kind in (BEST, WORST)
+            for mover, answering in ((ME, OTHER), (OTHER, ME))
+        ]
 
     def _at_other_index(self, body: str) -> str:
         """The body read at `j` where it reads `i`: as an index, or as a call's only, first, middle or last argument."""

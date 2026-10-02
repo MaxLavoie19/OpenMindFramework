@@ -228,3 +228,30 @@ def test_a_pattern_counts_its_absences_among_what_it_costs():
     )
 
     assert grown.clauses == one.clauses + 2
+
+
+def test_an_exchange_reading_looks_only_at_the_moves_that_touch_one_square():
+    """**What a tactic asks, and what a look-ahead over every move cannot afford to.** `look_aheads` reads the
+    position after each of a player's moves, which is a minimax; an exchange is the far smaller question of
+    what follows the moves that touch one square. Both plies are counted, because the move and the answer to
+    it are each one."""
+    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
+    aggregate = next(one for one in generator.leaves(vocabulary) if one.aggregate is not None and "colour" in one.template)
+
+    found = [one for one in generator.aggregate_children(aggregate, vocabulary) if "_changing(" in one.template]
+
+    assert found, "an aggregate body can ask what follows a move onto its index"
+    assert all(one.plies >= 2 for one in found), "the move and what answers it"
+    assert any("best_changing" in one.template for one in found)
+    assert any("worst_changing" in one.template for one in found)
+
+
+def test_an_exchange_reading_is_only_offered_where_a_base_says_whose_a_thing_is():
+    """An exchange is ownership changing hands, so a game that never says whose anything is has no such
+    question — and a reading generated there would be asking what a clock would be taken back by."""
+    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
+    aggregate = next(one for one in generator.leaves(vocabulary) if one.aggregate is not None and "clock" in one.template)
+
+    found = [one for one in generator.aggregate_children(aggregate, vocabulary) if "_changing(" in one.template]
+
+    assert not any("clock" in one.template and "_changing(" in one.template for one in found)

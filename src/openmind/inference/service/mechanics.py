@@ -112,13 +112,13 @@ class Mechanics:
             found: dict[tuple[str, object], float] = {}
             for outcomes in self.moves(rbs, state, player):
                 for view, probability in outcomes:
-                    for part in self._changed_parts(state, view.state):
+                    for part in self.changed_parts(state, view.state):
                         found[part] = found.get(part, 0.0) + probability
             changes = found
             self._remember(key, changes)
         return changes  # type: ignore[return-value]
 
-    def _changed_parts(self, before: State, after: State) -> list[tuple[str, object]]:
+    def changed_parts(self, before: State, after: State) -> list[tuple[str, object]]:
         """The parts of the state whose value differs after: grid cells by coordinates, map entries by key, and scalars
         and lists as a whole. A model the state before doesn't have isn't a change of the state's own parts; a cell or an
         entry only one of the two has counts as changed."""

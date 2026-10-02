@@ -123,6 +123,42 @@ class PositionView:
     def count(self, player: str, reading: Reading) -> float:
         return self._look_ahead(COUNT, player, reading)
 
+    def best_changing(self, player: str, base: str, at: object, reading: Reading) -> float:
+        """The most that reading comes to after one of the player's moves that changes the base at that index.
+
+        **A look-ahead over one square rather than over everything.** `best` reads the position after every
+        move a player has, which is a minimax and costs what one costs. What a tactic asks is narrower and far
+        cheaper: of the moves that touch *this* square, what is the best that follows. That is the shape a
+        static exchange has — take here, they take back here, take again — and nesting this alternates the
+        sides of it without any of it knowing what a capture is.
+
+        **Nothing where the player has no such move, which is not nought.** `best` falls back on the position
+        in hand, because a player with no moves at all is a position that stands; that is wrong here, where
+        the question was about a move that does not exist. Nought is wrong too, and measured: asked for how
+        many pieces are left after an exchange, a square with no recapture answered nought and read as though
+        both sides had been wiped off the board.
+
+        So it reads as nothing at all, which is what this project means by a term that did not fire — and
+        not firing is not the same as being wrong. A comparison against it is false, a sum through it is
+        nothing, and the fit holds none of it against the term."""
+        return self._changing(BEST, player, base, at, reading)
+
+    def worst_changing(self, player: str, base: str, at: object, reading: Reading) -> float:
+        """The least that reading comes to after one of the player's moves that changes the base at that index.
+
+        The other half of an exchange: `best` is what the mover picks, `worst` is what they are held to."""
+        return self._changing(WORST, player, base, at, reading)
+
+    def _changing(self, kind: str, player: str, base: str, at: object, reading: Reading) -> float:
+        expected = [
+            math.fsum(probability * float(reading(view)) for view, probability in outcomes)  # type: ignore[arg-type]
+            for outcomes in self.moves(player)
+            if any((base, at) in self._mechanics.changed_parts(self._state, view.state) for view, _ in outcomes)
+        ]
+        if not expected:
+            return math.nan
+        return max(expected) if kind == BEST else min(expected)
+
     def _look_ahead(self, kind: str, player: str, reading: Reading) -> float:
         key = self._key(kind, player, reading)
         if key is not None and (kept := self._memo.get(key)) is not None:
