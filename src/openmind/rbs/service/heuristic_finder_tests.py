@@ -2,11 +2,16 @@ from collections.abc import Callable
 from pathlib import Path
 from tempfile import mkdtemp
 
+import numpy as np
+import pytest
+
 from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.knowledge.constant.task_constant import POSITION_VALUE
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.model.service.model_registry import ModelRegistry
+from openmind.inference.model.expression import Expression
+from openmind.inference.model.expression_search_result import ExpressionSearchResult
 from openmind.rbs.factory.rbs_factory import create_heuristic_finder
 from openmind.rbs.model.heuristic_target import HeuristicTarget
 from openmind.rbs.model.position_row import PositionRow
@@ -177,3 +182,55 @@ def test_a_budget_nothing_could_exhaust_writes_what_the_fit_kept(game: Game, kno
 
     assert lavish.chosen.terms_kept == rich.chosen.terms_kept, "the same fit either way"
     assert len(lavish.rules) == lavish.chosen.terms_kept + 1, "and every term of it was bought"
+
+
+def test_terms_are_assembled_from_what_a_fit_of_the_searched_terms_still_misses(game: Game) -> None:
+    """**Why the finder has an assembler at all.** The search grows a term one clause at a time and is paid for
+    what it predicts, so a term no shorter version of which predicts anything is out of reach however long it
+    runs. Assembled against the residual — what a fit of everything the search found still fails to say — the
+    same term comes out in one pass.
+
+    What is pinned is the wiring and not the quality: that the assembly is handed what is left over rather
+    than the payoff. A term's worth is still the fit's to find and a signal's to pay for.
+
+    **Asked of the step and not of a whole generation**, because a generation's search runs against a clock:
+    under a loaded machine it returns no candidates, there is then nothing to leave over, and the test failed
+    for a reason that had nothing to do with what it meant to check."""
+    played = game("tictactoe")
+    training, _ = rows(played)
+    # One column that reads the target exactly, and one that says nothing: a fit of these leaves the second
+    # row's worth unexplained and nothing else.
+    targets = np.array([one.target for one in training])
+    missed_by = np.array([1.0, 0.0, 1.0, 0.0])
+    searched = ExpressionSearchResult(
+        expressions=(Expression("{view}.x", 1, 0),),
+        training=(targets - missed_by,),
+        held_out=(),
+        generations=1,
+        stopped="asked",
+        tried=1,
+    )
+    finder, asked = create_heuristic_finder(), []
+
+    class Watching:
+        """Stands in for the assembly to see what it is handed, and builds nothing."""
+
+        def assembled(self, rows, missed, vocabulary, **held):
+            asked.append(list(missed))
+            return ()
+
+        def worded(self, pattern):
+            return ""
+
+    finder._term_assembler = Watching()
+    finder._assembled(played, searched, training, (), targets, "")
+
+    assert asked, "the assembly is asked"
+    assert len(asked[0]) == len(training), "about every row it could build from"
+    # Not the residual to the decimal: a fit does not recover a single column at weight one and no bias, and
+    # pinning that it does would pin the fitter's convergence rather than what this step hands over.
+    left_over = [one for one, missed in zip(asked[0], missed_by) if missed]
+    explained = [one for one, missed in zip(asked[0], missed_by) if not missed]
+
+    assert asked[0] != [one.target for one in training], "it is not handed the payoff"
+    assert min(left_over) > max(explained), "it is handed what the fit left over"

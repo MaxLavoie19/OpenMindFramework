@@ -3,6 +3,7 @@ import math
 from collections.abc import Collection, Mapping, Sequence
 
 import numpy as np
+from dataclasses import replace
 
 from openmind.inference.service.accuracy_scorer import AccuracyScorer
 from openmind.inference.constant.inference_constant import SINGLE_TARGET
@@ -29,6 +30,8 @@ from openmind.rbs.model.value_generation_result import ValueGenerationResult
 from openmind.rbs.model.heuristic_target import HeuristicTarget
 from openmind.rbs.model.value_settings import ValueSettings
 from openmind.rbs.service.sparse_fitter import SparseFitter
+from openmind.inference.service.term_assembler import TermAssembler
+from openmind.rbs.service.term_evaluator import TermEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +62,18 @@ class HeuristicFinder:
         sparse_fitter: SparseFitter,
         rule_admission: RuleAdmission | None = None,
         rule_signals: Sequence[RuleSignal] = (),
+        term_assembler: TermAssembler | None = None,
+        term_evaluator: TermEvaluator | None = None,
     ) -> None:
+        #: What builds a term out of the rows a fit is most wrong about, and what reads one over those rows.
+        #:
+        #: **The search finds what it can grow to and this finds what it cannot.** A term is grown one clause
+        #: at a time and paid for what it predicts, so a term no shorter version of which predicts anything is
+        #: unreachable however long the search runs — a passed pawn is a condition and twenty-one denials, and
+        #: no three of them say a thing. Assembled against what the fit is still missing, the same term comes
+        #: out of ninety boards. Given neither, this generates and fits exactly as it did before.
+        self._term_assembler = term_assembler
+        self._term_evaluator = term_evaluator
         self._expression_search = expression_search
         self._expression_generator = expression_generator
         self._sparse_fitter = sparse_fitter
@@ -138,6 +152,7 @@ class HeuristicFinder:
                 dropped,
             )
             for name, (values, held_out_values) in scaled.items():
+                found = self._assembled(rbs, found, training, held_out, values, self._label(name, several))
                 results[name] = self._sweep(
                     rbs, target, self._label(name, several), found, values, held_out_values, prices, settings, bool(held_out)
                 )
@@ -446,3 +461,60 @@ class HeuristicFinder:
 
     def _label(self, name: str, several: bool) -> str:
         return f"{name}: " if several else ""
+
+    def _assembled(
+        self,
+        rbs: RuleBasedGame,
+        found: ExpressionSearchResult,
+        training: Sequence[PositionRow],
+        held_out: Sequence[PositionRow],
+        targets: np.ndarray,
+        label: str,
+    ) -> ExpressionSearchResult:
+        """The search's expressions, with terms built against what a fit of them still misses.
+
+        **Assembled against the residual, so a term earns its place against what is already known.** Fitted
+        once, what is left over is what every candidate the search could reach fails to say — and that is the
+        thing worth building a term out of. Assembled against the raw payoff instead, a term would mostly
+        rediscover what the fit already has.
+
+        **It reaches what a search cannot.** A term is grown one clause at a time and paid for what it
+        predicts, so a term no shorter version of which predicts anything is out of reach however long the
+        search runs: a passed pawn is a condition and twenty-one denials, and no three of them say anything.
+
+        Nothing is written here. What comes back is more candidates, which go through the same price sweep,
+        the same economy and the same fit as everything the search grew — a signal still has to stake a budget
+        on an assembled term, and the fit can still give it no weight at all. A term whose held-out column
+        cannot be read is dropped rather than carried, because the sweep reads the two side by side."""
+        if self._term_assembler is None or self._term_evaluator is None or not found.training:
+            return found
+        columns = np.column_stack(found.training)
+        fit = self._sparse_fitter.fit(columns, targets, 0.0, 200, 1e-4)
+        missing = targets - (columns @ fit.weights + fit.bias)
+        if float(np.nanstd(missing)) == 0.0:
+            logger.info("%sThe fit leaves nothing for a term to account for", label)
+            return found
+        vocabulary = self._expression_generator.vocabulary(rbs, [row.state for row in training])
+        kept, grown, aside = [], [], []
+        for one in self._term_assembler.assembled(training, missing.tolist(), vocabulary):
+            term = self._expression_generator.source(one)
+            here = self._term_evaluator.column(rbs, training, term)
+            there = self._term_evaluator.column(rbs, held_out, term) if held_out else np.empty(0)
+            if here is None or there is None or float(np.nanstd(here)) == 0.0:
+                continue
+            kept.append(one)
+            grown.append(here)
+            aside.append(there)
+        if not kept:
+            return found
+        logger.info(
+            "%sAssembled %d terms from what a fit of %d candidates still misses: %s",
+            label, len(kept), len(found.expressions),
+            "; ".join(self._term_assembler.worded(one.pattern) for one in kept if one.pattern is not None)[:200],
+        )
+        return replace(
+            found,
+            expressions=(*found.expressions, *kept),
+            training=(*found.training, *grown),
+            held_out=(*found.held_out, *aside) if found.held_out else found.held_out,
+        )

@@ -14,6 +14,7 @@ from openmind.rbs.service.reading_cache import ReadingCache
 from openmind.rule.service.rule_compiler import RuleCompiler
 from openmind.rule.service.rule_runner import RuleRunner
 from openmind.rbs.service.sparse_fitter import SparseFitter
+from openmind.inference.service.term_assembler import TermAssembler
 from openmind.rbs.service.term_evaluator import TermEvaluator
 from openmind.rbs.service.heuristic_finder import HeuristicFinder
 
@@ -49,4 +50,9 @@ class HeuristicFinderBuilder:
         evaluator = create_term_evaluator(self._workers, self._memory_cap)
         generator, fitter = ExpressionGenerator(), SparseFitter()
         search = ExpressionSearch(generator, evaluator, fitter, MemoryMeter())
-        return HeuristicFinder(search, generator, fitter, self._admission, self._signals)
+        # The assembler reads the same rows the search does and builds what the search cannot grow to; the
+        # evaluator it is given is the one that already times every reading, so an assembled term is priced
+        # like any other.
+        return HeuristicFinder(
+            search, generator, fitter, self._admission, self._signals, TermAssembler(), evaluator
+        )
