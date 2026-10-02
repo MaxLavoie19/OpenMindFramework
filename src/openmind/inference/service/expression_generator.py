@@ -483,6 +483,7 @@ class ExpressionGenerator:
     def _pattern_template(self, pattern: Pattern, vocabulary: Vocabulary) -> str:
         readings = [self._pattern_reading(pattern.anchor, condition, vocabulary) for condition in pattern.conditions]
         tests = [
+            reading if condition.says is not None else
             f"{reading} {condition.relation} "
             f"{readings[condition.other_condition] if condition.other_condition is not None else condition.value}"
             for reading, condition in zip(readings, pattern.conditions, strict=True)
@@ -505,12 +506,15 @@ class ExpressionGenerator:
         A condition of a group may still point at a kept condition's reading, which is why `readings` comes in
         rather than being worked out again here."""
         return [
+            self._pattern_reading(pattern.anchor, condition, vocabulary) if condition.says is not None else
             f"{self._pattern_reading(pattern.anchor, condition, vocabulary)} {condition.relation} "
             f"{readings[condition.other_condition] if condition.other_condition is not None else condition.value}"
             for condition in group
         ]
 
     def _pattern_reading(self, anchor: str, condition: PatternCondition, vocabulary: Vocabulary) -> str:
+        if condition.says is not None:
+            return condition.says
         if not any(condition.steps) and vocabulary.indices_by_base[condition.base] == vocabulary.indices_by_base[anchor]:
             return f"{VIEW}.{condition.base}[{PATTERN_INDEX}]"
         return f"{VIEW}.offset({condition.base!r}, {PATTERN_INDEX}, {', '.join(map(str, condition.steps))})"
