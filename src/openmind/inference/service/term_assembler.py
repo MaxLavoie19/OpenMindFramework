@@ -346,10 +346,20 @@ class TermAssembler:
             if not one.name:
                 by_place.setdefault(tuple(one.steps), []).append(one)
         for steps, held in by_place.items():
-            words = [self._word(one) for one in held]
+            # **What a thing is before whose it is**, which is the order the words go in — "a pawn of mine",
+            # never "of mine pawn". The conditions arrive in whatever order they were assembled, and a name
+            # that reads them off in that order is the right words in the wrong sentence.
+            ordered = sorted(held, key=lambda one: self._owning(one))
+            words = [self._word(one) for one in ordered]
+            if all(self._owning(one) for one in held):
+                words.insert(0, "something")
             where = "here" if not any(steps) else f"at {steps}"
             named.append(f"{' '.join(words)} {where}")
         return ", ".join(named)
+
+    def _owning(self, condition: PatternCondition) -> bool:
+        """Whether that condition says whose a place is, rather than what stands on it."""
+        return str(condition.value) in (ME, OTHER)
 
     def _word(self, condition: PatternCondition) -> str:
         """One condition as a word: what it says a place holds, or whose it is."""

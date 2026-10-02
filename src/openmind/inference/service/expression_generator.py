@@ -142,9 +142,13 @@ class ExpressionGenerator:
         return tuple(expressions.values())
 
     def pattern_expression(self, pattern: Pattern, vocabulary: Vocabulary) -> Expression:
-        """The expression counting the indices where every condition of the pattern holds; one clause per condition. Every
-        base the pattern reads must be in the vocabulary."""
-        return Expression(self._pattern_template(pattern, vocabulary), len(pattern.conditions), 0, pattern)
+        """The expression counting the indices where every condition holds and no absence does; one clause per condition
+        and one per condition denied. Every base the pattern reads must be in the vocabulary.
+
+        **The denials are counted, because a price that cannot see them buys complexity for free.** What a
+        term costs is what the fit charges to keep it, and a pattern denying ten pairs is twenty readings
+        whoever built it."""
+        return Expression(self._pattern_template(pattern, vocabulary), self._clauses(pattern), 0, pattern)
 
     def counting(
         self, base: str, value: Value, vocabulary: Vocabulary, owner: str | None = None
@@ -246,49 +250,28 @@ class ExpressionGenerator:
                     if condition in pattern.conditions:
                         continue
                     grown = Pattern(pattern.anchor, (*pattern.conditions, condition), pattern.absences)
-                    self._add(children, self._pattern(grown, vocabulary))
-                offered.extend(conditions)
-        self._absences(children, pattern, offered, vocabulary)
+                    self._add(children, self.pattern_expression(grown, vocabulary))
         return tuple(children.values())
 
-    def _absences(
-        self,
-        children: dict[str, Expression],
-        pattern: Pattern,
-        conditions: Sequence[PatternCondition],
-        vocabulary: Vocabulary,
-    ) -> None:
-        """The children that add what must *not* be there: a new group of two, or one more condition on a group.
+    #: **Absences are not grown here, and that is measured rather than assumed.**
+    #:
+    #: `Pattern.absences` exists because nine of the Chess Intelligence Agent's terms need one, and a pattern
+    #: can hold them — but growing them a pair at a time was 40% of the children of every pattern, 85 against
+    #: 51, in a search its clock already holds to two generations. What that bought, over a store of 1,189
+    #: fitted position rules: not one of them held a denial.
+    #:
+    #: The reason is the clearest finding of the literature on this: no system discovers which negated
+    #: conjunction to use, and Progol and Aleph both require one supplied as a background predicate. No
+    #: shorter version of an absence predicts anything, so there is nothing for a search to climb toward —
+    #: the same reason a passed pawn is unreachable by growth.
+    #:
+    #: So absences are assembled rather than searched. `TermAssembler` chooses them against what a heuristic
+    #: is missing, where each is kept because it accounts for something, and a passed pawn comes out of ninety
+    #: boards at 0.927 on boards it never read. The search keeps its budget for terms it can reach.
 
-        **Seeded with two and never with one**, because an absence of one condition is the `!=` the pattern
-        already grows — kept, it would double every child for nothing. Two is the first thing this says that
-        nothing else can, and it is the shape the chess terms want: not a pawn *and* theirs.
-
-        **Only `==` conditions go in.** A group means "these are not all true at once", and a member that is
-        itself a `!=` makes a claim nobody reads easily and that the search can reach another way. The
-        vocabulary stays small enough to grow through."""
-        present = [one for one in conditions if one.relation == "==" and one.value is not None]
-        for at, first in enumerate(present):
-            for second in present[at + 1:]:
-                if first.steps != second.steps or first.base == second.base:
-                    continue
-                group = (first, second)
-                if group in pattern.absences:
-                    continue
-                grown = Pattern(pattern.anchor, pattern.conditions, (*pattern.absences, group))
-                self._add(children, self._pattern(grown, vocabulary))
-        for at, group in enumerate(pattern.absences):
-            for one in present:
-                if one in group or any(one.steps != held.steps for held in group):
-                    continue
-                absences = (*pattern.absences[:at], (*group, one), *pattern.absences[at + 1:])
-                grown = Pattern(pattern.anchor, pattern.conditions, absences)
-                self._add(children, self._pattern(grown, vocabulary))
-
-    def _pattern(self, pattern: Pattern, vocabulary: Vocabulary) -> Expression:
-        """That pattern as an expression, its size counting what must be there and what must not."""
-        clauses = len(pattern.conditions) + sum(len(group) for group in pattern.absences)
-        return Expression(self._pattern_template(pattern, vocabulary), clauses, 0, pattern)
+    def _clauses(self, pattern: Pattern) -> int:
+        """What that pattern costs: one for each condition that must hold, one for each condition denied."""
+        return len(pattern.conditions) + sum(len(group) for group in pattern.absences)
 
     def aggregate_children(self, expression: Expression, vocabulary: Vocabulary) -> tuple[Expression, ...]:
         aggregate = expression.aggregate

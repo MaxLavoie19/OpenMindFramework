@@ -138,3 +138,26 @@ def test_nothing_is_assembled_where_there_is_nothing_to_account_for():
     rows, _ = boards()
 
     assert TermAssembler().assembled(rows, [1.0] * len(rows), a_vocabulary()) == ()
+
+
+def test_a_name_says_what_a_thing_is_before_it_says_whose_it_is():
+    """**The words in the right sentence.** Conditions arrive in whatever order the assembly found them, and a
+    name read off in that order says "of mine pawn" — the right words, badly ordered. Here the owner is given
+    first, as a real assembly often does, and the name still reads as a person would say it."""
+    pattern = Pattern(
+        "thing",
+        (
+            PatternCondition("whose", (0, 0), "==", "me"),
+            PatternCondition("thing", (0, 0), "==", "'stone'"),
+        ),
+    )
+
+    assert TermAssembler().worded(pattern) == "stone of mine here"
+
+
+def test_a_place_known_only_by_whose_it_is_still_reads_as_a_sentence():
+    """Nothing says what stands there, only that it is somebody's, and the name should say that rather than
+    begin mid-phrase."""
+    pattern = Pattern("thing", (PatternCondition("whose", (1, 0), "==", "other"),))
+
+    assert TermAssembler().worded(pattern) == "something of theirs at (1, 0)"

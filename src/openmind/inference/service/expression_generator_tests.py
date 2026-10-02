@@ -190,44 +190,37 @@ def test_a_pattern_can_say_that_something_is_not_there_without_saying_it_is_noth
     assert absent != both_denied, "which is not the same claim as denying each of them"
 
 
-def test_an_absence_is_grown_as_a_pair_because_one_of_them_is_a_relation_the_pattern_already_has():
-    """A group of one would be the `!=` child all over again, doubling every generation for nothing."""
-    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
-    found = generator.pattern_children(a_pattern(generator, vocabulary, "piece", "== 'knight'"), vocabulary)
+def test_the_search_does_not_grow_absences_because_nothing_reaches_one_by_growing():
+    """**Measured, and then taken out again.** Growing absences a pair at a time was 40% of the children of
+    every pattern — 85 against 51 — in a search its clock already holds to two generations. What it bought,
+    over a store of 1,189 fitted position rules: not one of them held a denial.
 
-    absences = [one.pattern for one in found if one.pattern is not None and one.pattern.absences]
+    The reason is the clearest finding in the literature on this: no system discovers which negated
+    conjunction to use, and both Progol and Aleph require one supplied. No shorter version of an absence
+    predicts anything, so there is nothing for a search to climb. `TermAssembler` chooses them against what a
+    heuristic is missing instead, where each is kept because it accounts for something.
 
-    assert absences, "a pattern grows children that deny a pair"
-    assert all(len(group) >= 2 for one in absences for group in one.absences), "and never a pair of one"
-    assert any(
-        {held.base for held in group} == {"piece", "colour"} for one in absences for group in one.absences
-    ), "the pair that says 'no piece of theirs of that kind', which is what the chess terms need"
-
-
-def test_an_absence_of_a_pair_grows_into_an_absence_of_three():
-    """Nothing caps a group at two: two is where it starts saying something, not where it stops."""
-    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
-    pair = next(
-        one for one in generator.pattern_children(a_pattern(generator, vocabulary, "piece", "== 'knight'"), vocabulary)
-        if one.pattern is not None and one.pattern.absences
-    )
-
-    found = [one.pattern for one in generator.pattern_children(pair, vocabulary) if one.pattern is not None]
-
-    assert any(any(len(group) >= 3 for group in one.absences) for one in found)
-
-
-def test_a_pattern_counts_its_absences_among_what_it_costs():
-    """A term denying a pair is a term of two more readings, and a price that could not see them would buy
-    complexity for free."""
+    A pattern can still hold them — that is pinned above — and the generator still writes them out."""
     generator, vocabulary = ExpressionGenerator(), a_vocabulary()
     one = a_pattern(generator, vocabulary, "piece", "== 'knight'")
 
-    grown = next(
-        held for held in generator.pattern_children(one, vocabulary) if held.pattern is not None and held.pattern.absences
-    )
+    found = generator.pattern_children(one, vocabulary)
 
-    assert grown.clauses == one.clauses + 2
+    assert found, "it still grows children"
+    assert not any(child.pattern is not None and child.pattern.absences for child in found)
+
+
+def test_a_pattern_costs_what_its_denials_add_to_it():
+    """A term denying a pair is a term of two more readings, and a price that could not see them would buy
+    complexity for free. Built here rather than grown, which is where denials now come from."""
+    generator, vocabulary = ExpressionGenerator(), a_vocabulary()
+    knight = PatternCondition("piece", (0, 0), "==", "'knight'")
+    theirs = PatternCondition("colour", (0, 0), "==", "other")
+
+    plain = generator.pattern_expression(Pattern("piece", (knight,)), vocabulary)
+    denied = generator.pattern_expression(Pattern("piece", (knight,), ((knight, theirs),)), vocabulary)
+
+    assert denied.clauses == plain.clauses + 2
 
 
 def test_an_exchange_reading_looks_only_at_the_moves_that_touch_one_square():
