@@ -1,5 +1,6 @@
 import itertools
-from collections.abc import Iterable, Sequence
+from collections import deque
+from collections.abc import Iterable, Iterator, Sequence
 
 from openmind.inference.constant.inference_constant import (
     AGGREGATE_INDEX,
@@ -219,39 +220,71 @@ class ExpressionGenerator:
         zero = (0,) * arity
         offsets = (zero, *vocabulary.offsets_by_arity.get(arity, ())) if whole else (zero,)
         children: dict[str, Expression] = {}
-        # Every candidate condition, kept across the bases rather than used inside one. An absence pairs two
-        # bases at one offset — what a thing is and whose it is — so gathering them per base and pairing
-        # inside that loop would never put two bases together, which is the whole of what an absence says.
-        offered: list[PatternCondition] = []
-        for base, indices in vocabulary.indices_by_base.items():
-            same = indices == anchor_indices
-            if self._arity(indices) != arity or not (same or (whole and base in vocabulary.grids)):
+        # **The bases take turns, because finishing one before touching the next hides the other half of a
+        # cell.** Where a game describes one cell with two grids — chess says what piece stands there and
+        # whose it is — the thing worth saying pairs them, and a pattern anchored on one of them made every
+        # condition about itself first. Measured on chess: of a colour-anchored pattern's 6,293 children the
+        # first naming pieces is number 2,246, and a generation that drew 810 of them reached none of them. A
+        # piece-anchored pattern's very first child is already such a pair, which is why this looked like a
+        # property of the target rather than of the ordering.
+        #
+        # Interleaved, a pair is reached within the first few children whatever the anchor is. Nothing is
+        # dropped and nothing is preferred: each base gets a turn, and within a base no offset comes before
+        # the cell itself.
+        streams = [
+            self._base_conditions(pattern, base, indices, anchor_indices, arity, whole, offsets, vocabulary)
+            for base, indices in vocabulary.indices_by_base.items()
+        ]
+        for condition in self._in_turn(streams):
+            if condition in pattern.conditions:
                 continue
-            base_values = vocabulary.values_by_base[base]
-            values = (
-                []
-                if self._numeric(base_values)
-                else [rendered for value in base_values for rendered in self._rendered(value, vocabulary)]
-            )
-            for steps in offsets:
-                shifted = [*values, repr(OUTSIDE)] if any(steps) or not same else values
-                conditions = [
-                    PatternCondition(base, steps, relation, rendered)
-                    for relation in PATTERN_RELATIONS
-                    for rendered in shifted
-                ]
-                conditions.extend(
-                    PatternCondition(base, steps, relation, None, position)
-                    for relation in PATTERN_RELATIONS
-                    for position, condition in enumerate(pattern.conditions)
-                    if (condition.base, condition.steps) != (base, steps)
-                )
-                for condition in conditions:
-                    if condition in pattern.conditions:
-                        continue
-                    grown = Pattern(pattern.anchor, (*pattern.conditions, condition), pattern.absences)
-                    self._add(children, self.pattern_expression(grown, vocabulary))
+            grown = Pattern(pattern.anchor, (*pattern.conditions, condition), pattern.absences)
+            self._add(children, self.pattern_expression(grown, vocabulary))
         return tuple(children.values())
+
+    def _base_conditions(
+        self,
+        pattern: Pattern,
+        base: str,
+        indices: frozenset[tuple[object, ...]],
+        anchor_indices: frozenset[tuple[object, ...]],
+        arity: int,
+        whole: bool,
+        offsets: Sequence[tuple[int, ...]],
+        vocabulary: Vocabulary,
+    ) -> Iterator[PatternCondition]:
+        """Every condition one base can offer this pattern, the cell itself before any offset of it.
+
+        A base that doesn't index the same way as the anchor offers nothing: a condition has to be about the
+        cell the pattern is standing on."""
+        same = indices == anchor_indices
+        if self._arity(indices) != arity or not (same or (whole and base in vocabulary.grids)):
+            return
+        base_values = vocabulary.values_by_base[base]
+        values = (
+            []
+            if self._numeric(base_values)
+            else [rendered for value in base_values for rendered in self._rendered(value, vocabulary)]
+        )
+        for steps in offsets:
+            shifted = [*values, repr(OUTSIDE)] if any(steps) or not same else values
+            for relation in PATTERN_RELATIONS:
+                for rendered in shifted:
+                    yield PatternCondition(base, steps, relation, rendered)
+            for relation in PATTERN_RELATIONS:
+                for position, condition in enumerate(pattern.conditions):
+                    if (condition.base, condition.steps) != (base, steps):
+                        yield PatternCondition(base, steps, relation, None, position)
+
+    def _in_turn(self, streams: Sequence[Iterator[PatternCondition]]) -> Iterator[PatternCondition]:
+        """One condition from each stream in turn, until every stream is done."""
+        live = deque(streams)
+        while live:
+            stream = live.popleft()
+            condition = next(stream, None)
+            if condition is not None:
+                live.append(stream)
+                yield condition
 
     #: **Absences are not grown here, and that is measured rather than assumed.**
     #:
