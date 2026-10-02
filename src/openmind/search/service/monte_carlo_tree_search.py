@@ -64,10 +64,12 @@ class MonteCarloTreeSearch:
             )
         if not moves:
             return None
+        worth = self._worth(root, len(players))
         logger.info(
-            "Explored %s for %s: %d nodes, %d states covered", node.game.context, guidance.player, root.visits, len(moves)  # type: ignore[union-attr]
+            "Explored %s for %s: %d nodes, %d states covered, %d valued",  # type: ignore[union-attr]
+            node.game.context, guidance.player, root.visits, len(moves), len(worth),
         )
-        return Strategy(tuple(moves.items()))
+        return Strategy(tuple(moves.items()), tuple(worth.items()))
 
     def _iterate(
         self, root: SearchNode, guidance: Guidance, settings: SearchSettings, players: Sequence[str], rng: random.Random
@@ -256,6 +258,22 @@ class MonteCarloTreeSearch:
             if distribution:
                 moves[node.node.state] = distribution
         return moves
+
+    def _worth(self, root: SearchNode, players: int) -> dict[object, tuple[float, ...]]:
+        """What the search made of every position it explored, per player.
+
+        **This is the half of a search's answer that was being discarded.** The move it recommends is kept and
+        read; what it concluded the position is *worth* was known at every node and thrown away with the tree.
+        That number is the heuristic's own reading improved by looking ahead, which is the one thing a
+        heuristic can be taught from that it does not already know.
+
+        Only what was visited. A node the search never valued has a mean of nought, and nought is a real
+        verdict — a position judged level — so offering it would be inventing an opinion out of an absence."""
+        return {
+            node.node.state: tuple(node.mean(at) for at in range(players))
+            for node in self._explored(root)
+            if node.visits
+        }
 
     def _distribution(
         self, node: SearchNode, statistics: Sequence[ActionStatistics], temperature: float

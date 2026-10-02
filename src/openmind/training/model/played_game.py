@@ -23,6 +23,19 @@ class PlayedGame:
     ending: str | None = None
     agent_seed: int | None = None
     outcome_seed: int | None = None
+    #: What the search concluded each position it acted in was worth, per player, in step with `actions`.
+    #:
+    #: **Expand, then distil.** A search reads the heuristic at its leaves, looks ahead, and comes back with a
+    #: better answer than the heuristic gave it. That answer is what the heuristic can be taught to say
+    #: without looking ahead — and it was being discarded with the tree the moment a move was picked.
+    #:
+    #: **And it is the target a payoff cannot be.** What a game paid is one number credited back across every
+    #: position in it, so a position at move twelve wears a result decided forty moves later; fitted to that,
+    #: a corner square and a count of material are nearly indistinguishable, which is a thing that happened.
+    #: This is about *this* position, there is one wherever a search ran, and it rises as the agent does.
+    #:
+    #: Empty where nothing searched — a game played by something that does not look ahead says nothing here.
+    worth: tuple[tuple[float, ...], ...] = ()
 
     @property
     def steps(self) -> int:

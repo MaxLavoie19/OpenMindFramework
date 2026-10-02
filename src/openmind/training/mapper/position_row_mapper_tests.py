@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.training.mapper.position_row_mapper import PositionRowMapper
@@ -73,3 +74,39 @@ def test_the_rows_of_several_games_are_pooled(game: Game) -> None:
 
 def test_no_games_give_no_rows(game: Game) -> None:
     assert PositionRowMapper().to_rows(game("tictactoe"), []) == ()
+
+
+def test_a_position_is_valued_at_what_the_search_made_of_it_rather_than_what_the_game_paid(game: Game) -> None:
+    """**The whole of expanding and distilling.** A search reads the heuristic at its leaves, looks ahead, and
+    comes back with a better answer than it was given. Fitting the heuristic to that teaches it to say without
+    looking ahead what the search needed the looking ahead to find, and the next search starts from the better
+    reading. Fitted to the game's result instead, every position wears one number decided forty moves later —
+    which cannot tell a corner square from a count of material."""
+    played = game("tictactoe")
+    searched = replace(a_game(played, steps=2), worth=((0.25, 0.75), (0.4, 0.6)))
+
+    rows = PositionRowMapper().to_rows(played, [searched])
+
+    assert [(one.player, one.target) for one in rows[:4]] == [
+        ("X", 0.25), ("O", 0.75), ("X", 0.4), ("O", 0.6),
+    ], "each position worth what the search concluded there, not what the game came to"
+
+
+def test_a_position_the_search_never_valued_falls_back_to_what_the_game_paid(game: Game) -> None:
+    """The last position has no decision after it, and a game played by something that does not look ahead has
+    no search anywhere. A payoff is a poor target and it is better than no row at all."""
+    played = game("tictactoe")
+    searched = replace(a_game(played, steps=1), worth=((0.25, 0.75),))
+
+    rows = PositionRowMapper().to_rows(played, [searched])
+
+    assert [(one.player, one.target) for one in rows] == [
+        ("X", 0.25), ("O", 0.75), ("X", 1.0), ("O", 0.0),
+    ], "the searched position by the search, the last one by the payoff"
+
+
+def test_a_game_that_neither_paid_nor_searched_gives_nothing(game: Game) -> None:
+    """Cut short before it ended and played without looking ahead, it says nothing about any position."""
+    played = game("tictactoe")
+
+    assert PositionRowMapper().to_rows(played, [a_game(played, payoffs=(), steps=2)]) == ()

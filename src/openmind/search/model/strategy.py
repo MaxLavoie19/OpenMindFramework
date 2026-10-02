@@ -18,6 +18,25 @@ class Strategy:
     where the agent strategizes again."""
 
     moves: tuple[tuple[State, MoveDistribution], ...]
+    #: What the search concluded each of those positions is worth, per player, where it valued one.
+    #:
+    #: **The search's answer is better than the heuristic that fed it, and it was being thrown away.** A
+    #: position heuristic says what a board looks worth; a search reads it at the leaves, looks ahead, and
+    #: comes back with something better — and until now only the move survived that. Kept, it is what the
+    #: heuristic can be taught to say without the looking ahead: expand, then distil.
+    #:
+    #: **It is the target a payoff cannot be.** What a game paid is one number credited back across every
+    #: position in it, so a position at move twelve wears the result of something decided forty moves later.
+    #: This is about *this* position, there is one for every position searched, and it improves as the agent
+    #: does — where an outside engine is a fixed ceiling and agreeing with it perfectly is where that stops.
+    worth: tuple[tuple[State, tuple[float, ...]], ...] = ()
+
+    def worth_at(self, state: State) -> tuple[float, ...]:
+        """What the search made of that position, per player; empty where it valued none."""
+        for held, values in self.worth:
+            if held == state:
+                return values
+        return ()
 
     def at(self, state: State) -> MoveDistribution:
         """What to play in that state; empty where the strategy says nothing about it, which is where to strategize
