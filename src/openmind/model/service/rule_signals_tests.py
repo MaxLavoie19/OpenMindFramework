@@ -4,7 +4,10 @@ import pytest
 from openmind.inference.model.expression import Expression
 from openmind.model.factory.model_factory import create_rule_signals
 from openmind.model.model.rule_candidate import RuleCandidate
-from openmind.model.service.rule_signals import FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning
+from openmind.model.service.rule_signals import (
+    FIRES_OFTEN, SAYS_SOMETHING_NEW, WENT_WITH_WINNING,
+    FiresOften, MovedTheFit, SaysSomethingNew, WentWithWinning, explains, gated, shown,
+)
 
 pytestmark = pytest.mark.log_level("INFO")
 
@@ -155,7 +158,7 @@ def pairwise(candidates):
             held = float(np.corrcoef(mine, theirs)[0, 1])
             if np.isfinite(held):
                 likest = max(likest, abs(held))
-        found[at] = candidates[at].influence() * (1.0 - likest)
+        found[at] = candidates[at].influence() * gated(shown(candidates[at])) * (1.0 - likest)
     return found
 
 
@@ -194,3 +197,74 @@ def test_a_term_saying_the_same_of_every_row_is_not_new():
     rated = SaysSomethingNew().rates([counter(), candidate([3.0] * 20)])
 
     assert rated[1] == 0.0
+
+
+def square(fires) -> RuleCandidate:
+    """A rule reading one square's owner: one wherever that square is theirs, nought everywhere else.
+
+    Binary, which is the whole difficulty. Its reading says the same thing on every row it fires on, so what
+    it tells us is *where* it fires and not what it reads there."""
+    readings = np.zeros(len(PAYOFFS))
+    readings[fires] = 1.0
+    return candidate(list(readings))
+
+
+def test_a_square_that_fires_often_and_picks_out_nothing_is_wanted_by_nobody():
+    """**What a store of 904 rated rules showed.** Of the 376 reading a single square's owner and nothing
+    else, novelty rated 192 highest and coverage another 139 — nearly all of them between the two. Neither was
+    malfunctioning: a single square is unlike every other term by construction, and it fires whenever that
+    square is occupied. They were getting what they asked for, and what they asked for explained nothing.
+
+    `MovedTheFit` is left alone: it rated none of those 376 highest, because it asks whether a term changes
+    the fitted value, which is a question a useless square already fails."""
+    useless = square(list(range(0, len(PAYOFFS), 2)))
+
+    wanted = {signal.name: signal.rates([useless])[0] for signal in create_rule_signals()}
+
+    assert wanted[SAYS_SOMETHING_NEW] == 0.0, "novel, and about nothing"
+    assert wanted[FIRES_OFTEN] == 0.0, "common, and about nothing"
+
+
+def test_a_square_that_picks_out_winners_is_still_wanted():
+    """The gate refuses what explains nothing, not what is simple. The same shape of rule, firing as often,
+    differing only in which rows it picks, is bought as before."""
+    telling = square(list(range(8)))
+
+    wanted = {signal.name: signal.rates([telling])[0] for signal in create_rule_signals()}
+
+    assert wanted[SAYS_SOMETHING_NEW] > 0.5
+    assert wanted[FIRES_OFTEN] > 0.0
+
+
+def test_a_rule_is_still_never_marked_down_for_firing_rarely():
+    """The standing rule, and the thing the gate nearly broke. A term that fired on one row has not been shown
+    to explain nothing — nothing can be shown about it at all, since a correlation wants two points. Gating it
+    at nought would mark down every detector in the game at once."""
+    rare = detector(right=1)
+
+    assert FiresOften().rates([rare])[0] > 0.0, "the gate is silent where it cannot be measured"
+    assert SaysSomethingNew().rates([rare])[0] > 0.0
+
+
+def test_the_gate_says_nothing_rather_than_nought_where_it_cannot_be_told():
+    """Nought is a real answer — a term measured and found to explain nothing. One row is not that."""
+    assert explains(detector(right=1)) is None
+    assert explains(candidate([3.0] * 20)) is None, "a term saying the same of every row explains nothing of it"
+    assert explains(counter()) is not None
+
+
+def test_a_detector_is_asked_where_it_fires_rather_than_what_it_reads_there():
+    """**The flaw that made the gate useless at first.** A rule reading one square is one wherever it speaks,
+    so its readings have no variation on those rows at all and a correlation there is undefined — the gate
+    fell silent on exactly the terms it was built to catch. What a detector says is which rows it picks out.
+
+    **And how often it fired is part of that answer.** Two rows of twenty cannot correlate far however
+    perfectly they are chosen, and that is right: a detector seen twice has shown less than one seen five
+    hundred times, whatever each got right. The gate says what has been *shown*, and little is shown by two
+    rows. Nothing is marked down for being rare — a rare term is still bought by whichever signal wants it.
+    """
+    rare = square(list(range(2)))
+    common = square(list(range(10)))
+
+    assert explains(rare) is not None and explains(common) is not None
+    assert explains(common) > explains(rare), "both pick only winners, and more firings have shown more"

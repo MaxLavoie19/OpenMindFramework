@@ -18,6 +18,74 @@ SAYS_SOMETHING_NEW = "says something new"
 FIRES_OFTEN = "fires often enough to know"
 
 
+def explains(candidate: RuleCandidate) -> float | None:
+    """How far apart the payoffs are on the rows a term picks out: how *strong* a thing it has shown.
+
+    **A gate the way `influence` is a gate, and for the same measured reason.** Every signal already scales
+    what it wants by how loudly a term may speak, because terms weighted fourteen thousand times too small to
+    reorder anything were being bought by signals that could not see a weight. This is that bug one level up:
+    novelty and coverage cannot see whether a term accounts for anything either.
+
+    Measured on a live store of 904 rated rules: of the 376 reading a single square's owner and nothing else,
+    `says something new` rated 192 highest and `fires often enough to know` another 139 — nearly all of them
+    between the two. A single square is unlike every other term by construction and fires whenever that square
+    is occupied, so both were getting exactly what they asked for, and what they asked for explained nothing.
+    `moved the fit` rated none of them highest, being the one signal that asks whether a term changes anything.
+
+    **A detector is asked where it fires, not what it reads there.** A rule reading one square is one wherever
+    it speaks, so its readings do not vary on those rows at all and a correlation there is undefined — which
+    left the gate silent on exactly the terms it was built for. What such a term says is which rows it picks.
+
+    **None where it cannot be told, which is not nought.** Nought is a term measured and found to account for
+    nothing. A term that fired on one row is not that, and gating it at nought would mark a rule down for
+    firing rarely — the one thing this project has a standing rule against."""
+    fired = candidate.fires()
+    # A term read over different rows than the payoffs it is judged against cannot be judged against them. It
+    # never happens in a real fit, where both come from one set of rows, and it is a crash rather than a wrong
+    # answer when it does -- so it is said here rather than left to the indexing.
+    if len(candidate.payoffs) != len(fired) or int(fired.sum()) < 2:
+        return None
+    if float(candidate.payoffs.std()) == 0.0:
+        return None
+    readings, payoffs = candidate.readings[fired], candidate.payoffs[fired]
+    if float(readings.std()) == 0.0:
+        if fired.all():
+            return None
+        spread = float(candidate.payoffs.max() - candidate.payoffs.min())
+        apart = abs(float(payoffs.mean()) - float(candidate.payoffs[~fired].mean())) / spread
+        return min(1.0, apart) if np.isfinite(apart) else None
+    if float(payoffs.std()) == 0.0:
+        return None
+    found = float(np.corrcoef(readings, payoffs)[0, 1])
+    return None if not np.isfinite(found) else abs(found)
+
+
+def shown(candidate: RuleCandidate) -> float | None:
+    """How much a term has shown: whether its firing goes with winning, over every row.
+
+    **The other half of the same question, and the half that counts the evidence.** `explains` says how far
+    apart the payoffs are where a term fires, which a detector seen twice can score as highly as one seen five
+    hundred times. This says how much has been *demonstrated*, and a correlation with the firing is held down
+    by how rare the firing is — which is right for that question. A term that goes on firing and goes on
+    picking winners is believed more as it does.
+
+    The two are used in different places rather than multiplied together, so nothing is charged for rarity
+    twice: `SaysSomethingNew` wants new things and rarity costs it nothing of its own, so evidence gates it
+    here; `FiresOften` already prefers common terms in its own rating, so strength gates that one instead."""
+    fired = candidate.fires()
+    if len(candidate.payoffs) != len(fired) or int(fired.sum()) < 2:
+        return None
+    if fired.all() or float(candidate.payoffs.std()) == 0.0:
+        return None
+    found = float(np.corrcoef(fired.astype(float), candidate.payoffs)[0, 1])
+    return None if not np.isfinite(found) else abs(found)
+
+
+def gated(found: float | None) -> float:
+    """A gate as a multiplier: what was measured, and no gate at all where nothing could be."""
+    return 1.0 if found is None else found
+
+
 class WentWithWinning:
     """Wants terms whose readings line up with the payoff, read over the rows they fired on.
 
@@ -38,8 +106,14 @@ class WentWithWinning:
         return [one.influence() * self._lined_up(one) for one in candidates]
 
     def _lined_up(self, candidate: RuleCandidate) -> float:
+        """**Over the rows it fired on, and nothing else.** `explains` asks a wider question on this signal's
+        behalf — whether a term accounts for anything at all, by whatever route — and a detector answers that
+        one by where it fires. This signal asks whether a term's *readings* line up, and a detector has no
+        readings to line up: it says 1 wherever it speaks. Nought is the right answer here and the gate's
+        answer is the right one there, and folding them together would quietly widen this signal to every row.
+        """
         fired = candidate.fires()
-        if int(fired.sum()) < 2:
+        if len(candidate.payoffs) != len(fired) or int(fired.sum()) < 2:
             return 0.0
         readings, payoffs = candidate.readings[fired], candidate.payoffs[fired]
         if float(readings.std()) == 0.0 or float(payoffs.std()) == 0.0:
@@ -122,7 +196,10 @@ class SaysSomethingNew:
         for place, at in enumerate(order):
             # A term that says the same of every row correlates with nothing, itself included, and is not new;
             # it is the same answer `_unlike` gave for a column that does not vary.
-            found[at] = 0.0 if not speaking[place] else candidates[at].influence() * (1.0 - likest[place])
+            found[at] = (
+                0.0 if not speaking[place]
+                else candidates[at].influence() * gated(shown(candidates[at])) * (1.0 - likest[place])
+            )
         return found
 
     def _standardised(self, ordered: Sequence[RuleCandidate]) -> tuple[np.ndarray, np.ndarray]:
@@ -188,7 +265,7 @@ class FiresOften:
         return FIRES_OFTEN
 
     def rates(self, candidates: Sequence[RuleCandidate]) -> Sequence[float]:
-        return [one.influence() * self._fired(one) for one in candidates]
+        return [one.influence() * gated(explains(one)) * self._fired(one) for one in candidates]
 
     def _fired(self, candidate: RuleCandidate) -> float:
         if not len(candidate.readings):
