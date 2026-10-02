@@ -237,3 +237,48 @@ def test_what_was_deduced_is_named_beside_how_firmly_it_is_held(caplog: pytest.L
     assert "king at" in piece and "on 2" in piece
     # A claim resting on twelve sightings is held more firmly than one resting on two.
     assert float(colour.split(" at ")[1].split(" on ")[0]) > float(piece.split(" at ")[1].split(" on ")[0])
+
+
+def test_a_thing_whose_reach_is_lopsided_says_which_way_its_owner_faces():
+    """**One-way by nature, not by luck.** Watching can only say a thing has not gone the other way *yet* — a
+    rook kept on one file all game is one-way in the record. What a thing may do is a fact about the rules and
+    needs no sample at all: of everything on a chess board only a pawn can never go back.
+
+    Nothing here is told what a pawn is or which axis a board runs on. It is given the steps each thing could
+    take and finds the axis where one of them is lopsided."""
+    def reaching():
+        """What each thing could move by, by whose it is and what it is, as a caller supplies it."""
+        return {
+            ("white", "pawn"): ((-1, 0), (-2, 0), (-1, 1), (-1, -1)),
+            ("white", "rook"): ((-1, 0), (1, 0), (0, 1), (0, -1)),
+            ("black", "pawn"): ((1, 0), (2, 0), (1, 1), (1, -1)),
+        }
+
+    found = SideDeducer()._reached(reaching, ())
+
+    assert ("white", "axis 0", -1) in found, "white's pawn only ever goes one way, so that is white's forward"
+    assert ("black", "axis 0", 1) in found, "and black's the other"
+
+
+def test_a_game_where_everything_goes_both_ways_has_no_side_to_tell():
+    """True of noughts and crosses and of a draughts king, and the right answer in both."""
+    def reaching():
+        return {("white", "rook"): ((-1, 0), (1, 0), (0, 1), (0, -1))}
+
+    assert SideDeducer()._reached(reaching, ()) == ()
+
+
+def test_the_rules_are_taken_where_watching_and_reading_them_disagree():
+    """Watching rests on an absence — a thing that has not gone the other way is not a thing that cannot — and
+    the rules say what a thing is able to do. So where both speak and differ, the rules are taken."""
+    watched = (("white", "x", 1),)
+    derived = (("white", "axis 0", -1),)
+
+    assert SideDeducer()._settled(watched, derived) == derived
+
+
+def test_what_was_watched_stands_where_there_are_no_rules_to_read():
+    """A run early enough has no rules to ask: they are what it is learning. Then watching is all there is."""
+    watched = (("white", "x", -1),)
+
+    assert SideDeducer()._settled(watched, ()) == watched

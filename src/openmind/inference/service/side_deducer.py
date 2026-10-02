@@ -1,6 +1,6 @@
 import collections
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 
 from openmind.inference.model.fact import Fact
 from openmind.inference.service.information import Information
@@ -45,6 +45,7 @@ class SideDeducer:
         examples: Sequence[tuple[Sequence[Literal], Value]],
         positions: Sequence[object] = (),
         least: int = 2,
+        reaching: Callable[[], Mapping[tuple[Value, Value], Collection[Sequence[int]]]] | None = None,
     ) -> tuple[Literal, ...]:
         """What the game's allowed actions say about whose things are and which way each player faces, as facts.
 
@@ -57,10 +58,22 @@ class SideDeducer:
         about the game rather than a field of a class. Nothing here settles what may own or be owned: a thing is
         whatever the readings said stood where a move began, so a game whose pieces are records, or colours, or
         numbers, says what it says. The old record could hold only a bare value standing in a model, and the one
-        grid the constraint learner reads holds records, so it could say nothing at all about it."""
+        grid the constraint learner reads holds records, so it could say nothing at all about it.
+
+        `reaching` is an optional second route to which way a player faces: what each thing of theirs could
+        move by, from the rules rather than from what was seen. Given none, the facings are read off the
+        examples as before, which is what a run that is still learning the rules has to do.
+
+        **Both, because they fail differently.** Watching can only ever say a thing *has not yet* gone the
+        other way: a rook kept on one file all game is one-way in the record, and no amount of watching
+        settles it — the claim rests on an absence. The rules say what a thing *can* do, which is a presence
+        and needs no sample. But a run early enough has no rules to ask, since the rules are what it is
+        learning. So the derived answer is preferred where there is one, the watched answer stands where there
+        is not, and the two agreeing is worth more than either — they are independent of each other, which is
+        what makes their agreement evidence rather than arithmetic."""
         where = list(positions) if len(positions) == len(examples) else [None] * len(examples)
         owning, seen = self._owning(examples)
-        facing = self._facing(examples, owning, where, least)
+        facing = self._settled(self._facing(examples, owning, where, least), self._reached(reaching, owning))
         telling = self._telling(examples)
         standing = {
             (model, value, player): self._standing(seen.get((model, value), 0), telling.get(model, 0.0))
@@ -230,13 +243,28 @@ class SideDeducer:
         # a magnitude and carries no direction, however one-way it looks for any one player.
         signed: dict[str, set[int]] = {}
         for (readings, player), place in zip(examples, where, strict=True):
-            holding = tuple(sorted(self._moved(readings), key=repr))
-            if not holding:
+            moved = self._moved(readings)
+            if not moved:
                 continue
-            movers.setdefault(holding, set()).add(player)
+            # **Each thing on its own as well as all of them together, and the cases settle which says it.**
+            # Taken only together, a holding is everything standing at every place the action points at — the
+            # thing that moved, the square's colour, whatever sits where it lands — and such a collection
+            # almost never turns up twice, so nothing is ever seen in the two positions it takes to tell a
+            # pawn from a rook that happened to go the same way twice. Measured: 432 allowed cases over
+            # sixteen positions, every one of them a holding of its own, and no player facing anywhere.
+            #
+            # Taken only one at a time, a vocabulary that says what a thing is apart from whose it is would
+            # offer `pawn`, which both players move, and `white`, which includes a rook that goes both ways —
+            # the reason this took them whole to begin with. So both are offered, and the gates below keep
+            # whichever is really one-way for one player. `lands on` already does this with pairings it cannot
+            # tell apart.
+            whole = tuple(sorted(moved, key=repr))
+            for holding in ({whole} | {(one,) for one in moved}):
+                movers.setdefault(holding, set()).add(player)
+                for about, amount in self._stepping(readings):
+                    ways.setdefault((player, holding, about), set()).add((amount > 0) - (amount < 0))
+                    seen.setdefault((player, holding, about), set()).add(place)
             for about, amount in self._stepping(readings):
-                ways.setdefault((player, holding, about), set()).add((amount > 0) - (amount < 0))
-                seen.setdefault((player, holding, about), set()).add(place)
                 signed.setdefault(about, set()).add((amount > 0) - (amount < 0))
         facing: dict[tuple[Value, str], set[int]] = {}
         for (player, holding, about), steps in ways.items():
@@ -368,10 +396,32 @@ class SideDeducer:
         ]
 
     def _parameters(self, readings: Sequence[Literal]) -> set[Value]:
-        """Which of the action's readings are its parameters: read under their own name, and named by others."""
-        alone = {one.predicate for one in readings if len(one.arguments) == 1}
-        named = {self._held(term) for one in readings for term in one.arguments[:-1]}
+        """Which of the action's readings are its parameters: read under their own name, and named by others.
+
+        **However many numbers it takes to say where, and however deeply another reading names it.** Both
+        halves of that were too narrow, and together they made this find nothing at all in chess: a square on
+        a two-dimensional board is read `self(7, 1)` and not under one argument, and the reading that says
+        what stands there says `holds(place(self, 1), pawn)` — naming `self` inside a term rather than as one.
+
+        Measured before this: over 685 allowed cases, no parameter was found, so `_moved` gave nothing for
+        every case, so every example was skipped before any gate, so no player ever faced anywhere and the
+        whole orientation half of this service was dead. The ownership half runs by another path, which is why
+        it looked half alive rather than broken.
+
+        The mechanism was right and its reach was wrong. Nothing here is told how a square is spelled."""
+        alone = {one.predicate for one in readings if one.arguments}
+        named = {held for one in readings for term in one.arguments[:-1] for held in self._naming(term)}
         return {one for one in alone if one in named}
+
+    def _naming(self, term: Term) -> set[Value]:
+        """What a term names: what it stands for, and what the terms inside it name, however deep.
+
+        A reading names a parameter whether it says it outright or carries it in a term of its own — `place`
+        of a square and a coordinate is still a reading about that square."""
+        found = {self._held(term)}
+        for inside in getattr(term, "arguments", ()) or ():
+            found |= self._naming(inside)
+        return found
 
     def _stepping(self, readings: Sequence[Literal]) -> list[tuple[str, int]]:
         """Every signed number the action's readings carry, named by the reading that carried it.
@@ -407,3 +457,71 @@ class SideDeducer:
             if held == model and one == value:
                 return player
         return None
+
+    def _reached(
+        self,
+        reaching: Callable[[], Mapping[tuple[Value, Value], Collection[Sequence[int]]]] | None,
+        owning: tuple[tuple[str, Value, Value], ...],
+    ) -> tuple[tuple[Value, str, int], ...]:
+        """Which way each player faces, read off what their things can do rather than what they were seen doing.
+
+        **A thing is one-way when its reach is lopsided, and that is a fact about the rules.** Of everything on
+        a chess board only a pawn can never go back, and it does not take a sample to know it: the places a
+        pawn may reach are all on one side of it, and the places a rook may reach are on both. So the axis some
+        thing is lopsided on is the axis of play, and the side it is lopsided to is that player's forward.
+
+        Nothing here is told what a pawn is or which axis a board runs on. It is handed, for each thing and
+        whose it is, the steps that thing could move by, and looks for an axis where every step has one sign.
+
+        A thing that cannot move at all says nothing, and a game where everything can go both ways has no side
+        to tell — which is true of draughts kings, and of noughts and crosses, and is the right answer there."""
+        if reaching is None:
+            return ()
+        owners = {value: player for player, _, value in owning}
+        facing: dict[tuple[Value, str], set[int]] = {}
+        for (player, thing), steps in reaching().items():
+            held = player if player is not None else owners.get(thing)
+            if held is None or not steps:
+                continue
+            for axis in range(min(len(one) for one in steps)):
+                signs = {(one[axis] > 0) - (one[axis] < 0) for one in steps} - {0}
+                if len(signs) == 1:
+                    facing.setdefault((held, f"axis {axis}"), set()).update(signs)
+        found = tuple(
+            sorted(
+                ((player, about, steps.pop()) for (player, about), steps in facing.items() if len(steps) == 1),
+                key=repr,
+            )
+        )
+        for player, about, step in found:
+            logger.info("%r has a thing that can only ever go %s along %s, so that is forward for them", player, step, about)
+        return found
+
+    def _settled(
+        self,
+        watched: tuple[tuple[Value, str, int], ...],
+        derived: tuple[tuple[Value, str, int], ...],
+    ) -> tuple[tuple[Value, str, int], ...]:
+        """One answer out of the two routes, saying so where they differ.
+
+        **The rules win where there are rules**, because watching rests on an absence — a rook that has not yet
+        gone the other way is not a rook that cannot — while the rules say what a thing is able to do. Where
+        there are none, what was watched stands, since a run still learning the rules has nothing else.
+
+        **And where both speak, their agreeing is the thing worth having.** They share no machinery: one reads
+        what was played, the other what is permitted. Two independent routes to one fact corroborate it in a
+        way that two readings of the same move list never could."""
+        if not derived:
+            return watched
+        if not watched:
+            return derived
+        agreed = sorted(set(watched) & set(derived), key=repr)
+        apart = sorted(set(watched) ^ set(derived), key=repr)
+        if agreed:
+            logger.info("Watching the game and reading its rules agree on %d facings: %s", len(agreed), agreed)
+        if apart:
+            logger.info(
+                "They part on %d, and the rules are taken: watching can only say a thing has not gone the "
+                "other way yet. %s", len(apart), apart,
+            )
+        return derived

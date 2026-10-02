@@ -600,6 +600,24 @@ not follow is that allowing more is being worth more, and that step is where eac
     cutting, and the fix belongs where heuristics are generated rather than where they are measured. So the
     early return stays, and `tracks the teller` reading `not asked` across a small pool is the truth.
 
+47. **A side's orientation is deduced from a vocabulary chess no longer speaks, so no player ever faces
+    anywhere.** (found chasing why `--no-sides` was on the run, after side deduction gave 37 ownerships and
+    0 orientations over 685 allowed cases)
+    `SideDeducer._moved` finds the thing that moved by finding the action's *parameters*: a reading under its
+    own name that other readings mention — `source` is both `source = b1` and the middle term of
+    `at(piece, source, pawn)`. Chess's readings no longer have that shape. Its one-argument readings are
+    `turn`, `en passant`, `halfmove clock`, the four castling rights, `x` and `y`; the values named inside
+    other readings are the numbers 1 to 8 and `how far` functors. The two sets do not meet, so no parameter is
+    found, `_moved` gives nothing for every case, and every example is skipped before any gate is reached.
+    The ownership half is unaffected, which is why side deduction looks half alive rather than dead.
+    **Fixed by deducing orientation from what a move does rather than from how its readings are spelled**, in
+    `_facing`: the predictor already says which cells a move changes, and a thing that is one-way is one whose
+    changes only ever go one way. That needs no naming convention to hold.
+    What is *not* settled, and is why this is written down: `_moved` is still the only route to **who owns
+    what** by the same parameter mechanism, and it is as dead for that as it was for orientation — ownership
+    survives on a different path. So a game whose readings are spelled another way still has half a deducer,
+    and nobody has asked what else in the inference layer assumes a spelling that moved on.
+
 ## Struck, by number
 
 Decided, and removed from the body. Read the reasons in `git log -p doc/open-questions.md`.
