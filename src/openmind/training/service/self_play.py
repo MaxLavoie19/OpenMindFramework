@@ -105,9 +105,10 @@ class SelfPlay:
         states: list[State] = [world.current()]
         actions: list[JointAction] = []
         worth: list[tuple[float, ...]] = []
+        chosen: list[tuple[tuple[object, float], ...]] = []
         while settings.steps is None or len(actions) < settings.steps:
             state = world.current()
-            joint, valued = self._chosen(knowledge_base, game, world, guidance, settings, rng)
+            joint, valued, settled = self._chosen(knowledge_base, game, world, guidance, settings, rng)
             if joint is None:
                 break
             outcomes = game.joint_outcomes(state, joint).outcomes
@@ -119,6 +120,7 @@ class SelfPlay:
             world.happened(joint.actions[0][1], outcome)
             actions.append(joint)
             worth.append(valued)
+            chosen.append(settled)
             states.append(outcome)
         return PlayedGame(
             tuple(states),
@@ -128,6 +130,7 @@ class SelfPlay:
             agent_seed,
             outcome_seed,
             tuple(worth),
+            tuple(chosen),
         )
 
     def _ended(self, game: RuleBasedGame, state: State, played: int, steps: int | None) -> str | None:
@@ -157,7 +160,7 @@ class SelfPlay:
         guidance: Guidance | Mapping[str, Guidance],
         settings: SelfPlaySettings,
         rng: random.Random,
-    ) -> tuple[JointAction | None, tuple[float, ...]]:
+    ) -> tuple[JointAction | None, tuple[float, ...], tuple[tuple[object, float], ...]]:
         """What every player who can act here does, taken together, and what their search made of the position.
 
         Each is asked as the agent it is, with the seed of this game, so what a mixed strategy calls for is
@@ -172,9 +175,10 @@ class SelfPlay:
         players = game.players().names
         acting = [players[index] for index, _ in game.joint_actions(state)]
         if not acting:
-            return None, ()
+            return None, (), ()
         picked: list[tuple[str, object]] = []
         valued: tuple[float, ...] = ()
+        settled: tuple[tuple[object, float], ...] = ()
         for player in acting:
             strategy = self._agent.play(
                 knowledge_base, game, world, self._playing(guidance, player), Budget(settings.seconds)
@@ -182,13 +186,15 @@ class SelfPlay:
             distribution = () if strategy is None else strategy.at(state)
             if strategy is not None and not valued:
                 valued = strategy.worth_at(state)
+            if distribution and not settled:
+                settled = tuple(distribution)
             if not distribution:
                 continue
             action = rng.choices(
                 [action for action, _ in distribution], weights=[chance for _, chance in distribution]
             )[0]
             picked.append((player, action))
-        return (JointAction(tuple(picked)) if picked else None), valued  # type: ignore[arg-type]
+        return (JointAction(tuple(picked)) if picked else None), valued, settled  # type: ignore[arg-type]
 
     def _remembered(
         self,

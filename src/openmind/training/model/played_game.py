@@ -36,6 +36,14 @@ class PlayedGame:
     #:
     #: Empty where nothing searched — a game played by something that does not look ahead says nothing here.
     worth: tuple[tuple[float, ...], ...] = ()
+    #: What the search settled on in each position it acted in, as a chance per action, in step with `actions`.
+    #:
+    #: **The policy half of what a search knows, where `worth` is the value half.** A search comes back with
+    #: both and only the move it drew was ever read. The distribution is what a move heuristic is taught from
+    #: — which moves it kept returning to — and that is a shape where the move played is one bit.
+    #:
+    #: Empty where nothing searched, which is every game somebody else played.
+    chosen: tuple[tuple[tuple[object, float], ...], ...] = ()
 
     @property
     def steps(self) -> int:

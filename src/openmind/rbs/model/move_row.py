@@ -6,19 +6,26 @@ from openmind.world.model.state import State
 
 @dataclass(frozen=True, slots=True)
 class MoveRow:
-    """An action valued for the player taking it, and the payoff its value is fitted to.
+    """One action in one position, with what it is worth to the player taking it: a row to fit move rules on.
 
-    `PositionRow` with the action added, and the difference is the whole of why the two tasks are two. A
-    position is worth one thing to each player; an action is worth one thing to whoever takes it, and asking
-    what my move is worth to my opponent is a question nothing asks.
+    **The position value's counterpart, and a different question.** A position row asks what a board is worth;
+    this asks what a *move* is worth there, which a move rule answers by reading the action as well as the
+    board. One position gives as many rows as it had legal moves.
 
-    **What it is fitted to is a payoff and not a preference.** The rows say what the action was shown to pay,
-    never that one action is better than another: a rank would be an opinion about a position, and a payoff is
-    a fact about a finished game. Where nothing could show what an action pays, there is no row for it —
-    knowing nothing about a move is not the same as the move being worth nothing, and a row saying zero is a
-    claim the evidence never made."""
+    **Its target is what a search settled on, which is the whole point.** A move heuristic is what makes the
+    next search cheaper: rating moves directly costs one reading where valuing the position each move leads to
+    costs one per move, about thirty-five of them in chess. So the thing to learn is which moves the search
+    kept coming back to — and that is known, as the chance it settled on, for every position it searched.
+
+    Nothing else states it. What a game paid says who won forty moves later and nothing about which move was
+    better here; the move actually played is one bit where a distribution is a shape."""
 
     state: State
     action: Action
     player: str
     target: float
+    #: How well grounded that target is, as a share of an ordinary row's say in the fit; see `PositionRow`.
+    #:
+    #: A search that settled after a thousand visits has shown more than one that settled after three, and the
+    #: fit should hear them accordingly. One is an ordinary row and nought is a row it should not hear.
+    certainty: float = 1.0
