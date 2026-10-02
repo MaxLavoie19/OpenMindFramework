@@ -25,3 +25,15 @@ class Decided:
     taken: Action
     player: str
     paid: float
+    #: What a search settled on here, as a chance per action — the expanded game, to be distilled into a
+    #: heuristic that has not looked ahead. Empty where nothing searched this position.
+    #:
+    #: **This is what a heuristic should be selected for agreeing with.** What was played is one move and
+    #: carries the whole weight of a result decided forty moves later; what a search concluded is a
+    #: distribution over every move on offer, about *this* position, and it is the reading of a heuristic
+    #: improved by looking ahead. A heuristic that reproduces it without the looking ahead is the thing the
+    #: loop is for, and the next search starts from that better reading.
+    #:
+    #: **A distribution rather than its best move, because nearly right is worth saying.** Scored against one
+    #: move, a heuristic that ranks the top three in the right order counts the same as one that guessed.
+    searched: tuple[tuple[Action, float], ...] = ()

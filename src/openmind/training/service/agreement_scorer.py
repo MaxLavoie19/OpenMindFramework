@@ -60,6 +60,23 @@ class AgreementScorer:
         self._among = max(0, among)
         self._seed = seed
 
+    def _settled(self, asked) -> list[float] | None:
+        """What the search settled on at that decision, as a chance per action it was shown; None where none
+        searched it, or where what it settled on is about actions this decision never offered."""
+        searched = getattr(asked, "searched", ())
+        if not searched:
+            return None
+        held = dict(searched)
+        found = [held.get(one, 0.0) for one in asked.offered]
+        whole = sum(found)
+        if whole <= 0.0:
+            return None
+        # **Read over the actions actually shown, because the heuristic's chances are.** Where a judging asks
+        # about a sample of the moves rather than all of them, a rating is normalised over that sample and a
+        # search's distribution is not -- so comparing them unnormalised would dock a heuristic for the
+        # sampling instead of for disagreeing, and dock it more the smaller the sample.
+        return [one / whole for one in found]
+
     def scored(self, decisions: Sequence[Decided], raters: Mapping[str, Rating]) -> tuple[Agreement, ...]:
         """Each named heuristic measured over those decisions, in the order they were given.
 
@@ -85,8 +102,25 @@ class AgreementScorer:
                     undecided += 1
                     continue
                 decided += 1
-                mass += chances[at] * one.paid
-                offered += one.paid / len(one.offered)
+                # **Against what a search concluded here, where one did, and against what was played where
+                # none did.** Distilling is selecting the heuristic whose shallow reading most resembles a
+                # deep one, so what it is asked to agree with is the whole distribution the search settled on
+                # rather than the single move somebody made. Weighted by the payoff the same way, so a
+                # position from a game that was lost still counts for less.
+                #
+                # Read as the overlap of the two distributions: how much of its own belief the heuristic put
+                # where the search put the search's. One where they agree exactly, and what they share where
+                # they do not -- so a heuristic ranking the same moves slightly differently is nearly right,
+                # which agreement with a single move cannot express.
+                settled = self._settled(one)
+                if settled is None:
+                    mass += chances[at] * one.paid
+                    offered += one.paid / len(one.offered)
+                    continue
+                mass += sum(min(a, b) for a, b in zip(chances, settled, strict=True)) * one.paid
+                # Knowing nothing is spreading belief evenly, and what that shares with the search is what
+                # the evenest distribution can: one over how many moves were on offer, per move.
+                offered += sum(min(1.0 / len(one.offered), b) for b in settled) * one.paid
             found.append(Agreement(holder, mass, decided, declined, undecided, offered))
         for one in sorted(found, key=lambda held: -(held.mass - held.offered)):
             logger.info(

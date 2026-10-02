@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from openmind.heuristic.model.node import Node
@@ -184,3 +186,44 @@ def test_a_decision_with_fewer_actions_than_the_sample_is_asked_whole() -> None:
     asked = AgreementScorer(among=9)._asked(decision(STEP, paid=1.0))  # noqa: SLF001
 
     assert asked.offered == OFFERED
+
+
+def test_a_heuristic_is_judged_on_agreeing_with_what_the_search_settled_on() -> None:
+    """**Distilling, put where heuristics are chosen between.** A search reads a heuristic at its leaves, looks
+    ahead, and settles somewhere better. Selecting the heuristic whose shallow reading most resembles that is
+    what moves a whole pool toward playing deeply without the looking ahead.
+
+    Scored as the overlap of the two distributions, so a heuristic ranking the same moves a little differently
+    is nearly right — which agreeing with the one move played cannot express."""
+    searched = replace(decision(STEP, paid=1.0), searched=((STEP, 0.7), (JUMP, 0.3)))
+
+    found = {one.holder: one for one in AgreementScorer().scored(
+        (searched,),
+        {"close": rates(step=7.0, jump=3.0, wait=0.0), "far": rates(step=1.0, jump=9.0, wait=0.0)},
+    )}
+
+    assert found["close"].mass > found["far"].mass, "the one that settled where the search settled"
+    assert found["close"].decided == found["far"].decided == 1
+
+
+def test_a_heuristic_agreeing_with_the_search_exactly_is_worth_more_than_one_that_only_tops_it() -> None:
+    """What a distribution says and a single move cannot. Both pick the move the search liked best; one
+    shares the search's whole opinion and the other is certain where the search was not."""
+    searched = replace(decision(STEP, paid=1.0), searched=((STEP, 0.6), (JUMP, 0.4)))
+
+    found = {one.holder: one for one in AgreementScorer().scored(
+        (searched,),
+        {"same": rates(step=6.0, jump=4.0, wait=0.0), "sure": rates(step=100.0, jump=0.0, wait=0.0)},
+    )}
+
+    assert found["same"].mass > found["sure"].mass
+
+
+def test_what_was_played_is_judged_on_where_nothing_searched() -> None:
+    """A game somebody else played carries no verdict of ours, and the move they made is what there is."""
+    found = AgreementScorer().scored(
+        (decision(STEP, paid=1.0),), {"one": rates(step=10.0, jump=0.0, wait=0.0)}
+    )[0]
+
+    assert found.decided == 1
+    assert found.mass > found.offered
