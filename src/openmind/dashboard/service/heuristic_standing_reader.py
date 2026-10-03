@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from openmind.dashboard.model.heuristic_standing import HeuristicStanding
+from openmind.dashboard.service.model_score_reader import ModelScoreReader
 from openmind.knowledge.factory.knowledge_base_factory import create_knowledge_base
 from openmind.model.service.model_retirement import RETIRED
 from openmind.model.service.rule_budget import RATED_BY, RATED_FOR, RATED_RULE, VOUCHED_FOR
@@ -66,9 +67,24 @@ class HeuristicStandingReader:
                 rule, signal = str(tags.get(RATED_RULE, "")), str(tags.get(RATED_BY, ""))
                 gathered[rule] = (*dict(gathered.get(rule, ())).items(), (signal, float(belief.value)))
                 held["rated"] = tuple(gathered.items())
+        # **What each one came to where it actually played, joined on by name.** `HeuristicStanding` has
+        # carried `games`, `wins`, `draws` and `losses` all along and nothing ever filled them, so every row
+        # of the page read `never played` while another reader held records for a hundred and sixty-nine
+        # models. The two are keyed the same way, so the join is a lookup and was simply never made.
+        played = {one.name: one for one in ModelScoreReader().scores(directory, domain)}
         return tuple(
             sorted(
-                (HeuristicStanding(name=name, **held) for name, held in found.items()),
+                (
+                    HeuristicStanding(
+                        name=name,
+                        games=played[name].games if name in played else 0,
+                        wins=played[name].wins if name in played else 0,
+                        draws=played[name].draws if name in played else 0,
+                        losses=played[name].losses if name in played else 0,
+                        **held,
+                    )
+                    for name, held in found.items()
+                ),
                 key=lambda one: (-one.worth, one.name),
             )
         )

@@ -57,6 +57,10 @@ td.count { text-align: right; font-variant-numeric: tabular-nums; }
 .heuristics { columns: 24rem auto; column-gap: 1.5rem; }
 .judged { break-inside: avoid; margin: 0 0 1.5rem; }
 .judged h3 { margin-top: 0; }
+table.sortable th { cursor: pointer; user-select: none; }
+table.sortable th:hover { background: #e0e0e0; }
+table.sortable th.by::after { content: ' \25BC'; font-size: .7em; }
+table.sortable th.by.up::after { content: ' \25B2'; }
 .judged table { width: 100%; table-layout: fixed; }
 /* The rule wraps and the ratings do not. A rule reads `max(here.payoff[other], here.color[8, 4] == other)`
    and cannot fit a card's width on one line, so every table was scrolled sideways and the last signal's
@@ -69,6 +73,48 @@ td.count { text-align: right; font-variant-numeric: tabular-nums; }
 
 #: Steps through the latest decisive game: buttons and the arrow keys move between positions, and the position shown is
 #: kept for that game in the browser, so the page reloading itself comes back to it.
+#: Clicking a heading orders the table by that column. Read as a number where every cell in it is one, and
+#: as text otherwise, so "worth" sorts by size and "heuristic" by name. A record like "5-8-6" is read by its
+#: first number and then its last, which is wins first and losses to break a tie -- as a string it would put
+#: "10-2-3" above "2-0-0", which is the ordering nobody wants and the one a plain sort gives.
+SORT_SCRIPT = """
+<script>
+const number = (text) => {
+  const parts = String(text).trim().match(/^(-?\d+(?:\.\d+)?)-(\d+)-(\d+)$/);
+  if (parts) return [Number(parts[1]), -Number(parts[3])];
+  const one = Number(String(text).replace(/[+,]/g, '').trim());
+  return Number.isFinite(one) && String(text).trim() !== '' ? [one, 0] : null;
+};
+document.querySelectorAll('table.sortable').forEach((table) => {
+  const body = table.tBodies[0];
+  table.querySelectorAll('thead th').forEach((heading, column) => {
+    heading.onclick = () => {
+      const up = heading.classList.contains('by') && !heading.classList.contains('up');
+      table.querySelectorAll('thead th').forEach((one) => one.classList.remove('by', 'up'));
+      heading.classList.add('by');
+      if (up) heading.classList.add('up');
+      const rows = Array.from(body.rows);
+      const read = (row) => {
+        const cell = row.cells[column];
+        return cell ? cell.textContent : '';
+      };
+      const numeric = rows.every((row) => read(row).trim() === '' || number(read(row)) !== null);
+      rows.sort((first, second) => {
+        const a = read(first), b = read(second);
+        if (numeric) {
+          const x = number(a) || [-Infinity, 0], y = number(b) || [-Infinity, 0];
+          return (y[0] - x[0]) || (y[1] - x[1]);
+        }
+        return a.localeCompare(b);
+      });
+      if (up) rows.reverse();
+      rows.forEach((row) => body.appendChild(row));
+    };
+  });
+});
+</script>
+"""
+
 GAME_SCRIPT = """
 (() => {
   const game = JSON.parse(document.getElementById('game-data').textContent);
@@ -257,7 +303,7 @@ class DashboardHtmlMapper:
             "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width, initial-scale=1'>"
             f"{refresh}<title>{html.escape(title)}</title><style>{STYLE}</style></head><body>"
-            f"<h1>{html.escape(title)}</h1>{self._nav()}{body}</body></html>"
+            f"<h1>{html.escape(title)}</h1>{self._nav()}{body}{SORT_SCRIPT}</body></html>"
         )
 
     def _nav(self) -> str:
@@ -320,7 +366,7 @@ class DashboardHtmlMapper:
         return self._page(
             f"{domain} heuristics",
             refresh_seconds,
-            f"<h2>Heuristics ({len(standings)})</h2>{explanation}{self._table(header, rows)}"
+            f"<h2>Heuristics ({len(standings)})</h2>{explanation}{self._table(header, rows, sortable=True)}"
             f"{self._rated(standings)}",
         )
 
@@ -660,19 +706,29 @@ class DashboardHtmlMapper:
             "The latest to play first.</div>"
         )
         header = ("model", "id", "games", "wins", "draws", "losses", "score", "last game")
-        return f"<h2>Models</h2>{explanation}{self._table(header, rows)}"
+        return f"<h2>Models</h2>{explanation}{self._table(header, rows, sortable=True)}"
 
     def _recent(self, snapshot: DashboardSnapshot) -> str:
         if snapshot.progress is None or not snapshot.progress.recent:
             return ""
         return f"<h2>Latest log lines</h2><pre>{html.escape(chr(10).join(snapshot.progress.recent))}</pre>"
 
-    def _table(self, header: Sequence[str], rows: Sequence[Sequence[str]], escaped: bool = False) -> str:
-        """A table under its header; `escaped` cells are already HTML, such as links, and go in as they are."""
+    def _table(
+        self, header: Sequence[str], rows: Sequence[Sequence[str]], escaped: bool = False, sortable: bool = False
+    ) -> str:
+        """A table under its header; `escaped` cells are already HTML, such as links, and go in as they are.
+
+        A `sortable` table's headings can be clicked to order by that column. The server's order stands until
+        somebody asks for another, so a page is read top-down as it was written and rearranged only on
+        purpose."""
         head = "".join(f"<th>{html.escape(cell)}</th>" for cell in header)
         cell_text = (lambda cell: cell) if escaped else html.escape
         body = "".join("<tr>" + "".join(f"<td>{cell_text(cell)}</td>" for cell in row) + "</tr>" for row in rows)
-        return f"<div class='scroll'><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
+        classes = "table sortable" if sortable else "table"
+        return (
+            f"<div class='scroll'><table class='{classes}'><thead><tr>{head}</tr></thead>"
+            f"<tbody>{body}</tbody></table></div>"
+        )
 
     def _duration(self, seconds: float) -> str:
         """A duration people read at a glance: 3 h 06 min, 24 min 13 s, or 45 s."""
