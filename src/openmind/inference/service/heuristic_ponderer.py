@@ -11,6 +11,8 @@ from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.position_deducer import PositionDeducer
 from openmind.inference.service.position_gatherer import PositionGatherer
 from openmind.inference.service.stability import Stability
+from openmind.knowledge.constant.rule_kind_constant import MOVE
+from openmind.knowledge.constant.task_constant import MOVE_VALUE
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.factory.rbs_factory import create_rule_based_game
 from openmind.rbs.factory.term_evaluator_factory import create_term_evaluator
@@ -21,6 +23,7 @@ from openmind.rbs.service.game_relaxer import GameRelaxer
 from openmind.rbs.service.term_evaluator import TermEvaluator
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rbs.service.heuristic_finder import HeuristicFinder
+from openmind.world.model.action import Action
 from openmind.world.model.state import State
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,9 @@ SETTLED = "what the rules of {context} settle"
 #: reports itself separately: a game whose positions can be settled but whose moves cannot is a game where one
 #: of the two heuristics is worth fitting and the other is not, and nothing would say so if they shared a name.
 MOVES_SETTLED = "what the rules of {context} settle a move pays"
+
+#: What a move heuristic is fitted on: the chance a search settled on each action it weighed.
+MOVES_EXPLORED = "what a search of {context} settled on exploring"
 
 #: What reasoning out the worth of things is called. It is not a way of valuing a position — it never looks at a
 #: payoff — but it is a way of paying for a search, and a way of paying reports itself beside the others or it is
@@ -95,6 +101,7 @@ class HeuristicPonderer:
         positions: Sequence[State] = (),
         searched: Mapping[State, tuple[float, ...]] = MappingProxyType({}),
         trusting: float = 0.5,
+        settled: Mapping[State, tuple[tuple[Action, float], ...]] = MappingProxyType({}),
     ) -> Pondering:
         """What it deduced, and what every way of deducing was worth.
 
@@ -150,6 +157,7 @@ class HeuristicPonderer:
             valued_by,
             len(seeds),
         )
+        self._fit_moves(knowledge_base, game, positions, settings, settled, tried)
         return Pondering(
             generated.context,
             generated.rules,
@@ -382,6 +390,58 @@ class HeuristicPonderer:
         if any(isinstance(value, bool) or not isinstance(value, int | float) for value in values):
             return None
         return tuple(float(value) for value in values)  # type: ignore[arg-type]
+
+    def _fit_moves(
+        self,
+        knowledge_base: KnowledgeBase,
+        game: RuleBasedGame,
+        positions: Sequence[State],
+        settings: PonderSettings,
+        settled: Mapping[State, tuple[tuple[Action, float], ...]],
+        tried: list[Labelling],
+    ) -> None:
+        """The move heuristic, fitted here because this is where the position heuristic is fitted.
+
+        **Both halves of what a search needs, learned in one pass over one set of positions.** The position
+        heuristic says what a board is expected to be worth; the move heuristic says which move is worth
+        exploring. Fitting them anywhere else would mean gathering the positions twice and deducing over them
+        twice, and would let the two drift apart over different games.
+
+        **Its target is the chance a search settled on, and nothing else is offered.** What a game paid says
+        who won later and not which move was better here; what the rules prove a move pays is a reward and not
+        a policy. A search that returned to a move again and again is the only thing that says which move was
+        worth looking at, and it says it as a distribution rather than as one bit.
+
+        Nothing is fitted where no search settled anything, which is every run that does not search."""
+        # **Every row at an ordinary say, because what would weigh them has not travelled.** A distribution a
+        # search returned to a thousand times has shown more than one it settled after three, and `MoveRow`
+        # carries a `certainty` for exactly that. What arrives here is `Strategy.moves` — the shares — and a
+        # share says nothing about how many visits it is a share of. Weighing by the breadth of the
+        # distribution instead would be a number nobody measured standing in for one somebody could, so the
+        # rows are equal until the visits are carried with them.
+        rows = tuple(
+            MoveRow(state, action, game.acting_player(state), chance)
+            for state in positions
+            if state in settled
+            for action, chance in settled[state]
+        )
+        if not rows:
+            return
+        training, held_out = self._split(rows, settings.held_out)  # type: ignore[arg-type]
+        if not training:
+            return
+        found = self._finder.generate_moves(
+            game,
+            training,  # type: ignore[arg-type]
+            held_out,  # type: ignore[arg-type]
+            settings.values,
+            HeuristicTarget(knowledge_base, game.context, task=MOVE_VALUE, kind=MOVE),
+        )
+        tried.append(Labelling(MOVES_EXPLORED.format(context=game.context), len(settled), len(rows), 0.0))
+        logger.info(
+            "Fitted %d move rules from %d actions a search settled on, over %d of the %d positions pondered",
+            len(found.rules), len(rows), sum(1 for state in positions if state in settled), len(positions),
+        )
 
     def moved(
         self,

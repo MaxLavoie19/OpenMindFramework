@@ -28,11 +28,13 @@ from openmind.inference.model.expression import Expression
 from openmind.inference.model.pattern import Pattern
 from openmind.inference.model.pattern_condition import PatternCondition
 from openmind.inference.model.vocabulary import Vocabulary
+from openmind.rbs.constant.consequence_constant import ACTION
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 from openmind.rule.model.python_rule import PythonRule
 from openmind.structure.model.grid import Grid
 from openmind.structure.model.map import Map
 from openmind.structure.model.scalar import Scalar
+from openmind.world.model.action import Action
 from openmind.world.model.state import State
 from openmind.structure.model.value import Value
 
@@ -60,8 +62,14 @@ class ExpressionGenerator:
     - Look-aheads, for `me` and for `other`: the best, the worst and the count of the expression after an action, and
       the best and worst change of the expression, and how many actions raise or lower it."""
 
-    def vocabulary(self, rbs: RuleBasedGame, states: Iterable[State]) -> Vocabulary:
-        """Every scalar, grid cell and map entry of the states with the values seen; lists aren't read."""
+    def vocabulary(
+        self, rbs: RuleBasedGame, states: Iterable[State], actions: Iterable[Action] = ()
+    ) -> Vocabulary:
+        """Every scalar, grid cell and map entry of the states with the values seen; lists aren't read.
+
+        `actions` are the actions a move rule will be rating, and only a move rule needs them: what each is
+        called and what each parameter of it was seen to take. A caller fitting positions passes none, which
+        is the vocabulary as it was."""
         values_by_variable: dict[tuple[str, tuple[Value, ...]], dict[Value, None]] = {}
         values_by_base: dict[str, dict[Value, None]] = {}
         indices_by_base: dict[str, set[tuple[object, ...]]] = {}
@@ -88,6 +96,12 @@ class ExpressionGenerator:
             offsets = offsets_by_arity.setdefault(self._arity(indices), {})
             for first, second in itertools.permutations(sorted(indices), 2):  # type: ignore[type-var]
                 offsets[tuple(a - b for a, b in zip(first, second, strict=True))] = None  # type: ignore[operator]
+        named: dict[str, None] = {}
+        by_parameter: dict[str, dict[Value, None]] = {}
+        for action in actions:
+            named[action.name] = None
+            for parameter, value in action.parameters:
+                by_parameter.setdefault(str(parameter), {})[value] = None
         return Vocabulary(
             rbs.players().names,
             {variable: tuple(values) for variable, values in values_by_variable.items()},
@@ -95,7 +109,43 @@ class ExpressionGenerator:
             {base: frozenset(indices) for base, indices in indices_by_base.items()},
             {arity: tuple(sorted(offsets)) for arity, offsets in offsets_by_arity.items()},
             frozenset(grids),
+            {parameter: tuple(values) for parameter, values in by_parameter.items()},
+            tuple(named),
         )
+
+    def move_leaves(self, vocabulary: Vocabulary) -> tuple[Expression, ...]:
+        """The terms a move rule starts from: what the action is called, and what each of its parameters is.
+
+        **Read beside the board and never instead of it.** These are offered on top of `leaves`, so a move term
+        may say "a capture" and a move term may say "a capture while my king is exposed"; what it may not say
+        is anything about the position the move leads to. Reading the successor is one valuing per move —
+        thirty-five of them to order thirty-five moves — and removing exactly that cost is the whole reason a
+        move heuristic is worth fitting at all.
+
+        **Named the way a move rule is already read.** `RuleHeuristic.rate` binds `action` to the action's name
+        and every parameter under its own name, so a term fitted from these is a term that can be run where
+        moves are actually rated. Nothing here invents a convention.
+
+        A vocabulary gathered without actions gives nothing, which is what a caller fitting positions gets."""
+        # **Read as bare names and not off the view**, because that is where they are. The view carries the
+        # position's models; the action is bound beside them in the names a rule is run with, the way `me` and
+        # `other` are. Written as `{view}.action` every one of these raises, the column comes back None, and
+        # the fit quietly keeps only the terms that read the board -- eleven move rules, not one of which
+        # could tell one move from another.
+        expressions: dict[str, Expression] = {}
+        for name in vocabulary.action_names:
+            self._add(expressions, Expression(f"{ACTION} == {name!r}", 1, 0))
+        for parameter, values in vocabulary.values_by_parameter.items():
+            if not parameter.isidentifier() or parameter == ACTION:
+                continue
+            reading = parameter
+            if self._numeric(values):
+                self._add(expressions, Expression(reading, 1, 0))
+                continue
+            for value in values:
+                for rendered in self._rendered(value, vocabulary):
+                    self._add(expressions, Expression(f"{reading} == {rendered}", 1, 0))
+        return tuple(expressions.values())
 
     def leaves(self, vocabulary: Vocabulary) -> tuple[Expression, ...]:
         expressions: dict[str, Expression] = {}

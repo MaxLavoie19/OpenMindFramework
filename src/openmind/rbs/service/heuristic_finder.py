@@ -22,6 +22,7 @@ from openmind.inference.model.search_budget import SearchBudget
 from openmind.inference.service.expression_generator import ExpressionGenerator
 from openmind.inference.service.expression_search import ExpressionSearch
 from openmind.rbs.service.rule_based_game import RuleBasedGame
+from openmind.rbs.model.move_row import MoveRow
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.model.sparse_fit import SparseFit
 from openmind.rbs.model.value_fit import ValueFit
@@ -107,6 +108,27 @@ class HeuristicFinder:
         )[
             SINGLE_TARGET
         ]
+
+    def generate_moves(
+        self,
+        rbs: RuleBasedGame,
+        training: Sequence[MoveRow],
+        held_out: Sequence[MoveRow],
+        settings: ValueSettings,
+        target: HeuristicTarget,
+    ) -> ValueGenerationResult:
+        """A move heuristic fitted on what searches settled on: each action worth the chance it was given.
+
+        **The same fitting as a position's, over a different question.** A position heuristic says what a board
+        is worth; this says which move is worth exploring, which is what makes the next search cheap — one
+        reading orders every move where valuing what each leads to costs a reading per move. The rows, the
+        price sweep and the held-out gate are the position fit's; what differs is that a row carries an action,
+        and that is enough for the search to offer terms that read one.
+
+        It lands wherever its target says, which for a move heuristic is a ruleset of its own: a fit over what
+        each action is worth written into the position value's ruleset would be found and believed by anything
+        asking what a board is worth."""
+        return self.generate(rbs, training, held_out, settings, target)  # type: ignore[arg-type]
 
     def generate_for_targets(
         self,

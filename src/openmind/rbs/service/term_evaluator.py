@@ -7,6 +7,8 @@ import numpy as np
 from openmind.inference.constant.inference_constant import COUNT, HIGHEST, LOWEST, SUM
 from openmind.parallel.service.task_runner import TaskRunner
 from openmind.rbs.service.rule_based_game import RuleBasedGame
+from openmind.rbs.constant.consequence_constant import ACTION
+from openmind.rbs.model.move_row import MoveRow
 from openmind.rbs.model.position_row import PositionRow
 from openmind.rbs.service.consequence_library import ConsequenceLibrary
 from openmind.rbs.service.reading_cache import ReadingCache
@@ -149,7 +151,22 @@ class TermEvaluator:
         cheapest = min((one for one in self._seconds.values() if one > 0.0), default=0.0)
         return 1.0 if cheapest <= 0.0 or reading <= 0.0 else reading / cheapest
 
-    def column(self, rbs: RuleBasedGame, rows: Sequence[PositionRow], term: PythonRule) -> np.ndarray | None:
+    def _named(self, rbs: RuleBasedGame, row: "PositionRow | MoveRow") -> dict:
+        """What a term reads on that row: the position's own readings, and the action where the row has one.
+
+        **The same dictionary a move rule is given when it is actually run.** `RuleHeuristic.rate` binds
+        `action` to the action's name and every parameter under its own name, so a term fitted against this is
+        a term that reads the same thing at play time. Fitting against anything else would produce rules that
+        score well here and cannot be run there."""
+        names = self._consequence_library.names(rbs, row.state, row.player)
+        action = getattr(row, "action", None)
+        if action is None:
+            return names
+        return names | {ACTION: action.name} | dict(action.parameters)
+
+    def column(
+        self, rbs: RuleBasedGame, rows: Sequence["PositionRow | MoveRow"], term: PythonRule
+    ) -> np.ndarray | None:
         """The term's value on every row, a boolean counting as 0 or 1, and NaN on a row where the term gives None: what
         it reads isn't there at that moment, as a fork detector without a fork. None when the term raises KeyError,
         NameError, TypeError, AttributeError, ValueError or an arithmetic error on a row, or gives something other than a
@@ -160,7 +177,7 @@ class TermEvaluator:
         for index, row in enumerate(rows):
             try:
                 value = self._rule_runner.value(
-                    compiled, row.state, None, self._consequence_library.names(rbs, row.state, row.player)
+                    compiled, row.state, None, self._named(rbs, row)
                 )
             except (KeyError, NameError, TypeError, AttributeError, ValueError, ArithmeticError):
                 return None

@@ -8,6 +8,9 @@ from openmind.inference.model.ponder_settings import PonderSettings
 from openmind.inference.service.heuristic_ponderer import MOVES_SETTLED, SETTLED
 from openmind.knowledge.service.knowledge_base import KnowledgeBase
 from openmind.rbs.model.value_settings import ValueSettings
+from openmind.knowledge.constant.rule_kind_constant import MOVE
+from openmind.knowledge.constant.task_constant import MOVE_VALUE
+from openmind.rbs.factory.rbs_factory import create_rule_based_system, find_rule_based_system
 from openmind.rbs.service.rule_based_game import RuleBasedGame
 
 pytestmark = pytest.mark.log_level("INFO")
@@ -165,3 +168,52 @@ def test_the_steadiest_budget_lets_fewer_terms_through(game: Game, knowledge: Kn
     kept = [one.message for one in caplog.records if "kept and" in one.message]
     assert kept, "it reports the split"
     assert " 2 kept and " in kept[0], kept[0]
+
+
+def test_a_move_heuristic_is_fitted_where_the_position_heuristic_is(game: Game, knowledge: KnowledgeBase, caplog):
+    """**Both halves of what a search needs, learned in one pass.** A search walks by what a move is rated and
+    stops where a position is valued, and until now only the second was ever fitted — the first was derived a
+    ply ahead from it, which costs a valuing per move and is the expense a move heuristic exists to remove.
+
+    Fitted here rather than anywhere else because the positions are already gathered and already deduced over;
+    fitting elsewhere would walk them twice and let the two halves drift apart over different games."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+    positions = ponderer._gatherer.gather(played, 8, 1)  # noqa: SLF001
+    # What a search settled on: every legal action, the first of them favoured. The shape is what a strategy
+    # carries, which is what travels from a worker that searched.
+    settled = {}
+    for state in positions:
+        actions = played.actions(state)
+        if actions:
+            share = 1.0 / (len(actions) + 1)
+            settled[state] = tuple(
+                (action, 2 * share if at == 0 else share) for at, action in enumerate(actions)
+            )
+
+    with caplog.at_level(logging.INFO):
+        ponderer.ponder(knowledge, played, settings(positions=8, held_out=2), positions, settled=settled)
+
+    found = create_rule_based_system(knowledge, played.context, MOVE_VALUE)
+    assert found.rules, "a move value ruleset of its own, not rules written into the position value's"
+    assert all(rule.kind == MOVE for rule, _ in found.rules)
+    # **A move rule that reads no action rates every move in a position alike**, which is no policy at all.
+    # Written as a reading off the view rather than as the bare name it is bound under, every such term
+    # raised, its column came back as nothing, and the fit kept only terms that read the board -- a move
+    # heuristic that passed every other assertion here and could not tell one move from another.
+    named = {"action"} | {name for held in settled.values() for action, _ in held for name, _ in action.parameters}
+    assert any(
+        any(one in rule.rule.source for one in named) for rule, _ in found.rules
+    ), "at least one fitted rule reads the action and not only the board"
+
+
+def test_nothing_is_fitted_for_moves_where_no_search_settled_anything(game: Game, knowledge: KnowledgeBase):
+    """A run that never searched has nothing that says which move was worth exploring. What a game paid says
+    who won later and what the rules prove a move pays is a reward, and neither is a policy — so the honest
+    answer is no move heuristic rather than one fitted on a stand-in."""
+    played = game("tictactoe")
+    ponderer = create_heuristic_ponderer(knowledge)
+
+    ponderer.ponder(knowledge, played, settings(positions=6, held_out=2))
+
+    assert find_rule_based_system(knowledge, played.context, MOVE_VALUE) is None

@@ -143,7 +143,11 @@ class ExpressionSearch:
         deadline = self._clock() + budget.seconds
         generator = self._expression_generator
         self._term_evaluator.limit_memory(budget.memory_bytes)
-        vocabulary = generator.vocabulary(rbs, (row.state for row in training))
+        # **The rows say what vocabulary this is.** A row carrying an action is a move being rated, and a move
+        # term reads the action as well as the board; a row without one is a position, and there is no action
+        # to read. Nothing has to be told which kind of fit it is doing.
+        acting = tuple(action for row in training if (action := getattr(row, "action", None)) is not None)
+        vocabulary = generator.vocabulary(rbs, (row.state for row in training), acting)
         screening = self._screening(len(training))
         screen_rows = [training[index] for index in screening]
         capacity = max(1, budget.memory_bytes // (3 * 8 * max(1, len(training) + len(held_out))))
@@ -154,7 +158,8 @@ class ExpressionSearch:
         expanded: set[bytes] = set()
         combined: dict[bytes, set[bytes]] = {}
         passed_over: list[tuple[Expression, float]] = []
-        leaves = tuple(one for one in generator.leaves(vocabulary) if one.template not in dropped)
+        offered = (*generator.leaves(vocabulary), *generator.move_leaves(vocabulary))
+        leaves = tuple(one for one in offered if one.template not in dropped)
         sown = [one if isinstance(one, tuple) else (one, 0.0) for one in seeds]
         # What the rules said each seeded term is worth, by the template that carries it — so a term dropped,
         # evicted or never admitted simply never asks for it, and nothing has to be kept in step by hand.
