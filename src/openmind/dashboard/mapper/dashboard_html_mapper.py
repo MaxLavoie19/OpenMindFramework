@@ -49,10 +49,19 @@ td.count { text-align: right; font-variant-numeric: tabular-nums; }
 .board { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .6rem; width: 26rem; max-width: 100%; }
 .board svg { width: 100%; height: auto; display: block; }
 .board pre { margin: 0; border: 0; }
-.heuristics { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
-.judged { flex: 1 1 24rem; min-width: 0; max-width: 40rem; }
+/* Columns and not a flex row, because a wrapped flex line is as tall as its tallest card: one heuristic
+   holding eighteen rules stretched its whole row and left the three beside it standing over a void. Columns
+   flow each card into the shortest one, which is the masonry this wants and needs no script. The count comes
+   from the width so a laptop gets two and a wide screen four, rather than four cards squeezed to fit
+   whatever is there. */
+.heuristics { columns: 24rem auto; column-gap: 1.5rem; }
+.judged { break-inside: avoid; margin: 0 0 1.5rem; }
 .judged h3 { margin-top: 0; }
-.judged table { width: 100%; }
+.judged table { width: 100%; table-layout: fixed; }
+/* The rule wraps and the ratings do not. A rule reads `max(here.payoff[other], here.color[8, 4] == other)`
+   and cannot fit a card's width on one line, so every table was scrolled sideways and the last signal's
+   column was cut off the page -- the column somebody opens this to compare. */
+.judged td:first-child, .judged th:first-child { white-space: normal; word-break: break-word; }
 .steps { display: flex; gap: .4rem; align-items: center; margin-top: .5rem; flex-wrap: wrap; }
 .steps button { font-size: 1rem; padding: .2rem .6rem; }
 .record { flex: 1 1 18rem; min-width: 0; white-space: pre-wrap; word-break: break-word; }
@@ -350,8 +359,12 @@ class DashboardHtmlMapper:
         )
 
     def _rate(self, held: dict, signal: str) -> str:
-        """What that signal made of that rule, or nothing where it said nothing about it."""
-        return "—" if signal not in held else f"{held[signal]:.4g}"
+        """What that signal made of that rule, or nothing where it said nothing about it.
+
+        Two figures, because only the order within a column means anything: a rating of `1.053e-11` carried
+        four digits of what is a zero to anybody reading it, and the width of them was a good part of what
+        pushed the last signal's column off the page."""
+        return "—" if signal not in held else f"{held[signal]:.2g}"
 
     def games_page(self, domain: str, games: Sequence[GameListing], refresh_seconds: int) -> str:
         """The page listing every remembered game, newest first, each linking to its own page."""
