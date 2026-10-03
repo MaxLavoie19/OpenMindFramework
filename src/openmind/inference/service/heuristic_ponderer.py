@@ -102,6 +102,7 @@ class HeuristicPonderer:
         searched: Mapping[State, tuple[float, ...]] = MappingProxyType({}),
         trusting: float = 0.5,
         settled: Mapping[State, tuple[tuple[Action, float], ...]] = MappingProxyType({}),
+        rested_on: Mapping[State, float] = MappingProxyType({}),
     ) -> Pondering:
         """What it deduced, and what every way of deducing was worth.
 
@@ -157,7 +158,7 @@ class HeuristicPonderer:
             valued_by,
             len(seeds),
         )
-        self._fit_moves(knowledge_base, game, positions, settings, settled, tried)
+        self._fit_moves(knowledge_base, game, positions, settings, settled, rested_on, tried)
         return Pondering(
             generated.context,
             generated.rules,
@@ -398,6 +399,7 @@ class HeuristicPonderer:
         positions: Sequence[State],
         settings: PonderSettings,
         settled: Mapping[State, tuple[tuple[Action, float], ...]],
+        rested_on: Mapping[State, float],
         tried: list[Labelling],
     ) -> None:
         """The move heuristic, fitted here because this is where the position heuristic is fitted.

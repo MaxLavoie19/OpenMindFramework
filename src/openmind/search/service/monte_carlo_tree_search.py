@@ -69,7 +69,8 @@ class MonteCarloTreeSearch:
             "Explored %s for %s: %d nodes, %d states covered, %d valued",  # type: ignore[union-attr]
             node.game.context, guidance.player, root.visits, len(moves), len(worth),
         )
-        return Strategy(tuple(moves.items()), tuple(worth.items()))
+        visits = {node.node.state: node.visits for node in self._explored(root) if node.visits}
+        return Strategy(tuple(moves.items()), tuple(worth.items()), tuple(visits.items()))
 
     def _iterate(
         self, root: SearchNode, guidance: Guidance, settings: SearchSettings, players: Sequence[str], rng: random.Random

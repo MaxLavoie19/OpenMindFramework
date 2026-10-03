@@ -30,6 +30,20 @@ class Strategy:
     #: This is about *this* position, there is one for every position searched, and it improves as the agent
     #: does — where an outside engine is a fixed ceiling and agreeing with it perfectly is where that stops.
     worth: tuple[tuple[State, tuple[float, ...]], ...] = ()
+    #: How many times the search visited each position it explored: how much what it says there rests on.
+    #:
+    #: **A distribution is not evidence until you know what it is a share of.** "Six tenths of the visits went
+    #: here" is a strong claim after a thousand visits and nothing after three, and the shares look identical
+    #: either way. A fit taught by both at equal say learns most of its opinion from the positions the search
+    #: barely looked at, since those are the many.
+    visits: tuple[tuple[State, int], ...] = ()
+
+    def visits_at(self, state: State) -> int:
+        """How many times the search visited that position; nought where it never reached it."""
+        for held, count in self.visits:
+            if held == state:
+                return count
+        return 0
 
     def worth_at(self, state: State) -> tuple[float, ...]:
         """What the search made of that position, per player; empty where it valued none."""
